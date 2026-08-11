@@ -1,0 +1,140 @@
+{% extends "layout.html" %}
+{% block title %}Inicio{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="text-center mb-4">
+          <h3>Bienvenido, <span class="text-primary">{{ session["usuario"] }}</span> 👋</h3>
+        <h2 class="fw-bold">Bienvenido al Sistema de Reportes Comersa</h2>
+        <p class="text-muted">Seleccione una opción para comenzar</p>
+    </div>
+
+    <!-- Gestión de Datos -->
+    <h5 class="mb-3 text-secondary">Gestión de Datos</h5>
+    <div class="row g-3 mb-4">
+        <!-- Clientes -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-people fs-2 text-primary mb-2"></i>
+                    <h6 class="card-title">Clientes</h6>
+                    <p class="small">Gestione y edite la información de clientes.</p>
+                    <a href="/clientes" class="btn btn-primary btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Zonas -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-pin-map-fill fs-2 text-success mb-2"></i>
+                    <h6 class="card-title">Zonas</h6>
+                    <p class="small">Consulte las zonas disponibles.</p>
+                    <a href="/zonas" class="btn btn-success btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Agregar Zonas -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-plus-circle-fill fs-2 text-success mb-2"></i>
+                    <h6 class="card-title">Agregar Zonas</h6>
+                    <p class="small">Registre nuevas zonas en el sistema.</p>
+                    <a href="/newzonas" class="btn btn-outline-success btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Ventas perdidas -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-graph-down-arrow fs-2 text-danger mb-2"></i>
+                    <h6 class="card-title">Ventas Perdidas</h6>
+                    <p class="small">Revise oportunidades no concretadas.</p>
+                    <a href="/ventas_perdidas" class="btn btn-danger btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Carga RC -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-cloud-arrow-up fs-2 text-dark mb-2"></i>
+                    <h6 class="card-title">Carga RC</h6>
+                    <p class="small">Carga recibos a la base de datos.</p>
+                    <a href="/cargar_recibos" class="btn btn-secondary btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Carga Devoluciones -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-cloud-arrow-up fs-2 text-dark mb-2"></i>
+                    <h6 class="card-title">Carga Devoluciones</h6>
+                    <p class="small">Carga devoluciones a la base de datos.</p>
+                    <a href="/devoluciones" class="btn btn-secondary btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reportes -->
+    <h5 class="mb-3 text-secondary">Reportes y Análisis</h5>
+    <div class="row g-3">
+        <!-- Menú de reportes -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-clipboard-data-fill fs-2 text-info mb-2"></i>
+                    <h6 class="card-title">Reportes</h6>
+                    <p class="small">Menú de reportes y dashboards.</p>
+                    <a href="/reportes" class="btn btn-info btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Resumen General -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-bar-chart-line-fill fs-2 text-warning mb-2"></i>
+                    <h6 class="card-title">Resumen General</h6>
+                    <p class="small">Visión global de ventas y recuperaciones.</p>
+                    <a href="/resumen" class="btn btn-warning btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Gestión de Usuarios -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-person-lines-fill fs-2 text-primary mb-2"></i>
+                    <h6 class="card-title">Usuarios</h6>
+                    <p class="small">Administre usuarios y roles del sistema.</p>
+                    <a href="/usuarios" class="btn btn-primary btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+        <!-- Gestión de Accesos -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm text-center">
+                <div class="card-body">
+                    <i class="bi bi-shield-lock-fill fs-2 text-danger mb-2"></i>
+                    <h6 class="card-title">Accesos</h6>
+                    <p class="small">Controle permisos de vistas y reportes.</p>
+                    <a href="/accesos" class="btn btn-danger btn-sm">Ir</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+
+
+
+
+
+

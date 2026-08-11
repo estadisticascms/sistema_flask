@@ -1,0 +1,376 @@
+{% extends "layout.html" %}
+{% block title %}Resumen General{% endblock %}
+{% block header_title %}Dashboard de Resumen{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+
+  <!-- 🔍 Filtro de fechas -->
+  <form method="get" class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm">
+    <div class="col-md-3">
+      <label class="form-label small fw-bold text-success">Fecha inicio</label>
+      <input type="date" class="form-control form-control-sm" name="fecha_inicio" value="{{ fecha_inicio }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label small fw-bold text-success">Fecha fin</label>
+      <input type="date" class="form-control form-control-sm" name="fecha_fin" value="{{ fecha_fin }}">
+    </div>
+    <div class="col-md-2">
+      <button type="submit" class="btn btn-sm btn-success w-100">Filtrar</button>
+    </div>
+    <div class="col-md-2">
+      <button type="button" id="btnDescargar" class="btn btn-sm btn-primary w-100">📥 Descargar Imagen</button>
+      <button type="button" id="btnDescargarPDF" class="btn btn-sm btn-primary w-100">📄 Descargar PDF</button>
+    </div>
+  </form>
+
+<!-- Contenedor del resumen para captura -->
+<div id="resumenContainer">
+
+<!-- 🏆 Top 5 Marcas -->
+<h6 style="color: var(--color-principal);">🏆 Top 5 Marcas (Último Mes)</h6>
+<div class="row mb-3">
+  
+  <!-- Tabla marcas -->
+  <div class="col-md-6">
+    <table class="table table-sm table-bordered compact-table">
+      <thead style="background-color: var(--color-secundario); color: white;">
+        <tr><th>Marca</th><th>Ventas</th><th>Ganancia</th><th>Margen %</th></tr>
+      </thead>
+      <tbody>
+        {% for r in datos_marcas.top_detalle[:5] %}
+        <tr>
+          <td>{{ r.Marca }}</td>
+          <td class="text-end">{{ r.VentasTotales | cordobas }}</td>
+          <td class="text-end">{{ r.Ganancia | cordobas }}</td>
+          <td class="text-end">{{ r.MargenPorcentaje }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+        <!-- Gráfico de Barras marcas -->
+      <canvas id="graficoTopMarcas"></canvas>
+  </div>
+
+
+
+    <!-- Gráfico de Anillo -->
+<div class="col-md-6 position-relative" style="max-width:500px; margin:auto; padding:0;">
+
+  <canvas id="graficoAnilloMargen"></canvas>
+  <div id="anilloCentro"
+       style="position:absolute; top:50%; left:36%; transform:translate(-50%,-50%);
+              font-weight:bold; text-align:center; font-size:14px;">
+  </div>
+</div>
+
+
+
+</div>
+
+
+  <!-- 📊 Ventas Mensuales Totales -->
+  <h6 style="color: var(--color-secundario);">📊 Ventas Mensuales Totales (Neto Ajustado)</h6>
+  <div class="row mb-3">
+    <div class="col-md-6"><canvas id="graficoVentasMensuales"></canvas></div>
+    <div class="col-md-6">
+      <table class="table table-sm table-bordered compact-table">
+        <thead style="background-color: var(--color-principal); color: white;">
+          <tr><th>Mes</th><th>Total Neto</th></tr>
+        </thead>
+        <tbody>
+          {% for mes in datos_ventas_mes.chart_labels %}
+          <tr><td>{{ mes }}</td><td class="text-end">{{ datos_ventas_mes.totales_por_mes[mes] | cordobas }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <!-- 👥 Ventas Mensuales por Vendedor -->
+  <h6 style="color: var(--color-neutro);">👥 Ventas Mensuales por Vendedor</h6>
+  <div class="row mb-3">
+    
+    <div class="col-md-12">
+      <table class="table table-sm table-bordered compact-table">
+        <thead style="background-color: var(--color-secundario); color: white;">
+          <tr>
+            <th>Tipo Vendedor</th>
+            {% for mes in datos_ventas_mes.chart_labels %}
+              <th class="text-end">{{ mes }}</th>
+            {% endfor %}
+            <th class="text-end">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tipo, vendedores in datos_ventas_mes.grupos.items() %}
+            {% set total_tipo = namespace(valor=0) %}
+            <tr>
+              <td>{{ tipo }}</td>
+              {% for mes in datos_ventas_mes.chart_labels %}
+                {% set subtotal_mes = namespace(valor=0) %}
+                {% for vendedor, ventas in vendedores.items() %}
+                  {% set subtotal_mes.valor = subtotal_mes.valor + ventas.get(mes, 0) %}
+                {% endfor %}
+                {% set total_tipo.valor = total_tipo.valor + subtotal_mes.valor %}
+                <td class="text-end">{{ subtotal_mes.valor | cordobas }}</td>
+              {% endfor %}
+              <td class="text-end fw-bold">{{ total_tipo.valor | cordobas }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="col-md-6"><canvas id="graficoVendedoresBarras"></canvas></div>
+    <div class="col-md-6"><canvas id="graficoParticipacionVendedores"></canvas></div>
+  </div>
+
+  <!-- 💵 Recuperación Mensual -->
+  <h6 style="color: var(--color-principal);">💵 Recuperación Mensual</h6>
+  <div class="row mb-3">
+    <div class="col-md-6"><canvas id="graficoRecuperacion"></canvas></div>
+    <div class="col-md-6">
+      <table class="table table-sm table-bordered compact-table">
+        <thead style="background-color: var(--color-neutro); color: white;">
+          <tr><th>Mes</th><th>Cantidad</th><th>Total C$</th></tr>
+        </thead>
+        <tbody>
+          {% for r in datos_recuperacion.rows %}
+          <tr>
+            <td>{{ r.Mes }}</td>
+            <td class="text-end">{{ r.Cantidad }}</td>
+            <td class="text-end">{{ r.TotalCordobas | cordobas }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div> <!-- cierre resumenContainer -->
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+
+<!-- Gráfico Ventas Mensuales Totales -->
+<script>
+  const meses = {{ datos_ventas_mes.chart_labels | safe }};
+  const ventas = {{ datos_ventas_mes.chart_values | safe }};
+
+  new Chart(document.getElementById('graficoVentasMensuales').getContext('2d'), {
+      data: {
+          labels: meses,
+          datasets: [
+              {
+                  type: 'bar',
+                  label: 'Ventas (C$)',
+                  data: ventas,
+                  backgroundColor: '#027266',
+                  borderRadius: 4
+              },
+              {
+                  type: 'line',
+                  label: 'Ventas (línea)',
+                  data: ventas,
+                  borderColor: '#FE6412',
+                  borderWidth: 2,
+                  tension: 0.3,
+                  pointRadius: 4
+              }
+          ]
+      },
+      options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          scales: {
+              y: {
+                  beginAtZero: true,
+                  title: { display: true, text: 'C$ Ventas' },
+                  ticks: {
+                      callback: function(value) {
+                          if (value >= 1000) return 'C$ ' + (value/1000).toFixed(0) + 'K';
+                          return 'C$ ' + value;
+                      }
+                  }
+              }
+          }
+      }
+  });
+</script>
+
+<!-- Gráfico Ventas por Vendedores Mensuales -->
+<script>
+  new Chart(document.getElementById('graficoVendedoresBarras').getContext('2d'), {
+      type: 'line',
+      data: {
+          labels: {{ datos_ventas_mes.chart_labels | safe }},
+          datasets: {{ datasets_vendedores | tojson }}
+      },
+      options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          scales: {
+              y: { beginAtZero: true, title: { display: true, text: 'C$ Neto Ajustado' } }
+          },
+          elements: { line: { tension: 0.3 }, point: { radius: 4 } }
+      }
+  });
+</script>
+
+<!-- Gráfico Recuperación Mensual -->
+<script>
+new Chart(document.getElementById('graficoRecuperacion').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: {{ datos_recuperacion.chart_labels | safe }},
+        datasets: [{
+            label: 'Total Recuperado (C$)',
+            data: {{ datos_recuperacion.chart_values | safe }},
+            fill: true,
+            backgroundColor: 'rgba(2,114,102,0.2)',
+            borderColor: '#027266',
+            tension: 0.3
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } },
+        scales: { y: { beginAtZero: true, title: { display: true, text: 'C$ Recuperado' } } }
+    }
+});
+</script>
+
+<!-- Botón Descargas -->
+<script>
+  // Descargar como PNG
+  document.getElementById("btnDescargar").addEventListener("click", function() {
+    html2canvas(document.getElementById("resumenContainer"), {
+      scale: 2, // mejora la resolución
+      useCORS: true
+    }).then(canvas => {
+      const link = document.createElement("a");
+      link.download = "resumen_dashboard.png";
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    });
+  });
+
+  // Descargar como PDF
+document.getElementById("btnDescargarPDF").addEventListener("click", function() {
+  const container = document.getElementById("resumenContainer");
+  if (!container) { alert("No se encontró el contenedor resumenContainer"); return; }
+
+  html2canvas(container, { scale: 2, useCORS: true }).then(canvas => {
+    const imgData = canvas.toDataURL("image/png");
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF("p", "pt", "a4"); // vertical, puntos, tamaño A4
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+
+    const imgWidth = pageWidth;
+    const imgHeight = canvas.height * pageWidth / canvas.width;
+
+    let heightLeft = imgHeight;
+    let position = 0;
+
+    // Primera página
+    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    // Si sobra contenido, añadir páginas
+    while (heightLeft > 0) {
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save("resumen_dashboard.pdf");
+  });
+});
+ </script>
+
+
+<!-- Gráfico Barras Top 5 Marcas -->
+<script>
+  new Chart(document.getElementById('graficoTopMarcas').getContext('2d'), {
+      type: 'bar',
+      data: {
+          labels: [{% for r in datos_marcas.top_detalle[:5] %}'{{ r.Marca }}',{% endfor %}],
+          datasets: [{
+              label: 'Ganancia (C$)',
+              data: [{% for r in datos_marcas.top_detalle[:5] %}{{ r.Ganancia }},{% endfor %}],
+              backgroundColor: ['#FE6412','#027266','#666666','#4B9CD3','#9C27B0'],
+              borderWidth: 1
+          }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } } }
+  });
+</script>
+
+<!-- Gráfico Anillo Margen -->
+<script>
+const marcas = [{% for r in datos_marcas.top_detalle[:5] %}'{{ r.Marca }}',{% endfor %}];
+const margenes = [{% for r in datos_marcas.top_detalle[:5] %}{{ r.MargenPorcentaje }},{% endfor %}];
+const colores = ['#FE6412','#027266','#666666','#4B9CD3','#9C27B0'];
+
+const maxIndex = margenes.indexOf(Math.max(...margenes));
+const marcaMax = marcas[maxIndex];
+const margenMax = margenes[maxIndex];
+const colorMax = colores[maxIndex];
+
+new Chart(document.getElementById('graficoAnilloMargen').getContext('2d'), {
+    type: 'doughnut',
+    data: { labels: marcas, datasets: [{ data: margenes, backgroundColor: colores, borderColor: '#fff', borderWidth: 2 }] },
+    options: {
+        responsive: true,
+        cutout: '50%',
+        plugins: {
+            legend: { position: 'right' },
+            title: { display: true, text: '🥯 Margen de Ganancia', color: '#027266', font: { size: 14, weight: 'bold' }, padding: { top: 5, bottom: 5 } },
+            datalabels: { color: '#fff', font: { weight: 'bold', size: 12 }, formatter: (value) => value + '%' }
+        }
+    },
+    plugins: [ChartDataLabels]
+});
+
+document.getElementById("anilloCentro").innerHTML = marcaMax + "<br>" + margenMax + "%";
+document.getElementById("anilloCentro").style.color = colorMax;
+</script>
+
+<!-- Gráfico Participación Vendedores -->
+<script>
+const mesesPart = {{ datos_ventas_mes.chart_labels | safe }};
+const gruposPart = {{ participacion_vendedores | tojson }};
+
+const datasetsPart = [];
+Object.keys(gruposPart).forEach((grupo, i) => {
+  datasetsPart.push({
+    label: grupo,
+    data: gruposPart[grupo],
+    backgroundColor: `rgba(${(i*60)%255}, ${(i*120)%255}, ${(i*180)%255}, 0.7)`,
+    stack: 'participacion'
+  });
+});
+
+new Chart(document.getElementById('graficoParticipacionVendedores').getContext('2d'), {
+    type: 'bar',
+    data: { labels: mesesPart, datasets: datasetsPart },
+    options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } },
+        scales: {
+            x: { stacked: true },
+            y: { stacked: true, beginAtZero: true, max: 100, title: { display: true, text: '% Participación' } }
+        }
+    }
+});
+</script>
+{% endblock %}
+
+

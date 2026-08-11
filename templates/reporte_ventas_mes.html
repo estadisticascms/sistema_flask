@@ -1,0 +1,251 @@
+{% extends "layout.html" %}
+{% block title %}Reporte Ventas por Mes{% endblock %}
+
+{% block content %}
+{% set meses = {
+  '01':'Enero','02':'Febrero','03':'Marzo','04':'Abril','05':'Mayo','06':'Junio',
+  '07':'Julio','08':'Agosto','09':'Septiembre','10':'Octubre','11':'Noviembre','12':'Diciembre'
+} %}
+
+<div class="container mt-4">
+  <h2 class="mb-4 text-primary">📊 Reporte de Ventas Netas por Mes</h2>
+  <p class="text-muted">Periodo: {{ fecha_inicio }} → {{ fecha_fin }}</p>
+
+  <!-- Filtro de fechas -->
+  <form method="get" action="{{ url_for('reporte_ventas_mes.reporte_ventas_mes') }}" class="mb-4">
+    <div class="row">
+      <div class="col-md-3">
+        <label for="fecha_inicio">Fecha inicio:</label>
+        <input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ fecha_inicio }}" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label for="fecha_fin">Fecha fin:</label>
+        <input type="date" id="fecha_fin" name="fecha_fin" value="{{ fecha_fin }}" class="form-control">
+      </div>
+      <div class="col-md-2 align-self-end">
+        <button type="submit" class="btn btn-primary w-100">Filtrar</button>
+      </div>
+    </div>
+  </form>
+
+  <!-- Gráfico comparativo -->
+  <div class="card mb-4 chart-container">
+    <div class="card-body">
+      <canvas id="ventasMesChart" style="max-height:250px;"></canvas>
+    </div>
+  </div>
+ <button id="btnDescargarExcel" class="btn btn-primary btn-sm mt-2">Descargar Excel Completo</button>
+
+  <!-- Tablas agrupadas por tipo -->
+  {% for tipo, vendedores in grupos.items() %}
+    <h6 class="mt-4 text-secondary">{{ tipo }}</h6>
+    <table class="table table-bordered table-striped table-sm">
+      <thead class="table-light">
+        <tr>
+          <th>Vendedor</th>
+          {% for mes in chart_labels %}
+            {% set anio = mes.split('-')[0] %}
+            {% set mes_num = mes.split('-')[1] %}
+            <th>{{ meses[mes_num] }}-{{ anio }}</th>
+          {% endfor %}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vendedor, datos in vendedores.items() %}
+        <tr>
+          <td class="fw-bold">{{ vendedor }}</td>
+          {% set total_vendedor = namespace(suma=0) %}
+          {% for mes in chart_labels %}
+            {% set valor = datos.get(mes, 0) %}
+            <td>{{ valor|cordobas }}</td>
+            {% set total_vendedor.suma = total_vendedor.suma + valor %}
+          {% endfor %}
+          <td class="table-secondary fw-bold">{{ total_vendedor.suma|cordobas }}</td>
+        </tr>
+        {% endfor %}
+      <!-- Fila de total general por grupo -->
+      <tr class="table-info fw-bold">
+        <td>Total {{ tipo }}</td>
+        {% set total_grupo = namespace(suma=0) %}
+        {% for mes in chart_labels %}
+          {% set suma_mes = namespace(valor=0) %}
+          {% for vendedor, datos in vendedores.items() %}
+            {% set suma_mes.valor = suma_mes.valor + datos.get(mes, 0) %}
+          {% endfor %}
+          <td>{{ suma_mes.valor|cordobas }}</td>
+          {% set total_grupo.suma = total_grupo.suma + suma_mes.valor %}
+        {% endfor %}
+        <td>{{ total_grupo.suma|cordobas }}</td>
+      </tr>
+      </tbody>
+    </table>
+  {% endfor %}
+<!-- Tabla resumen global -->
+<h5 class="mt-4 text-primary">Total General</h5>
+<table class="table table-bordered table-striped table-sm">
+  <thead class="table-light">
+    <tr>
+      <th>Mes</th>
+      <th>Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% set total_global = namespace(suma=0) %}
+    {% for mes in chart_labels %}
+      {% set suma_mes = namespace(valor=0) %}
+      {% for tipo, vendedores in grupos.items() %}
+        {% for vendedor, datos in vendedores.items() %}
+          {% set suma_mes.valor = suma_mes.valor + datos.get(mes, 0) %}
+        {% endfor %}
+      {% endfor %}
+      <tr>
+        {% set anio = mes.split('-')[0] %}
+        {% set mes_num = mes.split('-')[1] %}
+        <td>{{ meses[mes_num] }}-{{ anio }}</td>
+        <td>{{ suma_mes.valor|cordobas }}</td>
+      </tr>
+      {% set total_global.suma = total_global.suma + suma_mes.valor %}
+    {% endfor %}
+    <tr class="table-info fw-bold">
+      <td>Total General</td>
+      <td>{{ total_global.suma|cordobas }}</td>
+    </tr>
+  </tbody>
+</table>
+<button id="btnDescargarImagen" class="btn btn-success btn-sm mt-2">Descargar como Imagen</button>
+</div>
+
+<!-- Script Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  const ctx = document.getElementById('ventasMesChart').getContext('2d');
+
+  // Colores corporativos
+  const colorPrincipal      = getComputedStyle(document.documentElement).getPropertyValue('--color-principal').trim();   // Naranja
+  const colorSecundario     = getComputedStyle(document.documentElement).getPropertyValue('--color-secundario').trim(); // Verde
+  const colorNeutro         = getComputedStyle(document.documentElement).getPropertyValue('--color-neutro').trim();     // Gris
+  const colorPrincipalClaro = '#FF8A47'; // Naranja claro
+  const colorSecundarioClaro= '#66B2A3'; // Verde claro
+
+  const colores = [colorPrincipal, colorSecundario, colorNeutro, colorPrincipalClaro, colorSecundarioClaro];
+
+  const ventasMesChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: [
+        {% for mes in chart_labels %}
+          {% set anio = mes.split('-')[0] %}
+          {% set mes_num = mes.split('-')[1] %}
+          "{{ meses[mes_num] }}-{{ anio }}",
+        {% endfor %}
+      ],
+      datasets: [
+        {% for tipo, vendedores in grupos.items() %}
+        {
+          label: '{{ tipo }}',
+          data: [
+            {% for mes in chart_labels %}
+              {{ vendedores.values()|map(attribute=mes)|map('default',0)|sum }},
+            {% endfor %}
+          ],
+          backgroundColor: colores[{{ loop.index0 }} % colores.length]
+        },
+        {% endfor %}
+
+        // Dataset de Total General como barra gris
+        {
+          label: 'Total General',
+          data: [
+            {% for mes in chart_labels %}
+              {% set suma_mes = namespace(valor=0) %}
+              {% for tipo, vendedores in grupos.items() %}
+                {% for vendedor, datos in vendedores.items() %}
+                  {% set suma_mes.valor = suma_mes.valor + datos.get(mes, 0) %}
+                {% endfor %}
+              {% endfor %}
+              {{ suma_mes.valor }},
+            {% endfor %}
+          ],
+          backgroundColor: 'rgba(100, 100, 100, 0.7)', // gris semitransparente
+          borderColor: 'black',
+          borderWidth: 1
+        }
+      ]
+
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top' },
+        title: { display: true, text: 'Ventas Netas Ajustadas por Mes' }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+  document.getElementById("btnDescargarImagen").addEventListener("click", () => {
+    const contenedor = document.querySelector(".container"); // todo el reporte
+    html2canvas(contenedor).then(canvas => {
+      const link = document.createElement("a");
+      link.download = "reporte_vendedores.png";
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    });
+  });
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+document.getElementById("btnDescargarExcel").addEventListener("click", () => {
+  // 1. Crear libro
+  const wb = XLSX.utils.book_new();
+
+  // 2. Crear una sola hoja con todas las tablas concatenadas
+  let dataFinal = [];
+
+  const tablas = document.querySelectorAll("table");
+  tablas.forEach((tabla, index) => {
+    const wsTemp = XLSX.utils.table_to_sheet(tabla);
+    const dataTemp = XLSX.utils.sheet_to_json(wsTemp, {header:1});
+    
+    // Agregar título de la tabla
+    dataFinal.push([`Tabla ${index+1}`]);
+    // Agregar datos de la tabla
+    dataFinal = dataFinal.concat(dataTemp);
+    // Línea en blanco entre tablas
+    dataFinal.push([]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(dataFinal);
+  XLSX.utils.book_append_sheet(wb, ws, "Reporte");
+
+  // 3. Capturar el gráfico como imagen base64
+  const chartCanvas = document.getElementById("ventasMesChart");
+  const chartImage = chartCanvas.toDataURL("image/png");
+
+  // 4. Adjuntar imagen al workbook (SheetJS soporta imágenes en base64)
+  if(!wb.Workbook) wb.Workbook = {};
+  if(!wb.Workbook.Images) wb.Workbook.Images = [];
+  wb.Workbook.Images.push({
+    name: "GraficoVentas",
+    data: chartImage,
+    extension: ".png"
+  });
+
+  // 5. Guardar archivo
+  XLSX.writeFile(wb, "reporte_vendedores.xlsx");
+});
+</script>
+
+{% endblock %}
+
+
+
+
+

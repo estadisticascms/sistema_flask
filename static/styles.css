@@ -1,0 +1,209 @@
+:root {
+    --color-principal: #FE6412;   /* Naranja */
+    --color-secundario: #027266;  /* Verde azulado */
+    --color-neutro: #666666;      /* Gris */
+    --color-fondo: #f9f9f9;       /* Fondo claro */
+}
+
+/* ===== Estilo general ===== */
+body {
+    background-color: var(--color-fondo);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 0.85rem;
+    color: var(--color-neutro);
+}
+
+/* Encabezados */
+h2, h4, h5 {
+    color: var(--color-secundario);
+    font-weight: bold;
+}
+
+/* ===== Botones ===== */
+.btn-primary {
+    background-color: var(--color-principal);
+    border-color: var(--color-principal);
+}
+.btn-primary:hover {
+    background-color: #e05510;
+    border-color: #e05510;
+}
+
+.btn-success {
+    background-color: var(--color-secundario);
+    border-color: var(--color-secundario);
+}
+.btn-success:hover {
+    background-color: #025a52;
+    border-color: #025a52;
+}
+
+/* ===== Tablas ===== */
+/* ===== Tablas ===== */
+.table {
+  font-size: 0.75rem;          /* letra más pequeña */
+  table-layout: auto;          /* columnas se ajustan al contenido */
+  width: 80%;
+  margin: 0 auto;
+}
+
+.table thead {
+  background-color: var(--color-principal);
+  color: white;
+}
+
+.table td, .table th {
+  padding: 0.2rem 0.3rem;      /* menos espacio interno */
+  white-space: nowrap;         /* evita saltos de línea */
+}
+
+.table th {
+  text-align: center;
+  font-weight: 600;
+}
+
+.table td {
+  text-align: right;
+}
+
+/* Totales resaltados */
+/* Forzar estilo en filas de totales */
+.table-light.fw-bold td,
+.table-secondary.fw-bold td {
+  background-color: #f0f2f3 !important; /* o el color que quieras */
+}
+
+/* Opcional: limitar ancho de columnas largas */
+.table td.cliente,
+.table td.concepto {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ===== Formularios compactos ===== */
+form .form-control-sm,
+form .form-select-sm {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.3rem;
+}
+form .form-label {
+    margin-bottom: 2px;
+    font-size: 0.7rem;
+}
+
+/* ===== Logo encabezado ===== */
+.header-logo {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+.header-logo img {
+    height: 40px;
+    margin-right: 10px;
+}
+.header-logo h2 {
+    color: var(--color-principal);
+    font-size: 1.2rem;
+    margin: 0;
+}
+
+/* ===== Contenedores ===== */
+.container-fluid {
+    padding-left: 5px;
+    padding-right: 5px;
+}
+.content {
+    margin-top: 5px;
+}
+
+/* ===== Gráficos ===== */
+.card {
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+.card-body {
+    padding: 1rem; /* más espacio interno para gráficos */
+}
+.card-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.3rem;
+}
+
+/* Canvas más alto para gráficos */
+.chart-container canvas {
+    width: 100% !important; /* altura más cómoda en pantalla */
+    max-width: 90%;
+    display: block;
+    margin: 0 auto;
+}
+
+/* Canvas ocupa todo el ancho */
+#chartVendedores,
+#chartPie {
+    max-height: 400px;
+    max-width: 90%;
+}
+
+/* Etiquetas de Chart.js más legibles */
+.chartjs-render-monitor {
+    font-size: 0.9rem;
+}
+
+/* Leyenda más visible */
+.chart-legend {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+/* Scroll horizontal si hay muchos vendedores */
+.chart-scroll {
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+}
+
+/* ===========================
+   Reglas para impresión
+   =========================== */
+@media print {
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    margin: 0;
+    padding: 0;
+  }
+
+  .container-fluid {
+    margin: 0 auto;
+    width: 95%;
+    text-align: center;
+  }
+
+  /* Evitar espacios grandes */
+  .card {
+    page-break-inside: avoid;
+    margin-bottom: 0.5rem; /* más compacto */
+  }
+
+  .card-body {
+    padding: 0.5rem !important; /* reduce espacio interno */
+  }
+
+  /* Gráficos proporcionados */
+  .chart-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .chart-container canvas {
+    width: 100% !important;
+    height: auto !important;
+    max-height: 200px !important; /* compacto en impresión */
+    margin: 0 auto;
+    display: block;
+  }
+
+  }

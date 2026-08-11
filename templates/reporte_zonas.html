@@ -1,0 +1,92 @@
+{% extends "layout.html" %}
+{% block title %}Reporte de Zonas{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+    <h4>Reporte de {{ tipo|capitalize }}</h4>
+
+    <!-- Botón para volver -->
+    <div class="mb-3">
+        <a href="{{ url_for('reporte') }}" class="btn btn-sm btn-primary">
+            ← Volver a Reportes
+        </a>
+    </div>
+
+    <!-- Formulario de filtro y orden -->
+    <form method="get" action="{{ url_for('reporte') }}" class="row g-2 mb-3">
+        <input type="hidden" name="tipo" value="{{ tipo }}">
+        <input type="hidden" name="vendedor" value="{{ vendedor }}">
+        <input type="hidden" name="fecha_inicio" value="{{ fecha_inicio }}">
+        <input type="hidden" name="fecha_fin" value="{{ fecha_fin }}">
+
+        <div class="col-auto">
+            <input type="text" class="form-control form-control-sm" name="filtro"
+                   placeholder="Buscar..." value="{{ filtro }}">
+        </div>
+        <div class="col-auto">
+            <select class="form-select form-select-sm" name="orden">
+                <option value="zona_total" {% if orden=="zona_total" %}selected{% endif %}>Zona Total</option>
+                <option value="Total" {% if orden=="Total" %}selected{% endif %}>Total</option>
+                <option value="SUBSTRING(z.grupozona,1,1)" {% if orden=="SUBSTRING(z.grupozona,1,1)" %}selected{% endif %}>Grupo Zona</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-success">Aplicar</button>
+        </div>
+    </form>
+
+    <!-- Información de filtros y orden -->
+    <div class="alert alert-info py-2 px-3 mb-3">
+    <strong>Filtro aplicado:</strong>
+        {% if vendedor %}
+           <th>Vend:</th> {{ vendedor }} 
+           <th>Periodo</th> {{ fecha_inicio }} al {{ fecha_fin }}
+        {% else %}
+            Ninguno
+        {% endif %}
+        <strong>Orden aplicado:</strong>
+        {% if orden == "zona_total" %} Zona Total {% endif %}
+        {% if orden == "Total" %} Total {% endif %}
+        {% if orden == "SUBSTRING(z.grupozona,1,1)" %} Grupo Zona (1er carácter) {% endif %}
+    </div>
+
+    <!-- Tabla de resultados -->
+    <div class="table-responsive">
+        <table class="table table-sm table-hover table-bordered align-middle">
+            <thead class="table-dark text-center">
+                <tr>
+                    {% if tipo == "zonas_marcas" %}
+                        <th>Zona</th><th>Marca</th>
+                    {% elif tipo == "zonas_totales" %}
+                        <th>Zona</th>
+                    {% endif %}
+                    {% for year in years %}
+                        <th>1T {{ year }}</th><th>2T {{ year }}</th><th>3T {{ year }}</th><th>4T {{ year }}</th>
+                    {% endfor %}
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in data %}
+                <tr>
+                    {% if tipo == "zonas_marcas" %}
+                        <td>{{ row.nombre_zona }}</td><td>{{ row.Marca }}</td>
+                    {% elif tipo == "zonas_totales" %}
+                        <td>{{ row.nombre_zona }}</td>
+                    {% endif %}
+                    {% for year in years %}
+                        <td class="text-end">{{ row['1T ' ~ year] | cordobas }}</td>
+                        <td class="text-end">{{ row['2T ' ~ year] | cordobas }}</td>
+                        <td class="text-end">{{ row['3T ' ~ year] | cordobas }}</td>
+                        <td class="text-end">{{ row['4T ' ~ year] | cordobas }}</td>
+                    {% endfor %}
+                    <td class="fw-bold text-end">{{ row.Total | cordobas }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endblock %}
+

@@ -1,0 +1,161 @@
+{% extends "layout.html" %}
+{% block title %}Reporte Diario{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-2">
+  <h5 class="mb-3">📊 Reporte de Ventas por Día</h5>
+
+  <!-- Filtros -->
+  <form method="get" class="row g-2 mb-3">
+    <div class="col-md-3">
+      <label class="form-label">Fecha inicio</label>
+      <input type="date" name="fecha_inicio" class="form-control form-control-sm" value="{{ fecha_inicio }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Fecha fin</label>
+      <input type="date" name="fecha_fin" class="form-control form-control-sm" value="{{ fecha_fin }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">Tipo de cambio</label>
+      <input type="number" step="0.01" name="tipo_cambio" class="form-control form-control-sm" value="{{ tipo_cambio }}">
+    </div>
+    <div class="col-md-2 d-flex align-items-end">
+      <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
+    </div>
+  </form>
+
+  <!-- Gráficos -->
+  <div class="row mb-3 chart-container">
+    <div class="col-md-6">
+      <h6 class="mb-2 text-center">📈 Evolución diaria (Neto C$)</h6>
+      <canvas id="chartLine" height="200"></canvas>
+    </div>
+    <div class="col-md-6">
+      <h6 class="mb-2 text-center">📊 Contado vs Crédito (Neto C$)</h6>
+      <canvas id="chartBar" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- Tabla -->
+  <table class="table table-sm table-bordered align-middle">
+<thead class="table-dark text-center">
+  <tr>
+    <th>Fecha</th>
+    <th>Tipo Venta</th>
+    <th>Subtotal</th>
+    <th>Descuento</th>
+    <th>SubTotal2</th>
+    <th>Devoluciones</th> <!-- 👈 nueva columna -->
+    <th>Neto</th> <!-- 👈 neto después de devoluciones -->
+    <th>IVA</th>
+    <th>Total</th>
+    <th>Neto $</th>
+  </tr>
+</thead>
+<tbody>
+  {% for fecha, grupo in reporte.items() %}
+    {% for row in grupo.filas %}
+    <tr>
+      <td>{{ row.Fecha.strftime("%d-%b") }}</td>
+      <td>{{ row.TipoVenta }}</td>
+      <td>{{ row.Subtotal|cordobas }}</td>
+      <td>{{ row.Descuento|cordobas }}</td>
+      <td>{{ row.Neto|cordobas }}</td>
+      <td>{{ row.DevTotal|cordobas }}</td> <!-- 👈 -->
+      <td>{{ row.Neto_Ajustado|cordobas }}</td> <!-- 👈 -->
+      <td>{{ row.Iva|cordobas }}</td>
+      <td>{{ row.Total|cordobas }}</td>
+      <td>{{ row.NetoUSD|dolares }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="table-light fw-bold">
+      <td colspan="2" class="text-end">Total {{ fecha }}</td>
+      <td>{{ grupo.subtotal|cordobas }}</td>
+      <td>{{ grupo.descuento|cordobas }}</td>
+      <td>{{ (grupo.subtotal-grupo.descuento)|cordobas }}</td>
+      <td class="text-danger fw-bold">{{ grupo.devoluciones|cordobas }}</td> <!-- 👈 -->
+      <td>{{ (grupo.subtotal-grupo.descuento-grupo.devoluciones)|cordobas }}</td>
+      <td>{{ grupo.iva|cordobas }}</td>
+      <td>{{ grupo.total|cordobas }}</td>
+      <td>{{ (grupo.neto / tipo_cambio)|dolares }}</td>
+    </tr>
+  {% endfor %}
+</tbody>
+<tfoot class="table-secondary fw-bold">
+  <tr>
+    <td colspan="2" class="text-end">Total General</td>
+    <td>{{ total_subtotal|cordobas }}</td>
+    <td>{{ total_descuento|cordobas }}</td>
+    <td>{{ total_subtotal2|cordobas }}</td>
+    <td class="text-danger fw-bold">{{ total_dev|cordobas }}</td> <!-- 👈 -->
+    <td>{{ total_neto|cordobas }}</td>
+    <td>{{ total_iva|cordobas }}</td>
+    <td>{{ total_general|cordobas }}</td>
+    <td>{{ (total_neto / tipo_cambio)|dolares }}</td>
+  </tr>
+</tfoot>
+
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+   // Definir colores si no están en layout
+  const colorPrincipal = '#FE6412';
+  const colorSecundario = '#027266';
+  const colorNeutro = '#666666';
+
+  // Gráfico de línea: evolución diaria
+  const ctxLine = document.getElementById('chartLine').getContext('2d');
+  new Chart(ctxLine, {
+    type: 'line',
+    data: {
+      labels: {{ chart_labels|default([])|tojson }},
+      datasets: [
+        {
+          label: 'Contado',
+          data: {{ chart_contado|default([])|tojson }},
+          borderColor: colorPrincipal,
+          backgroundColor: colorPrincipal,
+          fill: false
+        },
+        {
+          label: 'Crédito',
+          data: {{ chart_credito|default([])|tojson }},
+          borderColor: colorSecundario,
+          backgroundColor: colorSecundario,
+          fill: false
+        }
+      ]
+    },
+    options: { responsive: true }
+  });
+
+  // Gráfico de barras: comparación contado vs crédito
+  const ctxBar = document.getElementById('chartBar').getContext('2d');
+  new Chart(ctxBar, {
+    type: 'bar',
+    data: {
+      labels: {{ chart_labels|default([])|tojson }},
+      datasets: [
+        {
+          label: 'Contado',
+          data: {{ chart_contado|default([])|tojson }},
+          backgroundColor: colorPrincipal
+        },
+        {
+          label: 'Crédito',
+          data: {{ chart_credito|default([])|tojson }},
+          backgroundColor: colorSecundario
+        }
+      ]
+    },
+    options: { responsive: true }
+  });
+</script>
+{% endblock %}
+
+
+
+

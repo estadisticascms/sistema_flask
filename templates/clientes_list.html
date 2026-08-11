@@ -1,0 +1,59 @@
+{% extends "Layout.html" %}
+
+{% block title %}Modificar Clientes{% endblock %}
+
+{% block content %}
+<h1>Listado de Clientes</h1>
+
+<!-- Formulario de búsqueda -->
+<form method="get" action="/clientes" class="mb-3 d-flex">
+    <input type="text" name="nombre" value="{{ nombre_busqueda }}" placeholder="Buscar por nombre" class="form-control me-2" style="max-width:300px;">
+    <button type="submit" class="btn btn-primary">Buscar</button>
+</form>
+
+<!-- Tabla de clientes -->
+<table class="table table-striped table-hover align-middle">
+    <thead class="table-dark">
+        <tr>
+            <th>ID</th>
+            <th>Nombre</th>
+            <th>Departamento</th>
+            <th>Municipio</th>
+            <th>Acción</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cliente in clientes %}
+        <tr>
+            <td>{{ cliente.id }}</td>
+            <td>{{ cliente.nombre }}</td>
+            <form action="/editar_cliente/{{ cliente.id }}" method="post">
+                <td>
+                    <input type="text" name="departamento" value="{{ cliente.departamento }}" 
+                           class="form-control form-control-sm" required>
+                </td>
+                <td>
+                    <input type="text" name="municipio" value="{{ cliente.municipio }}" 
+                           class="form-control form-control-sm" required>
+                </td>
+                <td class="d-flex">
+                    <!-- Botón guardar con ícono -->
+                    <button type="submit" class="btn btn-success btn-sm me-2" title="Guardar cambios">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
+            </form>
+                    <!-- Botón eliminar con ícono -->
+                    <form action="/eliminar_cliente/{{ cliente.id }}" method="post" 
+                          onsubmit="return confirm('¿Seguro que deseas eliminar este cliente?');">
+                        <button type="submit" class="btn btn-danger btn-sm" title="Eliminar cliente">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </form>
+                </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
+
+

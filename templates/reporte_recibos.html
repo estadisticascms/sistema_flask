@@ -1,0 +1,90 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container mt-2">
+  <h5>📑 Reporte de Recibos Diarios</h5>
+
+  <form method="get" class="row g-3 mb-3">
+    <div class="col-auto">
+      <label class="form-label">Fecha inicio</label>
+      <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" class="form-control">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">Fecha fin</label>
+      <input type="date" name="fecha_fin" value="{{ fecha_fin }}" class="form-control">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">Tipo de cambio</label>
+      <input type="number" step="0.01" name="tipo_cambio" value="{{ tipo_cambio }}" class="form-control">
+    </div>
+    <div class="col-auto align-self-end">
+      <button type="submit" class="btn btn-primary">Generar</button>
+    </div>
+  </form>
+
+</div class="row">
+    <div class="mt-4">
+    <h6>📊 Totales diarios en C$</h6>
+    <canvas id="chartRecibos" height="50"></canvas>
+    </div>
+</div>  
+
+<div class="table-responsive">
+<table class="table table-sm table-hover table-bordered tabla-compacta">
+    <thead>
+      <tr>
+        <th>Fecha</th>
+        <th>Cantidad Recibos</th>
+        <th>Subtotal C$</th>
+        <th>IVA C$</th>
+        <th>Total C$</th>
+        <th>Subtotal USD</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.Fecha }}</td>
+        <td class="text-center">{{ r.Cantidad }}</td>
+        <td class="text-end">{{ r.SubtotalCordobas|cordobas}}</td>
+        <td class="text-end">{{ r.IVACordobas|cordobas }}</td>
+        <td class="text-end">{{ r.TotalCordobasCalc|cordobas}}</td>
+        <td class="text-end">{{ r.SubtotalUSD|dolares}}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="table-light fw-bold">
+        <td>Total General</td>
+        <td></td>
+        <td class="text-end">{{ total_general_subtotal|cordobas }}</td>
+        <td class="text-end">{{ total_general_iva|cordobas }}</td>
+        <td class="text-end">{{ total_general_cordobas|cordobas }}</td>
+        <td class="text-end">{{ total_general_usd|dolares }}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const ctx = document.getElementById('chartRecibos').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: {{ chart_labels|tojson }},
+      datasets: [{
+        label: 'Total C$',
+        data: {{ chart_values|tojson }},
+        backgroundColor: 'rgba(2, 114, 102,0.5)',
+        borderColor: '#e05510',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+</script>
+{% endblock %}

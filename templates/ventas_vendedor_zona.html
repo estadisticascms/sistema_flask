@@ -1,0 +1,147 @@
+{% extends "layout.html" %}
+{% block title %}Reporte de Ventas{% endblock %}
+
+{% block content %}
+
+<div class="container-fluid px-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <a href="/exportar?vendedor={{ vendedor }}&fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}&tipo={{ tipo }}" 
+           class="btn btn-sm btn-success">Exportar CSV</a>
+    </div>
+
+    <!-- Filtros -->
+    <form method="get" action="{{ url_for('reporte') }}" class="row row-cols-lg-auto g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm">
+        <div class="col">
+            <label class="form-label small">Vendedor</label>
+            <input type="text" class="form-control form-control-sm" name="vendedor" value="{{ vendedor }}">
+        </div>
+        <div class="col">
+            <label class="form-label small">Fecha inicio</label>
+            <input type="date" class="form-control form-control-sm" name="fecha_inicio" value="{{ fecha_inicio }}">
+        </div>
+        <div class="col">
+            <label class="form-label small">Fecha fin</label>
+            <input type="date" class="form-control form-control-sm" name="fecha_fin" value="{{ fecha_fin }}">
+        </div>
+        <div class="col">
+            <label class="form-label small">Tipo</label>
+            <select class="form-select form-select-sm" name="tipo">
+                <option value="detalle" {% if tipo=="detalle" %}selected{% endif %}>Detalle</option>
+                <option value="resumen" {% if tipo=="resumen" %}selected{% endif %}>Zonas y Clientes</option>
+                <option value="totales" {% if tipo=="totales" %}selected{% endif %}>Zonas, Clientes y Marcas</option>
+                <option value="zonas_marcas" {% if tipo=="zonas_marcas" %}selected{% endif %}>Zonas y Marcas</option>
+                <option value="zonas_totales" {% if tipo=="zonas_totales" %}selected{% endif %}>Zonas Totales</option>
+            </select>
+        </div>
+<div class="col">
+    <label class="form-label small">Ordenar por</label>
+    <select class="form-select form-select-sm" name="orden">
+        <option value="zona_total" {% if orden=="zona_total" %}selected{% endif %}>Zona Total</option>
+        <option value="Total" {% if orden=="Total" %}selected{% endif %}>Total</option>
+        <!-- Antes estaba "z.grupozona", ahora lo cambiamos -->
+        <option value="SUBSTRING(z.grupozona,1,1)" {% if orden=="SUBSTRING(z.grupozona,1,1)" %}selected{% endif %}>Grupo Zona (1er carácter)</option>
+    </select>
+</div>
+
+        <div class="col">
+            <label class="form-label small">Buscar</label>
+            <input type="text" class="form-control form-control-sm" name="filtro" value="{{ filtro }}" placeholder="Cliente, Marca, Zona, Depto">
+        </div>
+        <div class="col">
+            <button type="submit" class="btn btn-sm btn-primary">Generar</button>
+        </div>
+    </form>
+
+    <!-- Tabla -->
+    <div class="table-responsive">
+        <table class="table table-striped table-hover table-bordered align-middle">
+            <thead class="table-dark text-center">
+                <tr>
+                    {% if tipo == "detalle" %}
+                        <th>Vendedor</th><th>Zona</th><th>Cliente</th><th>Depto</th><th>Dirección</th><th>N° Parte</th><th>Descripción</th><th>Marca</th>
+                    {% elif tipo == "resumen" %}
+                        <th>Zona</th><th>Cliente</th><th>Depto</th>
+                    {% elif tipo == "totales" %}
+                        <th>Zona</th><th>Cliente</th><th>Depto</th><th>Marca</th>
+                    {% elif tipo == "zonas_marcas" %}
+                        <th>Zona</th><th>Marca</th>
+                    {% elif tipo == "zonas_totales" %}
+                        <th>Zona</th>
+                    {% endif %}
+                    {% for year in years %}
+                        <th>1T {{ year }}</th><th>2T {{ year }}</th><th>3T {{ year }}</th><th>4T {{ year }}</th>
+                    {% endfor %}
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if tipo in ["zonas_marcas","zonas_totales"] %}
+                    {% for row in data %}
+                    <tr>
+                        {% if tipo == "zonas_marcas" %}
+                            <td>{{ row.nombre_zona }}</td><td>{{ row.Marca }}</td>
+                        {% elif tipo == "zonas_totales" %}
+                            <td>{{ row.nombre_zona }}</td>
+                        {% endif %}
+                        {% for year in years %}
+                            <td class="text-end">{{ row['1T ' ~ year] | cordobas }}</td>
+                            <td class="text-end">{{ row['2T ' ~ year] | cordobas }}</td>
+                            <td class="text-end">{{ row['3T ' ~ year] | cordobas }}</td>
+                            <td class="text-end">{{ row['4T ' ~ year] | cordobas }}</td>
+                        {% endfor %}
+                        <td class="fw-bold text-end">{{ row.Total | cordobas }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    {% for zona in zonas %}
+                        {% for cliente in zona.clientes %}
+                            {% for row in cliente.filas %}
+                            <tr>
+                                {% if tipo == "detalle" %}
+                                    <td>{{ row.vendedor }}</td><td>{{ row.nombre_zona }}</td><td>{{ row.Cliente }}</td><td>{{ row.Dto_Munic }}</td>
+                                    <td>{{ row.direccion }}</td><td>{{ row.NParte }}</td><td>{{ row.Descripcion }}</td><td>{{ row.Marca }}</td>
+                                {% elif tipo == "resumen" %}
+                                    <td>{{ row.nombre_zona }}</td><td>{{ row.Cliente }}</td><td>{{ row.Dto_Munic }}</td>
+                                {% elif tipo == "totales" %}
+                                    <td>{{ row.nombre_zona }}</td><td>{{ row.Cliente }}</td><td>{{ row.Dto_Munic }}</td><td>{{ row.Marca }}</td>
+                                {% endif %}
+                                {% for year in years %}
+                                    <td class="text-end">{{ row['1T ' ~ year] | cordobas }}</td>
+                                    <td class="text-end">{{ row['2T ' ~ year] | cordobas }}</td>
+                                    <td class="text-end">{{ row['3T ' ~ year] | cordobas }}</td>
+                                    <td class="text-end">{{ row['4T ' ~ year] | cordobas }}</td>
+                                {% endfor %}
+                                <td class="fw-bold text-end">{{ row.Total | cordobas }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if tipo != "resumen" %}
+                            <tr class="table-light fw-bold text-end">
+                                <td colspan="{{ (tipo == 'totales') and (3 + years|length*4) or (8 + years|length*4) }}">
+                                    Total Cliente {{ cliente.nombre }}
+                                </td>
+                                <td>{{ cliente.total | cordobas }}</td>
+                            </tr>
+                            {% endif %}
+                        {% endfor %}
+                        <tr class="table-secondary fw-bold text-end">
+                            <td colspan="{{ (tipo == 'totales') and (3 + years|length*4) or (tipo == 'resumen') and (2 + years|length*4) or (8 + years|length*4) }}">
+                                Total Zona {{ zona.nombre }}
+                            </td>
+                            <td>{{ zona.total | cordobas }}</td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+
+
+
+
+
+
+

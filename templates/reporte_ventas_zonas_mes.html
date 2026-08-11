@@ -1,0 +1,130 @@
+{% extends "layout.html" %}
+{% block title %}Reporte Ventas por Zonas y Mes{% endblock %}
+{% block header_title %}Reporte Ventas por Zonas y Mes{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+
+    <!-- Botones superiores -->
+    <div class="d-flex justify-content-start align-items-center mb-3 gap-2">
+        <a href="/exportar_reporte_ventas_zonas_mes?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}&vendedor={{ vendedor }}&departamento={{ departamento }}&municipio={{ municipio }}" 
+           class="btn btn-sm btn-success">📤 Exportar Excel</a>
+        <button id="btnDescargarImagen" class="btn btn-sm btn-primary">🖼️ Descargar Imagen</button>
+    </div>
+
+    <!-- Filtros -->
+    <form method="post" class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm">
+        <div class="col-md-3">
+            <label class="form-label small fw-bold text-success">Fecha inicio</label>
+            <input type="date" class="form-control form-control-sm" name="fecha_inicio" value="{{ fecha_inicio }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small fw-bold text-success">Fecha fin</label>
+            <input type="date" class="form-control form-control-sm" name="fecha_fin" value="{{ fecha_fin }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small fw-bold text-success">Vendedor</label>
+            <select name="vendedor" class="form-select form-select-sm">
+                <option value="">-- Todos --</option>
+                {% for v in vendedores %}
+                    <option value="{{ v }}" {% if vendedor == v %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small fw-bold text-success">Departamento</label>
+            <select name="departamento" class="form-select form-select-sm">
+                <option value="">-- Todos --</option>
+                {% for d in departamentos %}
+                    <option value="{{ d }}" {% if departamento == d %}selected{% endif %}>{{ d }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small fw-bold text-success">Municipio</label>
+            <select name="municipio" class="form-select form-select-sm">
+                <option value="">-- Todos --</option>
+                {% for m in municipios %}
+                    <option value="{{ m }}" {% if municipio == m %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-sm btn-success w-100">🔍 Filtrar</button>
+        </div>
+    </form>
+
+    <!-- Tabla de reporte -->
+    <div id="tablaReporteVentas" class="mt-3">
+        <table id="tablaVentas" class="table table-sm table-hover table-bordered align-middle w-100">
+            <thead style="background-color:#198754; color:white;">
+                <tr>
+                    <th>Tipo Vendedor</th>
+                    <th>Vendedor</th>
+                    <th>Cliente</th>
+                    <th>Zona</th>
+                    <th>Departamento</th>
+                    <th>Municipio</th>
+                    <th>Marca</th>
+                    {% for mes in meses_rango %}
+                        <th>{{ mes }}</th>
+                    {% endfor %}
+                    <th>Total Rango</th>
+                    <th>Total General</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in registros %}
+                <tr style="background-color:{% if loop.index is even %}#f8f9fa{% else %}#ffffff{% endif %};">
+                    <td>{{ r.TipoVendedor }}</td>
+                    <td>{{ r.vendedor }}</td>
+                    <td>{{ r.Cliente }}</td>
+                    <td>{{ r.ZONA }}</td>
+                    <td>{{ r.Departamento }}</td>
+                    <td>{{ r.Municipio }}</td>
+                    <td>{{ r.Marca }}</td>
+                    {% for mes in meses_rango %}
+                        <td class="text-end">{{ r[mes] if r[mes] is not none else 0 }}</td>
+                    {% endfor %}
+                    <td class="fw-bold text-end">{{ r.TotalRango }}</td>
+                    <td class="fw-bold text-end">{{ r.TotalGeneral }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Script para descargar tabla como imagen -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+document.getElementById("btnDescargarImagen").addEventListener("click", () => {
+    const contenedor = document.getElementById("tablaReporteVentas");
+    html2canvas(contenedor).then(canvas => {
+        const link = document.createElement("a");
+        link.download = "reporte_ventas_zonas_mes.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+    });
+});
+</script>
+
+<!-- DataTables -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#tablaVentas').DataTable({
+        pageLength: 20,      
+        lengthMenu: [[20, 50, 100, -1], [20, 50, 100, "Todos"]],
+        searching: true,
+        info: true,
+        order: []
+    });
+});
+</script>
+{% endblock %}
+
+

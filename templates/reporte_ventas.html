@@ -1,0 +1,236 @@
+{% extends "layout.html" %}
+{% block title %}Reporte de Ventas{% endblock %}
+
+{% block content %}
+ <div id="reporteVentas">
+  <div class="container-fluid mt-2">
+  <h5 class="mb-3">📊 Reporte de Ventas</h5>
+
+  <!-- Filtros -->
+  <form method="get" class="row g-2 mb-3">
+    <div class="col-md-3">
+      <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control form-control-sm" value="{{ fecha_inicio }}">
+    </div>
+    <div class="col-md-3">
+      <input type="date" id="fecha_fin" name="fecha_fin" class="form-control form-control-sm" value="{{ fecha_fin }}">
+    </div>
+    <div class="col-md-2">
+      <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
+    </div>
+  </form>
+
+  <!-- Gráfico de vendedores -->
+  <div class="row mb-3 chart-container">
+    <div class="col-8">
+          <h6 class="card-title text-center mb-2">📊 Ventas por Vendedor (Contado vs Crédito)</h6>
+          <canvas id="chartVendedores" height="300"></canvas>
+    </div>
+   <div class="col-md-4 justify-content-center chart-container">
+          <h6 class="card-title text-center mb-2">🍰 Proporción por Grupo</h6>
+          <canvas id="chartPie" height="150"></canvas>
+    </div>
+  </div>
+
+<!-- Tabla -->
+<table class="table table-bordered">
+<thead class="table-dark text-center">
+  <tr>
+    <th style="width: 80px;">Venta</th>
+    <th>Sub-Total</th>
+    <th>Desc</th>
+    <th>Devoluciones</th> <!-- 👈 nueva columna -->
+    <th>Neto</th>
+    <th>% Neto</th>
+    <th>IVA</th>
+    <th>Total</th>
+  </tr>
+</thead>
+<tbody>
+  {% for tipo, grupo in grupos.items() %}
+    <tr class="table-primary fw-bold">
+      <td colspan="8" class="text-start">{{ tipo }}</td>
+    </tr>
+
+    {% for vendedor, data in grupo.vendedores.items() %}
+      {% for row in data.filas %}
+      <tr>
+        <td>{{ row.Venta }}</td>
+        <td class="text-end">{{ row.Subtotal|cordobas }}</td>
+        <td class="text-end">{{ row.Descuento|cordobas }}</td>
+        <td class="text-end">{{ row.DevTotal|cordobas }}</td> <!-- 👈 devoluciones -->
+        <td class="text-end">{{ row.Neto_Ajustado|cordobas }}</td> <!-- 👈 neto ajustado -->
+        <td class="text-end">{{ row.Porcentaje|round(2) }}%</td>
+        <td class="text-end">{{ row.Iva|cordobas }}</td>
+        <td class="text-end">{{ row.Total|cordobas }}</td>
+      </tr>
+      {% endfor %}
+
+      <!-- Subtotal por vendedor -->
+      <tr class="table-light fw-bold">
+        <td colspan="1" class="text-end">{{ vendedor }}</td>
+        <td class="text-end">{{ data.subtotal|cordobas }}</td>
+        <td class="text-end">{{ data.descuento|cordobas }}</td>
+        <td class="text-danger fw-bold col-devoluciones">{{ data.devoluciones|cordobas }}</td> <!-- 👈 -->
+        <td class="text-end">{{ data.neto|cordobas }}</td>
+        <td class="text-end">{{ data.porcentaje|round(2) }}%</td>
+        <td class="text-end">{{ data.iva|cordobas }}</td>
+        <td class="text-end">{{ data.total|cordobas }}</td>
+      </tr>
+    {% endfor %}
+
+    <!-- Subtotal por grupo -->
+    <tr class="table-secondary fw-bold">
+      <td colspan="1" class="text-end">{{ tipo }}</td>
+      <td class="text-end">{{ grupo.subtotal|cordobas }}</td>
+      <td class="text-end">{{ grupo.descuento|cordobas }}</td>
+      <td class="text-danger fw-bold">{{ grupo.devoluciones|cordobas }}</td> <!-- 👈 -->
+      <td class="text-end">{{ grupo.neto|cordobas }}</td>
+      <td class="text-end">{{ grupo.porcentaje|default(0)|round(2) }}%</td>
+      <td class="text-end">{{ grupo.iva|cordobas }}</td>
+      <td class="text-end">{{ grupo.total|cordobas }}</td>
+    </tr>
+  {% endfor %}
+</tbody>
+
+<!-- Total general -->
+<tfoot class="table-secondary fw-bold">
+  <tr>
+    <td colspan="1" class="text-end">Total General</td>
+    <td class="text-end">{{ total_subtotal|cordobas }}</td>
+    <td class="text-end">{{ total_descuento|cordobas }}</td>
+    <td class="text-end">{{ total_dev|cordobas }}</td> <!-- 👈 -->
+    <td class="text-end">{{ total_neto|cordobas }}</td>
+    <td class="text-end">100%</td>
+    <td class="text-end">{{ total_iva|cordobas }}</td>
+    <td class="text-end">{{ total_general|cordobas }}</td>
+  </tr>
+</tfoot>
+</table>
+
+</div>
+</div>
+
+<button id="btnDescargarTodo" class="btn btn-success btn-sm mt-2">Descargar reporte completo</button>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+<script>
+  const colorContado = '#FF6412';   // naranja intenso
+  const colorCredito = '#027266';   // verde brillante
+  const colorNeutro = '#666666';
+
+  // Gráfico de vendedores apilado (sin valores en barras)
+  new Chart(document.getElementById('chartVendedores').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: {{ bar_labels|tojson }},
+      datasets: [
+        {
+          label: 'Contado',
+          data: {{ bar_contado|tojson }},
+          backgroundColor: colorContado
+        },
+        {
+          label: 'Crédito',
+          data: {{ bar_credito|tojson }},
+          backgroundColor: colorCredito
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: {
+            maxRotation: 60,
+            minRotation: 60,
+            font: { size: 11 }
+          }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: {
+            font: { size: 11 },
+            callback: value => new Intl.NumberFormat('es-NI', { style: 'currency', currency: 'NIO' }).format(value)
+          }
+        }
+      }
+    }
+  });
+
+  // Gráfico de pastel con leyenda compacta
+  new Chart(document.getElementById('chartPie').getContext('2d'), {
+    type: 'pie',
+    data: {
+      labels: {{ chart_labels|tojson }},
+      datasets: [{
+        data: {{ chart_values|tojson }},
+        backgroundColor: [colorContado, colorCredito, colorNeutro, '#FF8A47', '#4CA693', '#999999'],
+        borderColor: '#fff',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            font: { size: 10 },
+            padding: 8,
+            generateLabels: function(chart) {
+              const data = chart.data;
+              const dataset = data.datasets[0];
+              const total = dataset.data.reduce((a, b) => a + b, 0);
+              return data.labels.map((label, i) => {
+                const value = dataset.data[i];
+                const porcentaje = ((value / total) * 100).toFixed(2);
+                return {
+                  text: `${label}: ${new Intl.NumberFormat('es-NI', { style: 'currency', currency: 'NIO' }).format(value)} (${porcentaje}%)`,
+                  fillStyle: dataset.backgroundColor[i],
+                  strokeStyle: dataset.borderColor,
+                  lineWidth: dataset.borderWidth,
+                  index: i
+                };
+              });
+            }
+          }
+        }
+      }
+    }
+  });
+</script>
+
+<script>
+  document.getElementById("btnDescargarTodo").addEventListener("click", () => {
+    // 🔧 Forzar que los gráficos se dibujen con más resolución
+    Chart.helpers.each(Chart.instances, function(chart) {
+      chart.options.devicePixelRatio = 2; // duplicar densidad de píxeles
+      chart.update();
+    });
+
+    const contenedor = document.getElementById("reporteVentas");
+    html2canvas(contenedor, { scale: 2 }).then(canvas => {
+      const link = document.createElement("a");
+      link.download = "reporte_ventas_completo.png";
+      link.href = canvas.toDataURL("image/png", 1.0); // calidad máxima
+      link.click();
+    });
+  });
+</script>
+
+
+{% endblock %}
+
+
+
+
+
+

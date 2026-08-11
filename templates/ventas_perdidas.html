@@ -1,0 +1,183 @@
+{% extends "layout.html" %}
+{% block title %}Ventas Perdidas{% endblock %}
+{% block header_title %}Ventas Perdidas{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3">
+
+    <!-- Filtro por vendedor y fechas -->
+    <form method="get" action="/ventas_perdidas" 
+          class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm border-start border-4 border-info">
+        <div class="col-12 col-md-4">
+            <label class="form-label small fw-bold text-info">Filtrar por Vendedor</label>
+            <select name="filtro_vendedor" class="form-select form-select-sm campo-estilizado">
+                <option value="">-- Todos --</option>
+                {% for v in vendedores %}
+                    <option value="{{ v.nomb_vendedor }}" 
+                            {% if filtro_vendedor == v.nomb_vendedor %}selected{% endif %}>
+                        {{ v.nomb_vendedor }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label small fw-bold text-info">Fecha Inicio</label>
+            <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" 
+                   class="form-control form-control-sm campo-estilizado">
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label small fw-bold text-info">Fecha Fin</label>
+            <input type="date" name="fecha_fin" value="{{ fecha_fin }}" 
+                   class="form-control form-control-sm campo-estilizado">
+        </div>
+        <div class="col-12 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary w-100">🔍 Filtrar</button>
+            <a href="{{ url_for('ventas_perdidas') }}" class="btn btn-sm btn-secondary w-100">♻️ Limpiar</a>
+        </div>
+    </form>
+
+    <!-- Importar Excel -->
+    <form method="post" action="/importar_ventas_perdidas" enctype="multipart/form-data"
+          class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm border-start border-4 border-success">
+        <div class="col-12 col-md-6">
+            <label class="form-label small fw-bold text-success">Archivo Excel</label>
+            <input type="file" class="form-control form-control-sm campo-estilizado"
+                   name="archivo_excel" accept=".xlsx,.xls" required>
+        </div>
+        <div class="col-12 col-md-2">
+            <button type="submit" class="btn btn-sm btn-secondary w-100">📥 Importar Excel</button>
+        </div>
+    </form>
+
+    <!-- Formulario para agregar -->
+    <form method="post" action="/ventas_perdidas" 
+          class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm border-start border-4 border-primary">
+
+        <div class="col-12 col-md-2">
+            <label class="form-label small fw-bold text-success">Fecha</label>
+            <input type="date" class="form-control form-control-sm campo-estilizado" 
+                   name="fecha" value="{{ fecha_hoy }}" required>
+        </div>
+
+        <div class="col-12 col-md-2">
+            <label class="form-label small fw-bold text-success">Vendedor</label>
+            <input type="text" maxlength="50" class="form-control form-control-sm campo-estilizado" 
+                   name="nomb_vendedor" required>
+        </div>
+
+        <div class="col-12 col-md-3">
+            <label class="form-label small fw-bold text-success">Cliente</label>
+            <input type="text" maxlength="100" class="form-control form-control-sm campo-estilizado" 
+                   name="nomb_cliente" required>
+        </div>
+
+        <div class="col-12 col-md-2">
+            <label class="form-label small fw-bold text-success">N° Parte</label>
+            <input type="text" maxlength="30" class="form-control form-control-sm campo-estilizado" 
+                   name="numero_parte" required>
+        </div>
+
+        <div class="col-12 col-md-3">
+            <label class="form-label small fw-bold text-success">Palabra Clave</label>
+            <select name="palabra_clave" id="palabra_clave" class="form-select form-select-sm campo-estilizado" required>
+                <option value="">-- Seleccione --</option>
+                <option value="RODAMIENTO">RODAMIENTO</option>
+                <option value="CORREA">CORREA</option>
+                <option value="EQUIPO PESADO">EQUIPO PESADO</option>
+                <option value="EQUIPO LIVIANO">EQUIPO LIVIANO</option>
+            </select>
+        </div>
+
+        <div class="col-12 col-md-3">
+            <label class="form-label small fw-bold text-success">Descripción</label>
+            <input type="text" maxlength="200" class="form-control form-control-sm campo-estilizado" 
+                   name="descripcion" id="descripcion" required>
+        </div>
+
+        <div class="col-12 col-md-1">
+            <label class="form-label small fw-bold text-success">Cantidad</label>
+            <input type="number" min="1" class="form-control form-control-sm campo-estilizado text-start" 
+                   name="cantidad" required>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <label class="form-label small fw-bold text-success">Nota</label>
+            <textarea maxlength="255" rows="4" class="form-control campo-estilizado" 
+                      name="nota" required></textarea>
+        </div>
+
+        <div class="col-12 col-md-2">
+            <button type="submit" class="btn btn-sm btn-success w-100">➕ Agregar</button>
+        </div>
+    </form>
+
+    <!-- Tabla de registros con scroll en móviles -->
+    <div id="tablaVentasPerdidas" class="mt-3 table-responsive">
+        <table id="tablaVentas" class="table table-sm table-hover table-bordered align-middle w-100">
+            <thead style="background-color:#198754; color:white;">
+                <tr>
+                    <th class="text-start">Fecha</th>
+                    <th class="text-start">Vendedor</th>
+                    <th class="text-start">Cliente</th>
+                    <th class="text-start">N° Parte</th>
+                    <th class="text-start">Descripción</th>
+                    <th class="text-start">Cantidad</th>
+                    <th class="text-start">Nota</th>
+                    <th class="text-center">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in registros %}
+                <tr style="background-color:{% if loop.index is even %}#f8f9fa{% else %}#ffffff{% endif %};">
+                    <td class="text-start">{{ r.fecha }}</td>
+                    <td class="text-start">{{ r.nomb_vendedor }}</td>
+                    <td class="text-start">{{ r.nomb_cliente }}</td>
+                    <td class="text-start">{{ r.numero_parte }}</td>
+                    <td class="text-start">{{ r.descripcion }}</td>
+                    <td class="text-start">{{ r.cantidad }}</td>
+                    <td class="text-start">{{ r.nota }}</td>
+                    <td class="text-center">
+                        <a href="{{ url_for('editar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-warning">✏️</a>
+                        <a href="{{ url_for('eliminar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-danger"
+                           onclick="return confirm('¿Seguro que deseas eliminar este registro?');">🗑️</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Script para anteponer palabra clave en descripción -->
+<script>
+document.getElementById("palabra_clave").addEventListener("change", function() {
+    const clave = this.value;
+    const descripcionInput = document.getElementById("descripcion");
+
+    if (clave) {
+        const textoActual = descripcionInput.value.replace(/^.*? - /, "");
+        descripcionInput.value = clave + " - " + textoActual;
+        descripcionInput.focus();
+    } else {
+        descripcionInput.value = descripcionInput.value.replace(/^.*? - /, "");
+    }
+});
+</script>
+
+<!-- DataTables -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+<script>
+$(document).ready(function() {
+    $('#tablaVentas').DataTable({
+        pageLength: 20,
+        lengthChange: false,
+        searching: false,
+        info: true,
+        order: []
+    });
+});
+</script>
+{% endblock %}

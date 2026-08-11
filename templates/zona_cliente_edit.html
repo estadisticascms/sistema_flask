@@ -1,0 +1,20 @@
+{% extends "Layout.html" %}
+
+{% block title %}Editar Zona Cliente{% endblock %}
+
+{% block content %}
+<h1>Editar Zona Cliente</h1>
+<form action="/editar/{{ zona.idzona }}" method="post">
+    <label>Nombre de Zona:</label>
+    <input type="text" name="nombre_zona" value="{{ zona.nombre_zona }}" required><br><br>
+
+    <label>Departamento:</label>
+    <input type="text" name="departamento" value="{{ zona.departamento }}" required><br><br>
+
+    <label>Grupo Zona:</label>
+    <input type="text" name="grupozona" value="{{ zona.grupozona }}" required><br><br>
+
+    <button type="submit">Guardar Cambios</button>
+</form>
+{% endblock %}
+

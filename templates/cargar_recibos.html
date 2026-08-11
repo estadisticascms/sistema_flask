@@ -1,0 +1,45 @@
+{% extends "layout.html" %}
+{% block title %}CargaRC{% endblock %}
+{% block content %}
+<div class="container mt-3">
+  <h5>📥 Cargar Recibos desde Excel</h5>
+  <form action="{{ url_for('recibos.cargar_recibos') }}" method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+      <label class="form-label">Selecciona archivo Excel</label>
+      <input type="file" name="excel_file" class="form-control" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Cargar</button>
+  </form>
+  {% if mensaje %}
+    <div class="alert alert-success mt-3">
+      {{ mensaje }}
+    </div>
+  {% endif %}
+  {% if ultimos %}
+    <h6 class="mt-4">📑 Últimos recibos cargados</h6>
+    <table class="table table-sm table-striped">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>ROC #</th>
+          <th>Cliente</th>
+          <th>Concepto</th>
+          <th>Total C$</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in ultimos %}
+        <tr>
+          <td>{{ r.fecharc }}</td>
+          <td>{{ r.numerorc }}</td>
+          <td>{{ r.cliente }}</td>
+          <td>{{ r.concepto }}</td>
+          <td class="text-end">{{ r.total|default(0)|round(2) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}
+

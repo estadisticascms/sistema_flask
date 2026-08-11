@@ -1,0 +1,113 @@
+{% extends "layout.html" %}
+{% block title %}Reportes{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <h3 class="mb-4 text-center">📊 Reportes disponibles</h3>
+
+  <!-- Reportes de Ventas -->
+  <h4 class="mb-3">Reportes de Ventas C/IVA</h4>
+  <div class="row g-4 mb-4">
+    <!-- Ventas por Vendedor -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-warning text-center">
+        <div class="card-body">
+          <i class="bi bi-bar-chart-fill text-warning fs-2"></i>
+          <h5 class="card-title mt-2">Ventas por Vendedor</h5>
+          <p class="small">Detalle por tipo de venta.</p>
+          <a href="/reporte_ventas" class="btn btn-outline-warning btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+    <!-- Ventas por Día -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-success text-center">
+        <div class="card-body">
+          <i class="bi bi-graph-up-arrow text-success fs-2"></i>
+          <h5 class="card-title mt-2">Ventas por Día</h5>
+          <p class="small">Control de ventas diarias.</p>
+          <a href="/reporte_ventas_dia" class="btn btn-outline-success btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h4 class="mb-3">Reportes de Ventas detalle producto</h4>
+  <div class="row g-4 mb-4">
+    <!-- Ventas por Zona -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-info text-center">
+        <div class="card-body">
+          <i class="bi bi-geo-alt-fill text-info fs-2"></i>
+          <h5 class="card-title mt-2">Ventas por Zona</h5>
+          <p class="small">Ventas agrupadas por zona.</p>
+          <a href="/reporteZona" class="btn btn-outline-info btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h4 class="mb-3">Reportes de Ventas neto</h4>
+  <div class="row g-4 mb-4">
+    <!-- Totales por Vendedor -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-success text-center">
+        <div class="card-body">
+          <i class="bi bi-pie-chart-fill text-success fs-2"></i>
+          <h5 class="card-title mt-2">Totales por Vendedor</h5>
+          <p class="small">Ventas totalizadas.</p>
+          <a href="/rep_vend_totales" class="btn btn-outline-success btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+    <!-- CRE-CO -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-primary text-center">
+        <div class="card-body">
+          <i class="bi bi-file-earmark-bar-graph text-primary fs-2"></i>
+          <h5 class="card-title mt-2">Ventas CRE-CO</h5>
+          <p class="small">Crédito vs Contado por vendedor.</p>
+          <a href="/rep_vend_netocreco" class="btn btn-outline-primary btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+    <!-- Bienes y Mixtas -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-info text-center">
+        <div class="card-body">
+          <i class="bi bi-bar-chart-line text-info fs-2"></i>
+          <h5 class="card-title mt-2">Bienes y Mixtas</h5>
+          <p class="small">Ventas por tipo de factura.</p>
+          <a href="/reporte_facturas" class="btn btn-info btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+    <!-- Nuevo reporte: Ventas Netas por Tipo de Vendedor -->
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-dark text-center">
+        <div class="card-body">
+          <i class="bi bi-diagram-3-fill text-dark fs-2"></i>
+          <h5 class="card-title mt-2">Ventas Netas por Tipo de Vendedor</h5>
+          <p class="small">Comparación de ventas netas por tipo y vendedor.</p>
+          <a href="/reporte_ventas_mes" class="btn btn-outline-dark btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reportes de Recibos -->
+  <h4 class="mb-3">Reportes de Recibos</h4>
+  <div class="row g-4">
+    <div class="col-md-3">
+      <div class="card h-100 shadow-sm border-primary text-center">
+        <div class="card-body">
+          <i class="bi bi-list-check text-primary fs-2"></i>
+          <h5 class="card-title mt-2">Recibos</h5>
+          <p class="small">Recibos de caja por día.</p>
+          <a href="/reporte_recibos" class="btn btn-outline-primary btn-sm">Ver</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,232 @@
+{% extends "layout.html" %}
+{% block content %}
+<div id="reportipoFact">
+<h2>Reporte de Ventas por Factura</h2>
+<!-- Formulario de filtro de fechas -->
+<form method="get" action="{{ url_for('reporte_facturas.reporte_facturas') }}" class="mb-3">
+  <div class="row">
+    <div class="col-md-3">
+      <label for="fecha_inicio">Fecha inicio:</label>
+      <input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ fecha_inicio }}" class="form-control">
+    </div>
+    <div class="col-md-3">
+      <label for="fecha_fin">Fecha fin:</label>
+      <input type="date" id="fecha_fin" name="fecha_fin" value="{{ fecha_fin }}" class="form-control">
+    </div>
+    <div class="col-md-2 align-self-end">
+      <button type="submit" class="btn btn-primary">Filtrar</button>
+    </div>
+  </div>
+</form>
+
+
+<!-- Tabla de resultados -->
+{% for tipo, grupo in grupos.items() %}
+  <h5>{{ tipo }}</h5>
+  <table class="table table-bordered table-sm">
+    <thead class="table-light">
+      <tr>
+        <th>Venta</th>
+        <th>Neto Bienes</th>
+        <th>% Neto Bienes</th>
+        <th>Neto Mixtos</th>
+        <th>% Neto Mixtos</th>
+        <th>Total</th>
+        <th>%</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for vendedor, data in grupo.vendedores.items() %}
+
+        <!-- Totales por vendedor -->
+        <tr class="table-light">
+          <td colspan="1"><strong> {{ vendedor }}</strong></td>
+          <td>{{ data.totales.Bienes|float|cordobas }}</td>
+          <td>{{ (data.porcentaje_bienes if total_general > 0 else 0)|round(2) }}%</td>
+          <td>{{ data.totales.Mixtos|float|cordobas }}</td>
+          <td>{{ (data.porcentaje_mixta if total_general > 0 else 0)|round(2) }}%</td>
+          <td>{{ (data.totales.Bienes + data.totales.Mixtos)|cordobas }}</td>
+          <td>{{ (data.porcentaje_total if total_general > 0 else 0)|round(2) }}%</td>
+        </tr>
+      {% endfor %}
+      <!-- Totales por grupo -->
+      <tr class="table-success">
+        <td colspan="1"><strong>Total:  {{ tipo }}</strong></td>
+        <td class="fw-bold">{{ grupo.totales.Bienes|cordobas }}</td>
+        <td class="fw-bold">{{ (grupo.totales.Bienes / total_general * 100 if total_general > 0 else 0)|round(2) }}%</td>
+        <td class="fw-bold">{{ grupo.totales.Mixtos|cordobas }}</td>
+        <td class="fw-bold">{{ (grupo.totales.Mixtos / total_general * 100 if total_general > 0 else 0)|round(2) }}%</td>
+        <td class="fw-bold">{{ (grupo.totales.Bienes + grupo.totales.Mixtos)|cordobas}}</td>
+        <td class="fw-bold">{{ ((grupo.totales.Bienes + grupo.totales.Mixtos) / total_general * 100 if total_general > 0 else 0)|round(2) }}%</td>
+      </tr>
+    </tbody>
+  </table>
+{% endfor %}
+
+<br>
+<br>
+
+<div class="row">
+  <!-- Gráfico Chart.js -->
+  <h4>Distribución por Vendedor</h4>
+  <canvas id="ventasChart" height="300"></canvas>
+</div>
+
+<br>
+<br>
+
+<div class="row align-items-start mb-4">
+  <!-- Columna izquierda: Tabla -->
+  <div class="col-md-6">
+    <h4>Totales Generales</h4>
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr>
+          <th>Neto Bienes</th>
+          <th>% Neto Bienes</th>
+          <th>Neto Mixtos</th>
+          <th>% Neto Mixtos</th>
+          <th>Total</th>
+          <th>%</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="table-success">
+          <td>{{ total_bienes|cordobas}}</td>
+          <td>{{ (total_bienes / total_general * 100 if total_general > 0 else 0)|round(2) }}%</td>
+          <td>{{ total_mixta|float|cordobas}}</td>
+          <td>{{ (total_mixta / total_general * 100 if total_general > 0 else 0)|round(2) }}%</td>
+          <td>{{ total_general|cordobas }}</td>
+          <td>{% if total_general > 0 %}100%{% else %}0%{% endif %}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Columna derecha: Gráfico -->
+  <div class="col-md-6">
+    <h4>Proporción Global Bienes vs Mixtos</h4>
+    <div class="d-flex align-items-center gap-3">
+      <!-- Gráfico -->
+      <canvas id="pieChart" width="200" height="200"></canvas>
+
+      <!-- Valores -->
+      <div>
+        <p><strong>Bienes:</strong> {{ total_bienes|float|cordobas }} 
+          ({{ (total_bienes / total_general * 100 if total_general > 0 else 0)|round(2) }}%)</p>
+        <p><strong>Mixtos:</strong> {{ total_mixta|float|cordobas }} 
+          ({{ (total_mixta / total_general * 100 if total_general > 0 else 0)|round(2) }}%)</p>
+        <p><strong>Total:</strong> {{ total_general|float|cordobas }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<button id="btnDescargarTodo" class="btn btn-success btn-sm mt-2">Descargar Imagen</button>
+
+{% endblock %}
+
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+
+  const ctx = document.getElementById('ventasChart').getContext('2d');
+
+  const labels = [];
+  const bienesData = [];
+  const mixtaData = [];
+
+  {% for tipo, grupo in grupos.items() %}
+    {% for vendedor, data in grupo.vendedores.items() %}
+      labels.push("{{ vendedor }}");
+      bienesData.push({{ data.totales.Bienes|float }});
+      mixtaData.push({{ data.totales.Mixtos|float }});
+    {% endfor %}
+  {% endfor %}
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Neto bienes',
+          data: bienesData,
+          backgroundColor: 'rgba(2, 114, 102)'
+        },
+        {
+          label: 'Neto mixto',
+          data: mixtaData,
+          backgroundColor: 'rgba(255, 100, 18)'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        tooltip: { mode: 'index', intersect: false },
+        legend: { position: 'top' }
+      },
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true }
+      }
+    }
+  });
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+<script>
+
+  const ctxPie = document.getElementById('pieChart').getContext('2d');
+
+  new Chart(ctxPie, {
+    type: 'pie',
+    data: {
+      labels: ['Bienes', 'Mixtos'],
+      datasets: [{
+        data: [{{ total_bienes|float }}, {{ total_mixta|float }}],
+        backgroundColor: [
+          'rgba(255, 100, 18)',   // Azul para Bienes
+          'rgba(2, 114, 102)'    // Rojo para Mixtos
+        ],
+        borderColor: '#fff',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: false,   // tamaño fijo
+      plugins: {
+        legend: { display: false }, // ocultamos leyenda porque mostramos valores a la par
+        datalabels: {
+          color: '#000',
+          formatter: (value, ctx) => {
+            const dataset = ctx.chart.data.datasets[0];
+            const total = dataset.data.reduce((a, b) => a + b, 0);
+            const porcentaje = ((value / total) * 100).toFixed(1);
+            return porcentaje + '%';
+          }
+        }
+      }
+    },
+    plugins: [ChartDataLabels]
+  });
+</script>
+
+<script>
+  document.getElementById("btnDescargarTodo").addEventListener("click", () => {
+    const contenedor = document.getElementById("reportipoFact");
+    html2canvas(contenedor, { scale: 2 }).then(canvas => {
+      const link = document.createElement("a");
+      link.download = "reporte_TipoFact_totales.png";
+      link.href = canvas.toDataURL("image/png", 1.0); // calidad máxima
+      link.click();
+    });
+  });
+</script>
+
+{% endblock %}

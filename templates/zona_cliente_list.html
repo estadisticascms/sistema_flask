@@ -1,0 +1,56 @@
+{% extends "Layout.html" %}
+
+{% block title %}Listado de Zonas Cliente{% endblock %}
+
+{% block content %}
+
+<h1>Zonas Cliente Registradas</h1>
+<table id="zonasTable" class="table table-bordered tabla-compacta">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Nombre Zona</th>
+            <th>Departamento</th>
+            <th>Grupo Zona</th>
+            <th>Acciones</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for zona in zonas %}
+        <tr>
+            <td>{{ zona.consecutivo }}</td>
+            <td>{{ zona.nombre_zona }}</td>
+            <td>{{ zona.departamento }}</td>
+            <td>{{ zona.grupozona }}</td>
+            <td>
+                <a href="/editar/{{ zona.idzona }}" class="btn btn-sm btn-primary">Editar</a>
+                <a href="/eliminar/{{ zona.idzona }}" class="btn btn-sm btn-danger"
+                   onclick="return confirm('¿Seguro que deseas eliminar esta zona?');">Eliminar</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<!-- Scripts de DataTables -->
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        $('#zonasTable').DataTable({
+            language: {
+                search: "Buscar:",
+                lengthMenu: "Mostrar _MENU_ registros",
+                info: "Mostrando _START_ a _END_ de _TOTAL_ zonas",
+                paginate: {
+                    previous: "Anterior",
+                    next: "Siguiente"
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}
+

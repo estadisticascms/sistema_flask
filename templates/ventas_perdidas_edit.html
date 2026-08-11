@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block title %}Editar Venta Perdida{% endblock %}
+{% block header_title %}Editar Venta Perdida{% endblock %}
+
+{% block content %}
+<div class="container mt-3">
+    <h4>Editar Venta Perdida</h4>
+    <form method="post" class="row g-2 bg-light p-3 rounded shadow-sm">
+        <div class="col-md-2">
+            <label class="form-label small">Fecha</label>
+            <input type="date" class="form-control form-control-sm campo-estilizado" name="fecha" value="{{ registro.fecha }}" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small">Vendedor</label>
+            <input type="text" class="form-control form-control-sm campo-estilizado" name="nomb_vendedor" value="{{ registro.nomb_vendedor }}" required>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Cliente</label>
+            <input type="text" class="form-control form-control-sm campo-estilizado" name="nomb_cliente" value="{{ registro.nomb_cliente }}" required>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label small">N° Parte</label>
+            <input type="text" class="form-control form-control-sm campo-estilizado" name="numero_parte" value="{{ registro.numero_parte }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Descripción</label>
+            <input type="text" class="form-control form-control-sm campo-estilizado" name="descripcion" value="{{ registro.descripcion }}">
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small">Cantidad</label>
+            <input type="number" class="form-control form-control-sm campo-estilizado text-end" name="cantidad" value="{{ registro.cantidad }}">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Nota</label>
+            <input type="text" class="form-control form-control-sm campo-estilizado" name="nota" value="{{ registro.nota }}">
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-sm btn-primary w-100">Guardar</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
