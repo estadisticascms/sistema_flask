@@ -179,7 +179,8 @@ def preparar_participacion_vendedores(datos_ventas_mes):
 @resumen_bp.route("/resumen", methods=["GET"])
 @requiere_acceso("resumen")
 def resumen_dashboard():
-    fecha_inicio = request.args.get("fecha_inicio", datetime.today().strftime("%Y-%m-01"))
+    #--fecha_inicio = request.args.get("fecha_inicio", datetime.today().strftime("%Y-%m-01"))
+    fecha_inicio = request.args.get("fecha_inicio", "2026-01-01")
     fecha_fin = request.args.get("fecha_fin", datetime.today().strftime("%Y-%m-%d"))
 
     datos_ventas_mes = obtener_resumen_ventas_mes(fecha_inicio, fecha_fin)
@@ -196,14 +197,27 @@ def resumen_dashboard():
         last_day = monthrange(year, month)[1]
         fecha_fin_mes = f"{year}-{month:02d}-{last_day:02d}"
         datos_marcas = obtener_top_marcas(fecha_inicio_mes, fecha_fin_mes)
+        top5_marcas = datos_marcas["detalle"][:5]
+        # Calcular totales del Top 5
+        total_top5 = {
+            "VentasTotales": sum(r["VentasTotales"] for r in top5_marcas),
+            "Ganancia": sum(r["Ganancia"] for r in top5_marcas),
+            # Margen promedio de las 5 marcas
+            "MargenPorcentaje": round(
+                sum(r["MargenPorcentaje"] for r in top5_marcas) / len(top5_marcas), 2
+            ) if top5_marcas else 0
+        }
     else:
-        datos_marcas = {"top_detalle": [], "top_simple": []}
+        datos_marcas = {"detalle": [], "totales": {}}
+        top5_marcas = []
 
     return render_template("resumen_dashboard.html",
                            fecha_inicio=fecha_inicio,
                            fecha_fin=fecha_fin,
                            datos_ventas_mes=datos_ventas_mes,
                            datos_marcas=datos_marcas,
+                           top5_marcas=top5_marcas,
+                           total_top5=total_top5,
                            datos_recuperacion=datos_recuperacion,
                            datasets_vendedores=datasets_vendedores,
                            participacion_vendedores=participacion_vendedores)

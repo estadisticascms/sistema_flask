@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
-{% block title %}Top Marcas{% endblock %}
-{% block header_title %}Reportes de Marcas{% endblock %}
+{% block title %}Reporte de Marcas{% endblock %}
+{% block header_title %}Reporte de Marcas{% endblock %}
 
 {% block content %}
 <div class="container-fluid px-3">
@@ -19,97 +19,71 @@
             <button type="submit" class="btn btn-sm btn-success w-100">🔍 Filtrar</button>
         </div>
     </form>
-    <!-- Reporte 1: Top 15 con detalle -->
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <h6 class="text-success d-flex justify-content-between align-items-center">
-                📈 Top 15 Marcas (Detalle) 
-                <small class="text-muted">Periodo: [{{ fecha_inicio }} → {{ fecha_fin }}]</small>
-                <button id="btnDescargarDetalle" class="btn btn-sm btn-primary">🖼️ Descargar</button>
-            </h6>
-            <table class="table table-sm table-bordered align-middle compact-table">
-                <thead class="table-success">
-                    <tr>
-                        <th>Marca</th>
-                        <th>Ventas</th>
-                        <th>Unidades</th>
-                        <th>Ganancia</th>
-                        <th>Margen %</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in top_detalle %}
-                    <tr>
-                        <td>{{ r.Marca }}</td>
-                        <td class="text-end">{{ r.VentasTotales | cordobas }}</td>
-                        <td class="text-end">{{ r.UnidadesVendidas }}</td>
-                        <td class="text-end">{{ r.Ganancia | cordobas }}</td>
-                        <td class="text-end">{{ r.MargenPorcentaje }}%</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        <div class="col-md-6">
-            <h6 class="text-success">🏆 Gráfico Detalle</h6>
-            <canvas id="graficoDetalle" style="height:100%; max-height:400px; width:100%;"></canvas>
-        </div>
-    </div>
-    <!-- Reporte 2: Top 15 solo ventas -->
-    <div class="row">
-        <div class="col-md-6">
-            <h6 class="text-success d-flex justify-content-between align-items-center">
-                📊 Top 15 Marcas (Solo Ventas)  
-                <small class="text-muted">Periodo: [{{ fecha_inicio }} → {{ fecha_fin }}]</small>
-                <button id="btnDescargarSimple" class="btn btn-sm btn-primary">🖼️ Descargar</button>
-            </h6>
-            <table class="table table-sm table-bordered align-middle compact-table">
-                <thead class="table-success">
-                    <tr>
-                        <th>Marca</th>
-                        <th>Ventas</th>
-                        <th>Unidades</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in top_simple %}
-                    <tr>
-                        <td>{{ r.Marca }}</td>
-                        <td class="text-end">{{ r.VentasTotales | cordobas }}</td>
-                        <td class="text-end">{{ r.UnidadesVendidas }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        <div class="col-md-6">
-            <h6 class="text-success">📊 Gráfico Solo Ventas</h6>
-            <canvas id="graficoSimple" style="height:100%; max-height:400px; width:100%;"></canvas>
-        </div>
-    </div>
+
+    <!-- Tabla completa -->
+    <h6 class="text-success d-flex justify-content-between align-items-center">
+        📈 Marcas (Detalle) 
+        <small class="text-muted">Periodo: [{{ fecha_inicio }} → {{ fecha_fin }}]</small>
+        <button id="btnDescargarDetalle" class="btn btn-sm btn-primary">🖼️ Descargar</button>
+    </h6>
+    <table class="table table-sm table-bordered align-middle compact-table">
+        <thead class="table-success">
+            <tr>
+                <th>Marca</th>
+                <th>Ventas</th>
+                <th>Unidades</th>
+                <th>Ganancia</th>
+                <th>Margen %</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in detalle %}
+            <tr>
+                <td>{{ r.Marca }}</td>
+                <td class="text-end">{{ r.VentasTotales | cordobas }}</td>
+                <td class="text-end">{{ r.UnidadesVendidas }}</td>
+                <td class="text-end">{{ r.Ganancia | cordobas }}</td>
+                <td class="text-end">{{ r.MargenPorcentaje }}%</td>
+            </tr>
+            {% endfor %}
+            <!-- Fila de totales -->
+            <tr class="table-secondary fw-bold">
+                <td>Total</td>
+                <td class="text-end">{{ totales.VentasTotales | cordobas }}</td>
+                <td class="text-end">{{ totales.UnidadesVendidas }}</td>
+                <td class="text-end">{{ totales.Ganancia | cordobas }}</td>
+                <td class="text-end">{{ totales.MargenPorcentaje }}%</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- Gráfico -->
+    <h6 class="text-success">🏆 Gráfico Ventas + Margen</h6>
+    <canvas id="graficoDetalle" style="height:100%; max-height:400px; width:100%;"></canvas>
 </div>
 {% endblock %}
+
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
 <script>
-// Gráfico detalle (ventas + margen)
+// Gráfico combinado (ventas + margen)
 new Chart(document.getElementById('graficoDetalle').getContext('2d'), {
     type: 'bar',
     data: {
-        labels: [{% for r in top_detalle %}'{{ r.Marca }}',{% endfor %}],
+        labels: [{% for r in detalle %}'{{ r.Marca }}',{% endfor %}],
         datasets: [
             {
                 label: 'Ventas Totales (C$)',
-                data: [{% for r in top_detalle %}{{ r.VentasTotales }},{% endfor %}],
+                data: [{% for r in detalle %}{{ r.VentasTotales or 0 }},{% endfor %}],
                 backgroundColor: 'rgba(25, 135, 84, 0.7)',
                 borderColor: 'rgba(25, 135, 84, 1)',
                 borderWidth: 1
             },
             {
                 label: 'Margen (%)',
-                data: [{% for r in top_detalle %}{{ r.MargenPorcentaje }},{% endfor %}],
+                data: [{% for r in detalle %}{{ r.MargenPorcentaje or 0 }},{% endfor %}],
                 borderColor: 'rgba(255, 193, 7, 1)',
                 backgroundColor: 'rgba(255, 193, 7, 0.2)',
                 borderWidth: 2,
@@ -118,6 +92,7 @@ new Chart(document.getElementById('graficoDetalle').getContext('2d'), {
                 tension: 0.4
             }
         ]
+
     },
     options: {
         responsive: true,
@@ -130,48 +105,12 @@ new Chart(document.getElementById('graficoDetalle').getContext('2d'), {
     }
 });
 
-// Gráfico simple (solo ventas)
-new Chart(document.getElementById('graficoSimple').getContext('2d'), {
-    type: 'bar',
-    data: {
-        labels: [{% for r in top_simple %}'{{ r.Marca }}',{% endfor %}],
-        datasets: [
-            {
-                label: 'Ventas Totales (C$)',
-                data: [{% for r in top_simple %}{{ r.VentasTotales }},{% endfor %}],
-                backgroundColor: 'rgba(25, 135, 84, 0.7)',
-                borderColor: 'rgba(25, 135, 84, 1)',
-                borderWidth: 1
-            }
-        ]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom' } },
-        scales: {
-            y: { beginAtZero: true, title: { display: true, text: 'Ventas Totales (C$)' } }
-        }
-    }
-});
-
-// Descargar bloque detalle
+// Descargar bloque
 document.getElementById("btnDescargarDetalle").addEventListener("click", () => {
-    const bloque = document.querySelector(".row.mb-4");
+    const bloque = document.querySelector("table");
     html2canvas(bloque).then(canvas => {
         const link = document.createElement("a");
-        link.download = "reporte_top_marcas_detalle.png";
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-    });
-});
-
-// Descargar bloque simple
-document.getElementById("btnDescargarSimple").addEventListener("click", () => {
-    const bloque = document.querySelector(".row:last-child");
-    html2canvas(bloque).then(canvas => {
-        const link = document.createElement("a");
-        link.download = "reporte_top_marcas_simple.png";
+        link.download = "reporte_marcas.png";
         link.href = canvas.toDataURL("image/png");
         link.click();
     });
@@ -185,6 +124,7 @@ document.getElementById("btnDescargarSimple").addEventListener("click", () => {
 }
 </style>
 {% endblock %}
+
 
 
 

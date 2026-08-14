@@ -33,21 +33,30 @@
   
   <!-- Tabla marcas -->
   <div class="col-md-6">
-    <table class="table table-sm table-bordered compact-table">
-      <thead style="background-color: var(--color-secundario); color: white;">
-        <tr><th>Marca</th><th>Ventas</th><th>Ganancia</th><th>Margen %</th></tr>
-      </thead>
-      <tbody>
-        {% for r in datos_marcas.top_detalle[:5] %}
-        <tr>
-          <td>{{ r.Marca }}</td>
-          <td class="text-end">{{ r.VentasTotales | cordobas }}</td>
-          <td class="text-end">{{ r.Ganancia | cordobas }}</td>
-          <td class="text-end">{{ r.MargenPorcentaje }}%</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <table class="table table-sm table-bordered compact-table">
+    <thead style="background-color: var(--color-secundario); color: white;">
+      <tr><th>Marca</th><th>Ventas</th><th>Ganancia</th><th>Margen %</th></tr>
+    </thead>
+    <tbody>
+      {% for r in top5_marcas %}
+      <tr>
+        <td>{{ r.Marca }}</td>
+        <td class="text-end">{{ r.VentasTotales | cordobas }}</td>
+        <td class="text-end">{{ r.Ganancia | cordobas }}</td>
+        <td class="text-end">{{ r.MargenPorcentaje }}%</td>
+      </tr>
+      {% endfor %}
+      <!-- Fila de totales del Top 5 -->
+      <tr class="table-secondary fw-bold">
+        <td>Total Top 5</td>
+        <td class="text-end">{{ total_top5.VentasTotales | cordobas }}</td>
+        <td class="text-end">{{ total_top5.Ganancia | cordobas }}</td>
+        <td class="text-end">{{ total_top5.MargenPorcentaje }}%</td>
+      </tr>
+    </tbody>
+
+  </table>
+
         <!-- Gráfico de Barras marcas -->
       <canvas id="graficoTopMarcas"></canvas>
   </div>
@@ -301,22 +310,29 @@ document.getElementById("btnDescargarPDF").addEventListener("click", function() 
   new Chart(document.getElementById('graficoTopMarcas').getContext('2d'), {
       type: 'bar',
       data: {
-          labels: [{% for r in datos_marcas.top_detalle[:5] %}'{{ r.Marca }}',{% endfor %}],
+          labels: [{% for r in top5_marcas %}'{{ r.Marca }}',{% endfor %}],
           datasets: [{
               label: 'Ganancia (C$)',
-              data: [{% for r in datos_marcas.top_detalle[:5] %}{{ r.Ganancia }},{% endfor %}],
+              data: [{% for r in top5_marcas %}{{ r.Ganancia or 0 }},{% endfor %}],
               backgroundColor: ['#FE6412','#027266','#666666','#4B9CD3','#9C27B0'],
               borderWidth: 1
           }]
       },
-      options: { responsive: true, plugins: { legend: { display: false } } }
+      options: { 
+          responsive: true, 
+          plugins: { legend: { display: false } },
+          scales: {
+              y: { beginAtZero: true, title: { display: true, text: 'Ganancia (C$)' } }
+          }
+      }
   });
 </script>
 
+
 <!-- Gráfico Anillo Margen -->
 <script>
-const marcas = [{% for r in datos_marcas.top_detalle[:5] %}'{{ r.Marca }}',{% endfor %}];
-const margenes = [{% for r in datos_marcas.top_detalle[:5] %}{{ r.MargenPorcentaje }},{% endfor %}];
+const marcas = [{% for r in top5_marcas %}'{{ r.Marca }}',{% endfor %}];
+const margenes = [{% for r in top5_marcas %}{{ r.MargenPorcentaje or 0 }},{% endfor %}];
 const colores = ['#FE6412','#027266','#666666','#4B9CD3','#9C27B0'];
 
 const maxIndex = margenes.indexOf(Math.max(...margenes));

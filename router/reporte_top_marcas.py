@@ -9,7 +9,7 @@ def obtener_top_marcas(fecha_inicio, fecha_fin):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Top 15 marcas con detalle
+    # Todas las marcas con detalle
     query_detalle = """
         SELECT Marca,
                SUM(`Sub-Total 2`) AS VentasTotales,
@@ -23,31 +23,33 @@ def obtener_top_marcas(fecha_inicio, fecha_fin):
         WHERE Estatus != 'Anulado'
           AND Fecha BETWEEN %s AND %s 
         GROUP BY Marca
-        ORDER BY VentasTotales DESC
-        LIMIT 15;
+        ORDER BY VentasTotales DESC;
     """
     cursor.execute(query_detalle, (fecha_inicio, fecha_fin))
-    top_detalle = cursor.fetchall()
+    detalle = cursor.fetchall()
 
-    # Top 15 marcas solo ventas
-    query_simple = """
-        SELECT Marca,
+    # Totales generales
+    query_totales = """
+        SELECT 
                SUM(`Sub-Total 2`) AS VentasTotales,
-               SUM(`Cantidad Vendida`) AS UnidadesVendidas
+               SUM(`Cantidad Vendida`) AS UnidadesVendidas,
+               SUM(`Sub-Total 2`) AS Ingreso,
+               SUM(`Cantidad Vendida` * `Costo Unit.`) AS CostoTotal,
+               (SUM(`Sub-Total 2`) - SUM(`Cantidad Vendida` * `Costo Unit.`)) AS Ganancia,
+               ROUND(((SUM(`Sub-Total 2`) - SUM(`Cantidad Vendida` * `Costo Unit.`)) / 
+                      SUM(`Sub-Total 2`)) * 100, 2) AS MargenPorcentaje
         FROM ventas_por_producto
         WHERE Estatus != 'Anulado'
-          AND Fecha BETWEEN %s AND %s 
-        GROUP BY Marca
-        ORDER BY VentasTotales DESC
-        LIMIT 15;
+          AND Fecha BETWEEN %s AND %s;
     """
-    cursor.execute(query_simple, (fecha_inicio, fecha_fin))
-    top_simple = cursor.fetchall()
+    cursor.execute(query_totales, (fecha_inicio, fecha_fin))
+    totales = cursor.fetchone()
 
     cursor.close()
     conn.close()
 
-    return {"top_detalle": top_detalle, "top_simple": top_simple}
+    return {"detalle": detalle, "totales": totales}
+
 
 @top_marcas_bp.route("/top_marcas", methods=["GET", "POST"])
 @requiere_acceso("top_marcas")
