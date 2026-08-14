@@ -207,3 +207,40 @@ form .form-label {
   }
 
   }
+
+/* ===== Login responsive ===== */
+.card {
+    border-radius: 8px;
+}
+
+.card-header h4 {
+    font-size: 1.2rem;
+}
+
+.card-body {
+    padding: 1rem;
+}
+
+.form-control {
+    font-size: 1rem;
+    padding: 0.6rem;
+}
+
+.btn {
+    font-size: 1rem;
+    padding: 0.6rem;
+}
+
+/* Ajustes en pantallas pequeñas */
+@media (max-width: 576px) {
+    .card {
+        margin: 0 10px;
+    }
+    .card-header h4 {
+        font-size: 1rem;
+    }
+    .form-control, .btn {
+        font-size: 0.9rem;
+        padding: 0.5rem;
+    }
+}
