@@ -37,7 +37,6 @@ def registro():
             cursor.execute("INSERT INTO accesos_vistas (usuario, vista, permitido) VALUES (%s, %s, %s)", (usuario, v, 0))
 
         conn.commit()
-
         cursor.close()
         conn.close()
 
@@ -104,8 +103,16 @@ def editar_usuario(id):
     if request.method == "POST":
         usuario = request.form["usuario"]
         rol = request.form["rol"]
+        password = request.form.get("password")
 
-        cursor.execute("UPDATE usuarios SET usuario=%s, rol=%s WHERE id=%s", (usuario, rol, id))
+        if password:  # Si el campo no está vacío, actualizar contraseña
+            hash_pass = generate_password_hash(password)
+            cursor.execute("UPDATE usuarios SET usuario=%s, rol=%s, password=%s WHERE id=%s",
+                        (usuario, rol, hash_pass, id))
+        else:
+            cursor.execute("UPDATE usuarios SET usuario=%s, rol=%s WHERE id=%s",
+                        (usuario, rol, id))
+
         conn.commit()
         cursor.close()
         conn.close()
@@ -116,6 +123,31 @@ def editar_usuario(id):
     cursor.close()
     conn.close()
     return render_template("editar_usuario.html", user=user)
+
+# -----------------------------
+# Editar contraseña de usuario
+# -----------------------------
+@usuarios_bp.route("/usuarios/password/<int:id>", methods=["GET", "POST"])
+@requiere_acceso("usuarios")
+def editar_password(id):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    if request.method == "POST":
+        nueva_password = request.form["password"]
+        hash_pass = generate_password_hash(nueva_password)
+
+        cursor.execute("UPDATE usuarios SET password=%s WHERE id=%s", (hash_pass, id))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return redirect(url_for("usuarios.listar_usuarios"))
+
+    cursor.execute("SELECT id, usuario FROM usuarios WHERE id=%s", (id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return render_template("editar_password.html", user=user)
 
 # -----------------------------
 # Eliminar usuario
@@ -129,5 +161,6 @@ def eliminar_usuario(id):
     cursor.close()
     conn.close()
     return redirect(url_for("usuarios.listar_usuarios"))
+
 
 

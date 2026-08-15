@@ -83,6 +83,7 @@
                 <option value="">-- Seleccione --</option>
                 <option value="RODAMIENTO">RODAMIENTO</option>
                 <option value="CORREA">CORREA</option>
+                <option value="FILTRO">FILTRO</option>
                 <option value="EQUIPO PESADO">EQUIPO PESADO</option>
                 <option value="EQUIPO LIVIANO">EQUIPO LIVIANO</option>
             </select>
@@ -101,10 +102,11 @@
         </div>
 
         <div class="col-12 col-md-6">
-            <label class="form-label small fw-bold text-success">Nota</label>
-            <textarea maxlength="255" rows="4" class="form-control campo-estilizado" 
-                      name="nota" required></textarea>
+            <label class="form-label small fw-bold text-success">Marca - Nota</label>
+            <textarea maxlength="255" class="form-control campo-estilizado auto-ajuste" 
+                    name="nota" required></textarea>
         </div>
+
 
         <div class="col-12 col-md-2">
             <button type="submit" class="btn btn-sm btn-success w-100">➕ Agregar</button>
@@ -180,4 +182,13 @@ $(document).ready(function() {
     });
 });
 </script>
+<script>
+document.addEventListener("input", function(e) {
+    if (e.target.classList.contains("auto-ajuste")) {
+        e.target.style.height = "auto";
+        e.target.style.height = (e.target.scrollHeight) + "px";
+    }
+});
+</script>
+
 {% endblock %}

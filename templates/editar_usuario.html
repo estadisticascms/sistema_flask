@@ -26,6 +26,19 @@
             </select>
         </div>
 
+        <!-- Campo Contraseña -->
+        <div class="mb-3">
+            <label for="password" class="form-label">Nueva Contraseña</label>
+            <input type="password" name="password" id="password" class="form-control">
+            <small class="text-muted">Deja vacío si no deseas cambiar la contraseña.</small>
+        </div>
+
+        <!-- Confirmar Contraseña -->
+        <div class="mb-3">
+            <label for="confirm_password" class="form-label">Confirmar Contraseña</label>
+            <input type="password" name="confirm_password" id="confirm_password" class="form-control">
+        </div>
+
         <!-- Botones -->
         <div class="d-flex justify-content-between">
             <button type="submit" class="btn btn-primary">💾 Guardar cambios</button>
@@ -33,5 +46,17 @@
         </div>
     </form>
 </div>
+
+<script>
+    // Validación simple en cliente
+    document.querySelector("form").addEventListener("submit", function(e) {
+        const pass = document.getElementById("password").value;
+        const confirm = document.getElementById("confirm_password").value;
+        if (pass && pass !== confirm) {
+            e.preventDefault();
+            alert("❌ Las contraseñas no coinciden");
+        }
+    });
+</script>
 </body>
 </html>

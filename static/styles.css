@@ -230,6 +230,13 @@ form .form-label {
     font-size: 1rem;
     padding: 0.6rem;
 }
+.auto-ajuste {
+  min-height: 80px;       /* altura mínima */
+  max-height: 300px;      /* altura máxima */
+  overflow-y: auto;       /* scroll si se excede */
+  resize: vertical;       /* permitir al usuario ajustar manualmente */
+}
+
 
 /* Ajustes en pantallas pequeñas */
 @media (max-width: 576px) {
