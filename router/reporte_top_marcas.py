@@ -21,7 +21,7 @@ def obtener_top_marcas(fecha_inicio, fecha_fin):
                       SUM(`Sub-Total 2`)) * 100, 2) AS MargenPorcentaje
         FROM ventas_por_producto
         WHERE Estatus != 'Anulado'
-          AND Fecha BETWEEN %s AND %s 
+          AND Fecha BETWEEN %s AND %s  and marca !='MITROX'
         GROUP BY Marca
         ORDER BY VentasTotales DESC;
     """

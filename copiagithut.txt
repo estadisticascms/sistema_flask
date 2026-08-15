@@ -1,0 +1,10 @@
+git add .
+git commit -m "Actualización de login responsive"
+git push origin main
+
+para copiar al servidor, 
+git pull origin main
+
+para ver en que rama estamos
+git branch
+
