@@ -236,18 +236,27 @@ form .form-label {
   overflow-y: auto;       /* scroll si se excede */
   resize: vertical;       /* permitir al usuario ajustar manualmente */
 }
-
-
 /* Ajustes en pantallas pequeñas */
 @media (max-width: 576px) {
     .card {
         margin: 0 10px;
     }
     .card-header h4 {
-        font-size: 1rem;
+        font-size: 1.3rem;
+        
     }
     .form-control, .btn {
-        font-size: 0.9rem;
-        padding: 0.5rem;
+        font-size: 1.1rem;
+        padding: 1rem;
     }
+}
+.login-card {
+    width: 100%;          /* ocupa todo el ancho disponible */
+    max-width: 600px;     /* más ancho en móvil */
+    border-radius: 10px;
+    margin: 0 15px;       /* margen lateral en móvil */
+}
+
+.logo {
+    max-width: 120px;     /* logo más grande */
 }
