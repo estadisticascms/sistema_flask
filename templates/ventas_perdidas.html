@@ -32,7 +32,7 @@
         </div>
         <div class="col-12 col-md-2 d-flex gap-2">
             <button type="submit" class="btn btn-sm btn-primary w-100">🔍 Filtrar</button>
-            <a href="{{ url_for('ventas_perdidas') }}" class="btn btn-sm btn-secondary w-100">♻️ Limpiar</a>
+            <a href="{{ url_for('ventas_perdidas.ventas_perdidas') }}" class="btn btn-sm btn-secondary w-100">♻️ Limpiar</a>
         </div>
     </form>
 
@@ -139,8 +139,8 @@
                     <td class="text-start">{{ r.cantidad }}</td>
                     <td class="text-start">{{ r.nota }}</td>
                     <td class="text-center">
-                        <a href="{{ url_for('editar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-warning">✏️</a>
-                        <a href="{{ url_for('eliminar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-danger"
+                        <a href="{{ url_for('ventas_perdidas.editar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-warning">✏️</a>
+                        <a href="{{ url_for('ventas_perdidas.eliminar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-danger"
                            onclick="return confirm('¿Seguro que deseas eliminar este registro?');">🗑️</a>
                     </td>
                 </tr>
