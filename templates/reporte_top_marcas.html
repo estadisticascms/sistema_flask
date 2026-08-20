@@ -58,6 +58,18 @@
     </table>
 
     <!-- Gráfico -->
+    <!-- Gráfico Top 15 mayor margen -->
+    <div class="row">
+    <div class="col-md-6">
+        <h6 class="text-success">🏆 Top 15 Mayor Margen</h6>
+        <canvas id="graficoTopMayor" style="height:100%; max-height:500px; width:100%;"></canvas>
+    </div>
+    <div class="col-md-6">
+        <h6 class="text-danger">📉 Top 15 Menor Margen</h6>
+        <canvas id="graficoTopMenor" style="height:100%; max-height:500px; width:100%;"></canvas>
+    </div>
+    </div>
+
     <h6 class="text-success">🏆 Gráfico Ventas + Margen</h6>
     <canvas id="graficoDetalle" style="height:100%; max-height:400px; width:100%;"></canvas>
 </div>
@@ -115,7 +127,58 @@ document.getElementById("btnDescargarDetalle").addEventListener("click", () => {
         link.click();
     });
 });
+// Gráfico Top 15 mayor margen (horizontal)
+new Chart(document.getElementById('graficoTopMayor').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: [{% for r in top_mayor %}'{{ r.Marca }}',{% endfor %}],
+        datasets: [{
+            label: 'Margen (%)',
+            data: [{% for r in top_mayor %}{{ r.MargenPorcentaje or 0 }},{% endfor %}],
+            backgroundColor: 'rgba(25, 135, 84, 0.7)',
+            borderColor: 'rgba(25, 135, 84, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        indexAxis: 'y', // orientación horizontal
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { beginAtZero: true, title: { display: true, text: 'Margen (%)' } },
+            y: { title: { display: true, text: 'Marca' } }
+        }
+    }
+});
+
+// Gráfico Top 15 menor margen (horizontal)
+new Chart(document.getElementById('graficoTopMenor').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: [{% for r in top_menor %}'{{ r.Marca }}',{% endfor %}],
+        datasets: [{
+            label: 'Margen (%)',
+            data: [{% for r in top_menor %}{{ r.MargenPorcentaje or 0 }},{% endfor %}],
+            backgroundColor: 'rgba(220, 53, 69, 0.7)',
+            borderColor: 'rgba(220, 53, 69, 1)',
+            borderWidth: 1
+        }]
+    },
+    options: {
+        indexAxis: 'y', // orientación horizontal
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { beginAtZero: true, title: { display: true, text: 'Margen (%)' } },
+            y: { title: { display: true, text: 'Marca' } }
+        }
+    }
+});
+
 </script>
+
 
 <style>
 .compact-table td, .compact-table th {

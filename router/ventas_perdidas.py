@@ -48,6 +48,7 @@ def ventas_perdidas():
     fecha_inicio = request.args.get("fecha_inicio", "")
     fecha_fin = request.args.get("fecha_fin", "")
 
+
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
@@ -70,8 +71,9 @@ def ventas_perdidas():
     cursor.execute(query, tuple(params))
     registros = cursor.fetchall()
 
+    cursor = conn.cursor(dictionary=True)
     cursor.execute("SELECT DISTINCT nomb_vendedor FROM ventas_perdidas ORDER BY nomb_vendedor")
-    vendedores = [row["nomb_vendedor"] for row in cursor.fetchall()]
+    vendedores = cursor.fetchall()
 
     cursor.close()
     conn.close()

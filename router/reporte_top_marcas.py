@@ -28,6 +28,16 @@ def obtener_top_marcas(fecha_inicio, fecha_fin):
     cursor.execute(query_detalle, (fecha_inicio, fecha_fin))
     detalle = cursor.fetchall()
 
+        # Top 15 mayor margen
+    query_top_mayor = query_detalle.replace("ORDER BY VentasTotales DESC;", "ORDER BY MargenPorcentaje DESC LIMIT 15;")
+    cursor.execute(query_top_mayor, (fecha_inicio, fecha_fin))
+    top_mayor = cursor.fetchall()
+
+    # Top 15 menor margen
+    query_top_menor = query_detalle.replace("ORDER BY VentasTotales DESC;", "ORDER BY MargenPorcentaje ASC LIMIT 15;")
+    cursor.execute(query_top_menor, (fecha_inicio, fecha_fin))
+    top_menor = cursor.fetchall()
+
     # Totales generales
     query_totales = """
         SELECT 
@@ -48,8 +58,7 @@ def obtener_top_marcas(fecha_inicio, fecha_fin):
     cursor.close()
     conn.close()
 
-    return {"detalle": detalle, "totales": totales}
-
+    return {"detalle": detalle, "totales": totales, "top_mayor": top_mayor, "top_menor": top_menor}
 
 @top_marcas_bp.route("/top_marcas", methods=["GET", "POST"])
 @requiere_acceso("top_marcas")
