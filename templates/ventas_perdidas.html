@@ -140,7 +140,7 @@
                 <td class="fw-bold fs-6 text-primary text-uppercase">{{ r.numero_parte }}</td>
                 <td class="text-uppercase">{{ r.descripcion }}</td>
                 <td class="fw-bold fs-6 text-danger">{{ r.cantidad }}</td>
-                <td class="text-uppercase">{{ r.nota }}</td>
+                <td class="vertical-text">{{ r.nota }}</td>
                 <td class="text-center">
                     <a href="{{ url_for('ventas_perdidas.editar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-warning">✏️</a>
                     <a href="{{ url_for('ventas_perdidas.eliminar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-danger"

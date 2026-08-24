@@ -264,3 +264,10 @@ form .form-label {
   border-radius: 8px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.15);
   }
+td.vertical-text {
+  writing-mode: horizontal-tb;     /* coloca el texto de arriba hacia abajo */
+  text-orientation: mixed;       /* mantiene las letras legibles */
+  text-transform: uppercase;     /* convierte todo el texto a MAYÚSCULAS */
+  white-space: normal;           /* permite saltos de línea si es necesario */
+  text-align: left;
+}
