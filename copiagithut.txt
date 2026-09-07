@@ -8,3 +8,13 @@ git pull origin main
 para ver en que rama estamos
 git branch
 
+para correr en el servidor sistema
+venv312\Scripts\activate
+python app.py
+
+
+descartar cambios hechos en el servidor nube
+git checkout -- static/logo.png (este es un ejemplo de que se copio la imagen logo en el servidor)
+luego se sube todo normal con
+git pull origin main
+

@@ -1,5 +1,6 @@
 
-from flask import Flask, render_template, request, redirect, url_for, Response, flash, session
+from flask import Flask, render_template, request, abort, redirect, url_for, Response, flash, session
+import logging
 import mysql.connector
 from datetime import datetime
 from datetime import date
@@ -29,6 +30,29 @@ app.config["UPLOAD_FOLDER"] = "uploads"
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 app.secret_key = "clave_secreta_segura"
 
+# Configuración del logger para intentos sospechosos
+logger = logging.getLogger("sospechosos")
+handler = logging.FileHandler("sospechosos.log")
+formatter = logging.Formatter("%(asctime)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+
+# Lista de rutas prohibidas
+rutas_prohibidas = ["/.git", "/git/config", "/env", "/config", "/etc"]
+
+@app.before_request
+def bloquear_y_loggear():
+    for ruta in rutas_prohibidas:
+        if request.path.startswith(ruta):
+            logger.info(
+                f"Intento bloqueado: IP={request.remote_addr}, "
+                f"Ruta={request.path}, "
+                f"User-Agent={request.headers.get('User-Agent')}"
+            )
+            abort(404)
+
+
 app.register_blueprint(recibos_bp)
 app.register_blueprint(devoluciones_bp)
 app.register_blueprint(reporte_facturas_bp)
@@ -41,6 +65,10 @@ app.register_blueprint(usuarios_bp)
 app.register_blueprint(login_bp)
 app.register_blueprint(ventas_perdidas_bp)
 app.register_blueprint(productos_agotarse_bp)
+
+
+
+
 
 
 # -----------------------------
@@ -699,7 +727,7 @@ def reporte_ventas_dia():
         reporte[fecha]["filas"].append(r)
         reporte[fecha]["subtotal"] += Decimal(r["Subtotal"] or 0)
         reporte[fecha]["descuento"] += Decimal(r["Descuento"] or 0)
-        reporte[fecha]["neto"] += Decimal(r["Neto"] or 0)
+        #reporte[fecha]["neto"] += Decimal(r["Neto"] or 0)
         reporte[fecha]["devoluciones"] += dev
         reporte[fecha]["neto"] += neto_ajustado
         reporte[fecha]["iva"] += Decimal(r["Iva"] or 0)
@@ -739,6 +767,7 @@ def reporte_ventas_dia():
                            total_neto=total_neto,
                            total_iva=total_iva,
                            total_general=total_general,
+                           total_usd=total_usd,
                            chart_labels=dias,
                            chart_contado=ventas_contado,
                            chart_credito=ventas_credito)

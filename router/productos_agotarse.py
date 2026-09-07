@@ -20,6 +20,7 @@ def obtener_productos_agotarse(filtro_cobertura=4, fecha_inicio="2026-01-01", fe
             ROW_NUMBER() OVER (PARTITION BY codigo_producto ORDER BY fecha DESC) AS rn
         FROM transacciones_inventario
         WHERE tipo_transaccion IN ('ENTRADA','AJUSTE ENTRADA')
+        and tipo_documento_origen in ('ORDEN COMPRA')
     ),
     ventas_mensuales AS (
         SELECT 
@@ -33,7 +34,7 @@ def obtener_productos_agotarse(filtro_cobertura=4, fecha_inicio="2026-01-01", fe
                 SUM(CASE WHEN t.tipo_transaccion IN ('SALIDA','AJUSTE SALIDA') 
                          THEN t.cantidad ELSE 0 END) AS cant_mes
             FROM transacciones_inventario t
-            WHERE t.tipo_transaccion IN ('SALIDA','AJUSTE SALIDA')
+            WHERE t.tipo_transaccion IN ('SALIDA','AJUSTE SALIDA') 
             GROUP BY t.codigo_producto, DATE_FORMAT(t.fecha, '%Y-%m')
         ) mensual
         JOIN transacciones_inventario t 
