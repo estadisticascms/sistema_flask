@@ -1,0 +1,96 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Reporte de Ventas por Bodega y Marca</h2>
+
+    <!-- Formulario para cambiar fechas -->
+    <form method="post" class="row g-3 mb-4">
+        <div class="col-auto">
+            <label for="fecha_inicio" class="form-label">Fecha inicio:</label>
+            <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control" value="{{ fecha_inicio }}">
+        </div>
+        <div class="col-auto">
+            <label for="fecha_fin" class="form-label">Fecha fin:</label>
+            <input type="date" id="fecha_fin" name="fecha_fin" class="form-control" value="{{ fecha_fin }}">
+        </div>
+        <div class="col-auto align-self-end">
+            <button type="submit" class="btn btn-primary">Actualizar</button>
+        </div>
+    </form>
+
+    <!-- Bloque 1: Ventas diarias -->
+    <h4>Detalle Diario por Bodega</h4>
+    {% for bodega, marcas in data_dias.items() %}
+        <h5>{{ bodega }}</h5>
+        <table class="table table-bordered table-sm mb-4">
+            <thead>
+                <tr>
+                    <th>Marca</th>
+                    {% for fecha in fechas %}
+                        <th>{{ fecha }}</th>
+                    {% endfor %}
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for marca, valores in marcas.items() %}
+                <tr>
+                    <td>{{ marca }}</td>
+                    {% for fecha in fechas %}
+                        <td>{{ valores.get(fecha, 0) }}</td>
+                    {% endfor %}
+                    <td>{{ valores.values()|sum }}</td>
+                </tr>
+                {% endfor %}
+                <!-- Totales por bodega -->
+                <tr class="table-secondary fw-bold">
+                    <td>Total {{ bodega }}</td>
+                    {% for fecha in fechas %}
+                        <td>{{ totales_dias[bodega][fecha] }}</td>
+                    {% endfor %}
+                    <td>{{ totales_dias[bodega]["Total"] }}</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endfor %}
+
+    <!-- Bloque 2: Ventas semanales -->
+    <h4>Resumen Semanal por Bodega</h4>
+    {% for bodega, marcas in data_sem.items() %}
+        <h5>{{ bodega }}</h5>
+        <table class="table table-striped table-sm mb-4">
+            <thead>
+                <tr>
+                    <th>Marca</th>
+                    {% for semana in semanas %}
+                        <th>{{ semana }}</th>
+                    {% endfor %}
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for marca, valores in marcas.items() %}
+                <tr>
+                    <td>{{ marca }}</td>
+                    {% for semana in semanas %}
+                        <td>{{ valores.get(semana, 0) }}</td>
+                    {% endfor %}
+                    <td>{{ valores.values()|sum }}</td>
+                </tr>
+                {% endfor %}
+                <!-- Totales por bodega -->
+                <tr class="table-secondary fw-bold">
+                    <td>Total {{ bodega }}</td>
+                    {% for semana in semanas %}
+                        <td>{{ totales_sem[bodega][semana] }}</td>
+                    {% endfor %}
+                    <td>{{ totales_sem[bodega]["Total"] }}</td>
+                </tr>
+            </tbody>
+        </table>
+    {% endfor %}
+</div>
+{% endblock %}
+
+
+

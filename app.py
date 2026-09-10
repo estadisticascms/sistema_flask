@@ -23,6 +23,7 @@ from router.login import login_bp
 from router.accesos import requiere_acceso
 from router.ventas_perdidas import ventas_perdidas_bp
 from router.productos_agotarse import productos_agotarse_bp
+from router.ventas_bodegas import ventas_bodega_bp
 
 
 app = Flask(__name__)
@@ -65,6 +66,7 @@ app.register_blueprint(usuarios_bp)
 app.register_blueprint(login_bp)
 app.register_blueprint(ventas_perdidas_bp)
 app.register_blueprint(productos_agotarse_bp)
+app.register_blueprint(ventas_bodega_bp)
 
 
 

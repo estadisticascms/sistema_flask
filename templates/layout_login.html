@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <a class="navbar-brand" href="/">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" width="40" height="40" class="d-inline-block align-text-top">
+                
+    </a>
+
     <title>{% block title %}Grupo Comersa{% endblock %}</title>
 
     <!-- Bootstrap -->
