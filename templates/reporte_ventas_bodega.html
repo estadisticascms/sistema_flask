@@ -37,7 +37,13 @@
                 <tr>
                     <td>{{ marca }}</td>
                     {% for fecha in fechas %}
-                        <td>{{ valores.get(fecha, 0) }}</td>
+                        <td>
+                            {% if valores.get(fecha, 0) > 0 %}
+                            <strong>{{ valores.get(fecha, 0) }}</strong>
+                            {% else %}
+                                {{ valores.get(fecha, 0) }}
+                            {% endif %}
+                        </td>
                     {% endfor %}
                     <td>{{ valores.values()|sum }}</td>
                 </tr>
@@ -73,7 +79,13 @@
                 <tr>
                     <td>{{ marca }}</td>
                     {% for semana in semanas %}
-                        <td>{{ valores.get(semana, 0) }}</td>
+                        <td>
+                                        {% if valores.get(semana, 0) > 0 %}
+                <strong>{{ valores.get(semana, 0) }}</strong>
+            {% else %}
+                {{ valores.get(semana, 0) }}
+            {% endif %}
+                        </td>
                     {% endfor %}
                     <td>{{ valores.values()|sum }}</td>
                 </tr>
