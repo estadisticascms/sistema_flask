@@ -22,7 +22,7 @@ def obtener_ventas_bodega(fecha_inicio, fecha_fin):
         WHERE Estatus != 'Anulado'
           AND Fecha BETWEEN %s AND %s
         GROUP BY Bodega, Numero_parte, `Descrip Prod.`, Marca, Dia
-        ORDER BY Bodega, Numero_parte, `Descrip Prod.`, Marca, Dia;
+        ORDER BY Bodega, `Descrip Prod.`, Marca, Dia;
     """
     cursor.execute(query_dias, (fecha_inicio, fecha_fin))
     registros_dias = cursor.fetchall()
@@ -72,7 +72,7 @@ def obtener_ventas_bodega(fecha_inicio, fecha_fin):
         WHERE Estatus != 'Anulado'
           AND Fecha BETWEEN %s AND %s
         GROUP BY SemanaMes, Bodega, Numero_parte, `Descrip Prod.`, Marca
-        ORDER BY Bodega, Numero_parte, `Descrip Prod.`, Marca, SemanaMes;
+        ORDER BY Bodega, `Descrip Prod.`, Marca, SemanaMes;
     """
     cursor.execute(query_semanal, (fecha_inicio, fecha_fin))
     registros_sem = cursor.fetchall()
