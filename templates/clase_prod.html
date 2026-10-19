@@ -1,0 +1,613 @@
+{% extends "layout.html" %}
+{% block title %}Clasificación y Fichas{% endblock %}
+{% block content %}
+{% set pct_clasificado = (conteo.clasificados / conteo.total * 100) if conteo.total else 0 %}
+<style>
+  .cp {
+    --naranja: var(--color-principal, #FE6412);
+    --verde: var(--color-secundario, #027266);
+    --ink: #1f1f1d; --ink-2: #52514e; --ink-3: #74736e; --linea: #e6e4df; --fondo-suave: #f6f5f1;
+    --ambar: #b45309;
+    color: var(--ink-2);
+  }
+  .cp h4 { color: var(--verde); }
+  .cp .subtitulo { color: var(--ink-3); font-size: .85rem; }
+
+  /* ---- Estado del catálogo (también son filtros) ---- */
+  .estado-card { display: flex; gap: .75rem; align-items: center; padding: .7rem .9rem; border: 1px solid var(--linea);
+                 border-radius: 10px; background: #fff; color: var(--ink); text-decoration: none; height: 100%;
+                 transition: border-color .15s ease, box-shadow .15s ease; }
+  .estado-card:hover { border-color: #cfccc4; box-shadow: 0 1px 4px rgba(0,0,0,.06); color: var(--ink); }
+  .estado-card:focus-visible { outline: 3px solid var(--naranja); outline-offset: 2px; }
+  .estado-card[aria-current="page"] { border: 2px solid var(--naranja); padding: calc(.7rem - 1px) calc(.9rem - 1px); }
+  .estado-card .icono { font-size: 1.4rem; line-height: 1; }
+  .estado-card .etiqueta { font-size: .78rem; color: var(--ink-3); }
+  .estado-card .numero { font-size: 1.35rem; font-weight: 700; line-height: 1.15; }
+  .avance { height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; }
+  .avance > span { display: block; height: 100%; background: var(--verde); }
+
+  /* ---- Filtros ---- */
+  .cp .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .cp .form-control-sm, .cp .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .chip { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .35rem .2rem .65rem; border-radius: 999px;
+          background: #fff1e8; border: 1px solid #fcd3bb; color: var(--ink); font-size: .78rem; }
+  .chip a { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 50%;
+            color: var(--ink-2); text-decoration: none; }
+  .chip a:hover, .chip a:focus-visible { background: #fcd3bb; color: var(--ink); }
+
+  /* ---- Tabla ---- */
+  .tabla-clase { width: 100%; min-width: 1280px; margin: 0; font-size: .8rem; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+  .tabla-clase tbody tr:has(.sel:checked) td { background: #eef6f5; }
+  .tabla-clase thead th { position: sticky; top: 0; z-index: 2; background: var(--fondo-suave); color: var(--ink-2);
+                          text-align: left; font-weight: 600; border-bottom: 1px solid var(--linea); white-space: nowrap; padding: .45rem .4rem; }
+  .tabla-clase td { text-align: left; vertical-align: middle; white-space: normal; padding: .3rem .4rem; border-bottom: 1px solid var(--linea); color: var(--ink); }
+  .tabla-clase .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tabla-clase tbody tr:hover td { background: #faf9f6; }
+  .tabla-clase tr.sin-clase td:first-child { box-shadow: inset 3px 0 0 var(--naranja); }
+  .tabla-clase tr.editado td { background: #fff7ed !important; }
+  .tabla-clase tr.guardado td { background: #e6f2f0 !important; transition: background-color .8s ease; }
+  .producto .nombre { font-weight: 600; color: var(--ink); }
+  .producto .meta { font-size: .74rem; color: var(--ink-3); }
+  .sel-celda { display: flex; align-items: center; justify-content: center; width: 36px; min-height: 36px; margin: 0; cursor: pointer; }
+  .sel-celda input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--verde); }
+
+  /* Campos "fantasma": se ven como texto hasta que se pasa el mouse o se editan */
+  .campo { width: 100%; min-width: 0; min-height: 32px; text-overflow: ellipsis; padding: .25rem .45rem; border: 1px solid transparent; border-radius: 6px;
+           background: transparent; color: var(--ink); font-size: .8rem; }
+  .campo::placeholder { color: #a3a19a; font-style: italic; }
+  .campo:hover { border-color: var(--linea); background: #fff; }
+  .campo:focus { outline: none; border-color: var(--verde); background: #fff; box-shadow: 0 0 0 3px rgba(2,114,102,.18); }
+  tr.editado .campo.cambiado { border-color: #f6b48d; background: #fff; }
+  .grupo-celda { display: flex; align-items: center; gap: 2px; }
+
+  .btn-icono { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 6px;
+               color: var(--ink-2); text-decoration: none; }
+  .btn-icono:hover, .btn-icono:focus-visible { background: var(--fondo-suave); color: var(--verde); }
+
+  .acciones .form-fila { flex-wrap: wrap; }
+  .acciones .btn { white-space: nowrap; }
+  .acciones .estado-fila { font-size: .75rem; flex-basis: 100%; line-height: 1.25; }
+  .acciones .estado-fila:empty { display: none; }
+  .acciones .btn { min-height: 32px; }
+
+  /* ---- Barra inferior: cambios pendientes y clasificación masiva ---- */
+  .barra-inferior { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030; background: #fff; border-top: 1px solid var(--linea);
+                    box-shadow: 0 -4px 16px rgba(0,0,0,.08); padding: .6rem 1rem calc(.6rem + env(safe-area-inset-bottom, 0px)); }
+  .barra-inferior .grupo { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem; }
+  .barra-inferior .titulo-grupo { font-weight: 700; color: var(--ink); font-size: .85rem; }
+  .espacio-barra { height: 0; }
+  body.con-barra .espacio-barra { height: 130px; }
+
+  .btn-verde { background: var(--verde); border-color: var(--verde); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .cp .btn:focus-visible, .cp .page-link:focus-visible { outline: 3px solid var(--naranja); outline-offset: 2px; box-shadow: none; }
+  .cp .pagination .page-item.active .page-link { background: var(--verde); border-color: var(--verde); }
+  .cp .pagination .page-link { color: var(--verde); min-width: 34px; text-align: center; }
+
+  /* ---- Ficha del catálogo y sugerencias ---- */
+  .ficha { font-size: .72rem; color: var(--ink-2); margin-top: 2px; line-height: 1.35; }
+  .ficha .dato { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .ficha .rot { color: var(--ink-3); }
+  .falta { color: #b42318; font-weight: 600; }
+  .web a { font-size: .72rem; margin-right: .5rem; color: var(--verde); }
+  .sug { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; margin-top: 2px; padding: 1px 7px; border-radius: 999px;
+         border: 1px dashed #f6b48d; background: #fff7f2; color: #9a3412; font-size: .7rem; font-weight: 600; cursor: pointer;
+         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sug:hover, .sug:focus-visible { background: #ffe9dc; outline: none; border-style: solid; }
+  .sug.nuevo { border-color: #9fd3cc; background: #eef7f6; color: var(--verde); }
+  .razon { font-size: .7rem; color: var(--ink-3); margin-top: 2px; }
+  .razon .conf { font-weight: 700; }
+  .conf.alta { color: var(--verde); } .conf.media { color: var(--ambar); } .conf.baja { color: #b42318; }
+  .btn-sug { font-size: .72rem; padding: .1rem .45rem; border: 1px solid #f6b48d; color: #9a3412; background: #fff7f2; border-radius: 6px; min-height: 28px; }
+  .btn-sug:hover, .btn-sug:focus-visible { background: #ffe9dc; }
+
+  @media (prefers-reduced-motion: reduce) { .cp *, .tabla-clase tr.guardado td { transition: none !important; } }
+</style>
+
+<div class="cp container-fluid px-3 mt-2">
+
+  {# ---------- Encabezado ---------- #}
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-tags-fill" aria-hidden="true"></i> Clasificación y fichas de productos</h4>
+      <div class="subtitulo">Complete segmento, familia, subfamilia y grupo de equivalencia. Se sugieren según las equivalencias
+        y la aplicación del catálogo; medida, aplicación y equivalencias se corrigen en el sistema y aquí se consultan.</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if f.ficha %}
+      <a href="{{ url_for('productos_incompletos.descargar_excel', falta={'incompleta': 'cualquiera'}.get(f.ficha, f.ficha), q=f.q) }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i> Excel de fichas incompletas</a>
+      {% endif %}
+      <a href="{{ url_for('clase_prod.importar') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Importar desde Excel</a>
+    </div>
+  </div>
+
+  {# ---------- Estado del catálogo: cada tarjeta filtra la tabla ---------- #}
+  {% set base = {'q': f.q, 'segmento': f.segmento, 'familia': f.familia, 'subfamilia': f.subfamilia, 'grupo': f.grupo, 'orden': f.orden,
+                  'descartar': f.descartar} %}
+  {% set todos_filtros = {'q': f.q, 'estado': f.estado, 'segmento': f.segmento, 'familia': f.familia, 'subfamilia': f.subfamilia,
+                          'grupo': f.grupo, 'orden': f.orden, 'ficha': f.ficha, 'existencia': f.existencia, 'descartar': f.descartar} %}
+  <nav aria-label="Filtrar por estado de clasificación">
+    <div class="row g-2 mb-2">
+      {% for clave, titulo, icono, color, n, extra in [
+          ('todos', 'Todo el catálogo', 'bi-collection', 'var(--ink-3)', conteo.total, {}),
+          ('clasificados', 'Clasificados', 'bi-check-circle-fill', 'var(--verde)', conteo.clasificados, {}),
+          ('por_clasificar', 'Por clasificar', 'bi-exclamation-circle-fill', 'var(--ambar)', conteo.por_clasificar, {}),
+          ('sin_clasificar', 'Sin clasificación', 'bi-dash-circle-fill', 'var(--naranja)', conteo.sin_clasificar, {}),
+          ('incompletos', 'Datos incompletos · con existencia', 'bi-ui-checks', 'var(--naranja)', conteo.incompletos, {'existencia': '1'}),
+          ('ficha', 'Ficha incompleta · con existencia', 'bi-clipboard-x', 'var(--ambar)', conteo.ficha, {'existencia': '1', 'ficha': 'incompleta'})] %}
+        {% if clave == 'ficha' %}{% set activo = f.ficha == 'incompleta' and f.estado == 'todos' %}
+        {% else %}{% set activo = f.estado == clave and (clave != 'todos' or not f.ficha) %}{% endif %}
+        <div class="col-6 col-md-4 col-xl">
+          <a class="estado-card" href="{{ url_for('clase_prod.clase_prod', estado=('todos' if clave == 'ficha' else clave), **dict(base, **extra)) }}"
+             {% if activo %}aria-current="page"{% endif %}>
+            <i class="bi {{ icono }} icono" style="color: {{ color }}" aria-hidden="true"></i>
+            <div>
+              <div class="etiqueta">{{ titulo }}</div>
+              <div class="numero" data-contador="{{ clave }}">{{ "{:,}".format(n) }}</div>
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+        <div class="col-6 col-md-4 col-xl">
+          <a class="estado-card" href="{{ url_for('clase_prod.clase_prod', estado='todos', **dict(base, descartar='solo')) }}"
+             {% if f.descartar == 'solo' %}aria-current="page"{% endif %}
+             title="No hace falta clasificarlos: {{ '{:,}'.format(conteo.sin_movimiento) }} sin movimiento (sin entradas ni salidas, o sin entradas y sin existencia) y {{ '{:,}'.format(conteo.publicidad) }} de publicidad">
+            <i class="bi bi-eye-slash icono" style="color: var(--ink-3)" aria-hidden="true"></i>
+            <div>
+              <div class="etiqueta">Sin movimiento y publicidad</div>
+              <div class="numero">{{ "{:,}".format(conteo.descartados) }}</div>
+            </div>
+          </a>
+        </div>
+    </div>
+  </nav>
+  {% if f.descartar == '1' %}<div class="small text-muted mb-1">Los contadores no incluyen {{ "{:,}".format(conteo.descartados) }} productos sin movimiento o de publicidad.</div>{% endif %}
+  <div class="d-flex align-items-center gap-2 mb-3 small">
+    <div class="avance flex-grow-1" role="progressbar" aria-label="Avance de clasificación"
+         aria-valuenow="{{ pct_clasificado|round(1) }}" aria-valuemin="0" aria-valuemax="100">
+      <span id="avance-barra" style="width: {{ pct_clasificado }}%"></span>
+    </div>
+    <span><strong id="avance-pct">{{ "%.1f"|format(pct_clasificado) }}%</strong> del catálogo clasificado</span>
+  </div>
+
+  {# ---------- Búsqueda y filtros ---------- #}
+  <form method="get" class="card card-body py-2 mb-2" role="search">
+    <input type="hidden" name="estado" value="{{ f.estado }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-lg-2">
+        <label class="form-label" for="f-q">Buscar</label>
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-white"><i class="bi bi-search" aria-hidden="true"></i></span>
+          <input type="search" id="f-q" name="q" value="{{ f.q }}" class="form-control"
+                 placeholder="Código, nombre, nº de parte, marca o equivalencia" aria-describedby="f-q-ayuda">
+        </div>
+        <div id="f-q-ayuda" class="visually-hidden">Puede escribir varias palabras, por ejemplo: retenedor skf</div>
+      </div>
+      <div class="col-6 col-lg-1">
+        <label class="form-label" for="f-segmento">Segmento</label>
+        <select id="f-segmento" name="segmento" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for s in segmentos %}<option {% if s == f.segmento %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="filtro-familia">Familia</label>
+        <select name="familia" id="filtro-familia" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          {% for fam in arbol %}<option {% if fam == f.familia %}selected{% endif %}>{{ fam }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="filtro-subfamilia">Subfamilia</label>
+        <select name="subfamilia" id="filtro-subfamilia" class="form-select form-select-sm" data-actual="{{ f.subfamilia }}">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <div class="col-6 col-lg-1">
+        <label class="form-label" for="f-orden">Orden</label>
+        <select id="f-orden" name="orden" class="form-select form-select-sm">
+          <option value="">Auto</option>
+          {% for o in ordenes %}<option value="{{ o }}" {% if o == f.orden %}selected{% endif %}>{{ o|capitalize }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="f-ficha">Ficha del catálogo</label>
+        <select id="f-ficha" name="ficha" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          {% for k, v in fichas.items() %}<option value="{{ k }}" {% if k == f.ficha %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-1 d-flex flex-column justify-content-end">
+        <div class="form-check mb-0">
+          <input class="form-check-input" type="checkbox" name="existencia" value="1" id="f-existencia" {% if f.existencia %}checked{% endif %}>
+          <label class="form-check-label small" for="f-existencia">Con existencia</label>
+        </div>
+        {% if f.descartar == 'solo' %}<input type="hidden" name="descartar" value="solo">
+        {% else %}
+        <div class="form-check mb-0" title="Sin movimiento de inventario, o sin entradas y sin existencia; y artículos de publicidad (catálogos, lapiceros, afiches…)">
+          <input class="form-check-input" type="checkbox" name="descartar" value="1" id="f-descartar" {% if f.descartar == '1' %}checked{% endif %}>
+          <input type="hidden" name="descartar" value="0">
+          <label class="form-check-label small" for="f-descartar">Ocultar inactivos y publicidad</label>
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-lg-1 d-grid">
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Filtrar</button>
+      </div>
+    </div>
+    {% if f.grupo %}<input type="hidden" name="grupo" value="{{ f.grupo }}">{% endif %}
+  </form>
+
+  {# ---------- Filtros activos (se quitan uno a uno) ---------- #}
+  {% set activos = [] %}
+  {% for clave, etiqueta in [('q','Búsqueda'), ('segmento','Segmento'), ('familia','Familia'), ('subfamilia','Subfamilia'), ('grupo','Grupo'), ('ficha', 'Ficha'), ('existencia', 'Solo')] %}
+    {% if f[clave] %}{% set _ = activos.append((clave, etiqueta, fichas.get(f[clave], 'con existencia') if clave in ('ficha', 'existencia') else f[clave])) %}{% endif %}
+  {% endfor %}
+  {% for clave, etiqueta in [('descartar', 'Vista')] %}
+    {% if f.descartar != '1' %}{% set _ = activos.append(('descartar', 'Vista', descartes[f.descartar])) %}{% endif %}
+  {% endfor %}
+  {% if activos %}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2" aria-label="Filtros activos">
+    <span class="small text-muted">Filtros:</span>
+    {% for clave, etiqueta, valor in activos %}
+      {% set sin_este = dict(todos_filtros) %}
+      {% set _ = sin_este.update({clave: '1' if clave == 'descartar' else ''}) %}
+      {% if clave == 'familia' %}{% set _ = sin_este.update({'subfamilia': ''}) %}{% endif %}
+      <span class="chip">{{ etiqueta }}: <strong>{{ valor }}</strong>
+        <a href="{{ url_for('clase_prod.clase_prod', **sin_este) }}" aria-label="Quitar filtro {{ etiqueta }}: {{ valor }}"><i class="bi bi-x" aria-hidden="true"></i></a>
+      </span>
+    {% endfor %}
+    <a href="{{ url_for('clase_prod.clase_prod', estado=f.estado) }}" class="small">Limpiar todo</a>
+  </div>
+  {% endif %}
+
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1 small">
+    <span><strong>{{ "{:,}".format(total) }}</strong> productos · página {{ pagina }} de {{ paginas }}</span>
+    <span class="d-flex flex-wrap align-items-center gap-2">
+      <span class="text-muted d-none d-md-inline">Edite en la fila · <kbd>Enter</kbd> guarda · <kbd>Esc</kbd> deshace ·
+        <span class="sug" style="cursor: default">sugerido</span> = clic para usarlo</span>
+      {% if registros|selectattr('sug')|list %}
+      <button type="button" class="btn-sug" id="btn-sug-pagina" title="Llena los datos que faltan con la sugerencia; revise y guarde">
+        <i class="bi bi-magic" aria-hidden="true"></i> Completar lo que falta con sugerencias</button>
+      {% endif %}
+    </span>
+  </div>
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="tabla-clase">
+      <caption class="visually-hidden">Productos del catálogo y su clasificación editable</caption>
+      <colgroup>
+        <col style="width: 44px"><col style="width: 30%"><col style="width: 64px">
+        <col style="width: 12%"><col style="width: 16%"><col style="width: 16%"><col style="width: 120px"><col style="width: 150px">
+      </colgroup>
+      <thead>
+        <tr>
+          <th scope="col">
+            <label class="sel-celda"><input type="checkbox" id="sel-todos" aria-label="Seleccionar todos los productos de esta página"></label>
+          </th>
+          <th scope="col">Producto</th>
+          <th scope="col" class="num">Exist.</th>
+          <th scope="col">Segmento</th>
+          <th scope="col">Familia</th>
+          <th scope="col">Subfamilia</th>
+          <th scope="col">Grupo equiv.</th>
+          <th scope="col"><span class="visually-hidden">Acciones</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in registros %}
+        {% set fid = "f" ~ loop.index %}
+        {% set estado = 'sin_clasificar' if not r.tiene_clase else ('por_clasificar' if (r.familia or '') in ('', 'Por clasificar') else 'clasificados') %}
+        <tr class="{% if not r.tiene_clase %}sin-clase{% endif %}" data-form="{{ fid }}" data-codigo="{{ r.codigo }}" data-estado="{{ estado }}">
+          <td>
+            <label class="sel-celda"><input type="checkbox" name="codigos" value="{{ r.codigo }}" form="masivo" class="sel"
+                   aria-label="Seleccionar {{ r.codigo }}"></label>
+          </td>
+          <td class="producto" title="{{ ('Equivalencias: ' ~ r.equivalencias) if r.equivalencias else '' }}">
+            <div class="nombre">{{ r.nombre }}</div>
+            <div class="meta">{{ r.codigo }}{% if r.marca %} · {{ r.marca }}{% endif %}{% if r.numero_parte %} · Nº {{ r.numero_parte }}{% endif %}
+              {% if r.descarte %}<span class="badge text-bg-light border ms-1"><i class="bi bi-eye-slash" aria-hidden="true"></i> {{ r.descarte }}</span>{% endif %}</div>
+            <div class="ficha">
+              {% for k, rot, val in [('medida', 'Medida', r.medida), ('aplicacion', 'Aplicación', r.aplicacion), ('equivalencia', 'Equiv.', r.equivalencias)] %}
+                <span class="dato" title="{{ rot }}: {{ val if k not in r.faltan_ficha else 'falta en el catálogo' }}"><span class="rot">{{ rot }}:</span>
+                  {% if k in r.faltan_ficha %}<span class="falta">falta</span>{% else %}{{ val }}{% endif %}</span>
+              {% endfor %}
+              {% if r.enlaces %}<span class="web">
+                <a href="{{ r.enlaces.google }}" target="_blank" rel="noopener">Google</a>
+                <a href="{{ r.enlaces.imagenes }}" target="_blank" rel="noopener">Imágenes</a>
+                {% if r.enlaces.fabricante %}<a href="{{ r.enlaces.fabricante }}" target="_blank" rel="noopener">{{ r.enlaces.sitio }}</a>{% endif %}
+              </span>{% endif %}
+            </div>
+            {% if r.sug and r.sug.razon %}
+              <div class="razon">Sugerencia{% if r.sug.confianza %} (<span class="conf {{ r.sug.confianza }}">{{ r.sug.confianza }}</span>){% endif %}: {{ r.sug.razon }}</div>
+            {% endif %}
+          </td>
+          <td class="num">{{ "{:,.0f}".format(r.existencia or 0) }}</td>
+          <td><input form="{{ fid }}" name="segmento" value="{{ r.segmento or '' }}" list="dl-segmentos" class="campo"
+                     placeholder="Asignar…" maxlength="45" aria-label="Segmento de {{ r.codigo }}">{% if r.sug and r.sug.segmento and r.sug.segmento != (r.segmento or '') %}<button type="button" class="sug" data-campo="segmento" data-valor="{{ r.sug.segmento }}" title="Usar sugerencia: {{ r.sug.segmento }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.segmento }}</button>{% endif %}</td>
+          <td><input form="{{ fid }}" name="familia" value="{{ r.familia or '' }}" list="dl-familias" class="campo campo-familia"
+                     data-sub="sub-{{ fid }}" placeholder="Asignar…" maxlength="45" aria-label="Familia de {{ r.codigo }}">{% if r.sug and r.sug.familia and r.sug.familia != (r.familia or '') %}<button type="button" class="sug" data-campo="familia" data-valor="{{ r.sug.familia }}" title="Usar sugerencia: {{ r.sug.familia }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.familia }}</button>{% endif %}</td>
+          <td><input form="{{ fid }}" name="subfamilia" id="sub-{{ fid }}" value="{{ r.subfamilia or '' }}" list="dl-sub-todas" class="campo"
+                     placeholder="Asignar…" maxlength="45" aria-label="Subfamilia de {{ r.codigo }}">{% if r.sug and r.sug.subfamilia and r.sug.subfamilia != (r.subfamilia or '') %}<button type="button" class="sug" data-campo="subfamilia" data-valor="{{ r.sug.subfamilia }}" title="Usar sugerencia: {{ r.sug.subfamilia }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.subfamilia }}</button>{% endif %}</td>
+          <td>
+            <div class="grupo-celda">
+              <input form="{{ fid }}" name="grupo_equival" value="{{ r.grupo_equival or '' }}" class="campo"
+                     placeholder="—" maxlength="45" aria-label="Grupo de equivalencia de {{ r.codigo }}">
+              {% if r.grupo_equival %}
+                <a class="btn-icono" href="{{ url_for('clase_prod.clase_prod', grupo=r.grupo_equival) }}"
+                   title="Ver productos equivalentes" aria-label="Ver productos del grupo {{ r.grupo_equival }}"><i class="bi bi-diagram-3" aria-hidden="true"></i></a>
+              {% endif %}
+            </div>
+            {% if r.sug and r.sug.grupo and r.sug.grupo != (r.grupo_equival or '') %}
+              <button type="button" class="sug {{ 'nuevo' if r.sug.grupo_nuevo }}" data-campo="grupo_equival" data-valor="{{ r.sug.grupo }}"
+                      title="{{ ('Grupo nuevo para ' ~ r.sug.agrupar|join(', ')) if r.sug.grupo_nuevo else ('Grupo de sus equivalentes' ~ ((': también se asigna a ' ~ r.sug.agrupar|join(', ')) if r.sug.agrupar else '')) }}">
+                <i class="bi bi-diagram-3" aria-hidden="true"></i> {{ r.sug.grupo }}{% if r.sug.grupo_nuevo %} (nuevo){% endif %}{% if r.sug.agrupar %} +{{ r.sug.agrupar|length }}{% endif %}</button>
+            {% endif %}
+          </td>
+          <td class="acciones">
+            <form id="{{ fid }}" method="post" action="{{ url_for('clase_prod.guardar') }}" class="d-flex align-items-center gap-1 form-fila">
+              <input type="hidden" name="codigo" value="{{ r.codigo }}">
+              <input type="hidden" name="volver" value="{{ volver }}">
+              <input type="hidden" name="agrupar" value="" data-sugerido="{{ r.sug.grupo if r.sug else '' }}" data-codigos="{{ r.sug.agrupar|join(',') if r.sug else '' }}">
+              {% if r.sug %}<button type="button" class="btn-sug btn-usar" title="Usar todos los datos sugeridos en esta fila">
+                <i class="bi bi-magic" aria-hidden="true"></i> Usar sugerencia</button>{% endif %}
+              <button class="btn btn-verde btn-sm btn-guardar" hidden><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm btn-deshacer" hidden
+                      aria-label="Deshacer cambios de {{ r.codigo }}" title="Deshacer (Esc)"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>
+              <span class="estado-fila" role="status" aria-live="polite"></span>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">
+          <i class="bi bi-search d-block fs-3 mb-1" aria-hidden="true"></i>
+          No hay productos con estos filtros. <a href="{{ url_for('clase_prod.clase_prod') }}">Ver todo el catálogo</a>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# ---------- Paginación ---------- #}
+  {% if paginas > 1 %}
+  {% set qs = todos_filtros %}
+  <nav aria-label="Páginas de resultados" class="mt-2">
+    <ul class="pagination pagination-sm flex-wrap justify-content-center">
+      <li class="page-item {% if pagina == 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('clase_prod.clase_prod', page=1, **qs) }}" aria-label="Primera página">«</a></li>
+      <li class="page-item {% if pagina == 1 %}disabled{% endif %}"><a class="page-link" href="{{ url_for('clase_prod.clase_prod', page=pagina-1, **qs) }}" aria-label="Página anterior">‹</a></li>
+      {% for p in range([pagina-3, 1]|max, [pagina+3, paginas]|min + 1) %}
+        <li class="page-item {% if p == pagina %}active{% endif %}"><a class="page-link" href="{{ url_for('clase_prod.clase_prod', page=p, **qs) }}" {% if p == pagina %}aria-current="page"{% endif %}>{{ p }}</a></li>
+      {% endfor %}
+      <li class="page-item {% if pagina == paginas %}disabled{% endif %}"><a class="page-link" href="{{ url_for('clase_prod.clase_prod', page=pagina+1, **qs) }}" aria-label="Página siguiente">›</a></li>
+      <li class="page-item {% if pagina == paginas %}disabled{% endif %}"><a class="page-link" href="{{ url_for('clase_prod.clase_prod', page=paginas, **qs) }}" aria-label="Última página">»</a></li>
+    </ul>
+  </nav>
+  {% endif %}
+  <div class="espacio-barra"></div>
+</div>
+
+{# ---------- Barra inferior: aparece solo cuando hay cambios o selección ---------- #}
+<div class="barra-inferior cp" id="barra" hidden>
+  <div class="d-flex flex-wrap gap-4 align-items-end">
+    <div class="grupo" id="grupo-cambios" hidden>
+      <div>
+        <div class="titulo-grupo"><i class="bi bi-pencil-square" aria-hidden="true" style="color: var(--naranja)"></i>
+          <span id="n-cambios">0</span> fila(s) con cambios sin guardar</div>
+        <div class="small text-muted">Se guardan una por una; las demás se mantienen</div>
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-deshacer-todo">Deshacer todo</button>
+      <button type="button" class="btn btn-verde btn-sm" id="btn-guardar-todo"><i class="bi bi-check2-all" aria-hidden="true"></i> Guardar todo</button>
+    </div>
+
+    <form method="post" action="{{ url_for('clase_prod.guardar_masivo') }}" id="masivo" class="grupo" hidden>
+      <input type="hidden" name="volver" value="{{ volver }}">
+      <div>
+        <div class="titulo-grupo"><i class="bi bi-check2-square" aria-hidden="true" style="color: var(--verde)"></i>
+          <span id="n-sel">0</span> seleccionado(s)</div>
+        <button type="button" class="btn btn-link btn-sm p-0" id="btn-quitar-sel">Quitar selección</button>
+      </div>
+      <div><label class="form-label" for="m-segmento">Segmento</label>
+        <input id="m-segmento" name="m_segmento" list="dl-segmentos" class="form-control form-control-sm" placeholder="Sin cambio" style="width: 140px"></div>
+      <div><label class="form-label" for="m-familia">Familia</label>
+        <input id="m-familia" name="m_familia" list="dl-familias" class="form-control form-control-sm campo-familia" data-sub="m-sub" placeholder="Sin cambio" style="width: 210px"></div>
+      <div><label class="form-label" for="m-sub">Subfamilia</label>
+        <input id="m-sub" name="m_subfamilia" list="dl-sub-todas" class="form-control form-control-sm" placeholder="Sin cambio" style="width: 210px"></div>
+      <div><label class="form-label" for="m-grupo">Grupo</label>
+        <input id="m-grupo" name="m_grupo_equival" class="form-control form-control-sm" placeholder="Sin cambio" style="max-width: 120px"></div>
+      <button class="btn btn-verde btn-sm" id="btn-masivo"><i class="bi bi-lightning-charge" aria-hidden="true"></i> Aplicar a seleccionados</button>
+    </form>
+  </div>
+</div>
+
+{# ---- Listas de sugerencias (se puede escribir un valor nuevo) ---- #}
+<datalist id="dl-segmentos">{% for s in segmentos %}<option value="{{ s }}">{% endfor %}</datalist>
+<datalist id="dl-familias">{% for fam in arbol %}<option value="{{ fam }}">{% endfor %}</datalist>
+<datalist id="dl-sub-todas">{% for fam, subs in arbol.items() %}{% for s in subs %}<option value="{{ s }}">{% endfor %}{% endfor %}</datalist>
+{% for fam, subs in arbol.items() %}
+<datalist id="dl-sub-{{ loop.index }}" data-familia="{{ fam }}">{% for s in subs %}<option value="{{ s }}">{% endfor %}</datalist>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const arbol = {{ arbol|tojson }};
+  const POR_CLASIFICAR = 'Por clasificar';
+  const barra = document.getElementById('barra');
+  const filas = [...document.querySelectorAll('.tabla-clase tbody tr[data-form]')];
+
+  // ---- Subfamilias sugeridas según la familia escrita ----
+  const listaSub = (familia) => {
+    const dl = [...document.querySelectorAll('datalist[data-familia]')].find(d => d.dataset.familia === familia);
+    return dl ? dl.id : 'dl-sub-todas';
+  };
+  document.querySelectorAll('.campo-familia').forEach(inp => {
+    const sub = document.getElementById(inp.dataset.sub);
+    const actualizar = () => sub && sub.setAttribute('list', listaSub(inp.value.trim()));
+    inp.addEventListener('input', actualizar);
+    actualizar();
+  });
+
+  // ---- Barra inferior ----
+  function actualizarBarra() {
+    const cambios = filas.filter(tr => tr.classList.contains('editado')).length;
+    const sel = document.querySelectorAll('.sel:checked').length;
+    document.getElementById('n-cambios').textContent = cambios;
+    document.getElementById('n-sel').textContent = sel;
+    document.getElementById('grupo-cambios').hidden = cambios === 0;
+    document.getElementById('masivo').hidden = sel === 0;
+    barra.hidden = cambios === 0 && sel === 0;
+    document.body.classList.toggle('con-barra', !barra.hidden);
+  }
+
+  // ---- Edición por fila ----
+  const campos = (tr) => [...tr.querySelectorAll('.campo')];
+  function marcar(tr) {
+    let cambiado = false;
+    campos(tr).forEach(i => { const c = i.value !== i.dataset.original; i.classList.toggle('cambiado', c); cambiado ||= c; });
+    tr.classList.toggle('editado', cambiado);
+    tr.classList.remove('guardado');
+    tr.querySelector('.btn-guardar').hidden = !cambiado;
+    tr.querySelector('.btn-deshacer').hidden = !cambiado;
+    if (cambiado) tr.querySelector('.estado-fila').textContent = '';
+    actualizarBarra();
+  }
+  function deshacer(tr) {
+    campos(tr).forEach(i => { i.value = i.dataset.original; });
+    const fam = tr.querySelector('.campo-familia'); fam && fam.dispatchEvent(new Event('input'));
+    marcar(tr);
+  }
+  function estadoDe(familia) {
+    return (familia || '').trim() === '' || familia.trim() === POR_CLASIFICAR ? 'por_clasificar' : 'clasificados';
+  }
+  function ajustarContador(clave, delta) {
+    const el = document.querySelector(`[data-contador="${clave}"]`);
+    if (!el) return;
+    const n = parseInt(el.textContent.replace(/[^\d]/g, ''), 10) + delta;
+    el.textContent = n.toLocaleString('en-US');
+    if (clave === 'clasificados') {  // mantener al día la barra de avance
+      const total = parseInt(document.querySelector('[data-contador="todos"]').textContent.replace(/[^\d]/g, ''), 10);
+      const pct = total ? n / total * 100 : 0;
+      document.getElementById('avance-barra').style.width = pct + '%';
+      document.getElementById('avance-pct').textContent = pct.toFixed(1) + '%';
+      document.querySelector('.avance').setAttribute('aria-valuenow', pct.toFixed(1));
+    }
+  }
+
+  // ---- Sugerencias: un clic copia el valor sugerido al campo ----
+  const campoDe = (tr, nombre) => tr.querySelector(`.campo[name="${nombre}"]`);
+  function usar(tr, nombre, valor) {
+    const inp = campoDe(tr, nombre);
+    if (!inp) return;
+    inp.value = valor;
+    if (inp.classList.contains('campo-familia')) inp.dispatchEvent(new Event('input'));
+    marcar(tr);
+  }
+  const faltaValor = (v) => ['', 'por clasificar', 'sin definir', 'no aplica'].includes((v || '').trim().toLowerCase());
+  filas.forEach(tr => {
+    tr.querySelectorAll('.sug[data-campo]').forEach(b => b.addEventListener('click', () => usar(tr, b.dataset.campo, b.dataset.valor)));
+    const todo = tr.querySelector('.btn-usar');
+    todo && todo.addEventListener('click', () => tr.querySelectorAll('.sug[data-campo]').forEach(b => usar(tr, b.dataset.campo, b.dataset.valor)));
+  });
+  const btnPagina = document.getElementById('btn-sug-pagina');
+  btnPagina && btnPagina.addEventListener('click', () => {
+    let n = 0;
+    filas.forEach(tr => tr.querySelectorAll('.sug[data-campo]').forEach(b => {
+      if (faltaValor(campoDe(tr, b.dataset.campo)?.value)) { usar(tr, b.dataset.campo, b.dataset.valor); n++; }
+    }));
+    btnPagina.textContent = n ? `${n} dato(s) completados: revise y presione Guardar todo` : 'No hay datos vacíos con sugerencia';
+  });
+
+  async function guardar(tr) {
+    const form = document.getElementById(tr.dataset.form);
+    // Los equivalentes sin grupo se agrupan solo si se guardó el grupo sugerido
+    const ag = form.querySelector('input[name="agrupar"]');
+    if (ag) ag.value = (ag.dataset.sugerido && campoDe(tr, 'grupo_equival').value.trim() === ag.dataset.sugerido) ? ag.dataset.codigos : '';
+    const estado = tr.querySelector('.estado-fila');
+    const btn = tr.querySelector('.btn-guardar');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Guardando';
+    estado.textContent = '';
+    try {
+      const resp = await fetch(form.action, { method: 'POST', body: new FormData(form),
+                                              headers: { 'X-Requested-With': 'fetch' } });
+      const datos = await resp.json().catch(() => ({ ok: false, error: 'respuesta inválida del servidor' }));
+      if (!resp.ok || !datos.ok) throw new Error(datos.error || `error ${resp.status}`);
+      campos(tr).forEach(i => { i.value = i.value.trim(); i.dataset.original = i.value; });
+      // Actualizar contadores y marca de "sin clasificación"
+      const antes = tr.dataset.estado, despues = estadoDe(tr.querySelector('.campo-familia').value);
+      if (antes !== despues) { ajustarContador(antes, -1); ajustarContador(despues, +1); tr.dataset.estado = despues; }
+      tr.classList.remove('sin-clase');
+      marcar(tr);
+      tr.classList.add('guardado');
+      estado.innerHTML = '<span style="color: var(--verde)"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Guardado'
+        + (datos.agrupados ? ` · ${datos.agrupados} equivalente(s) agrupados` : '') + '</span>';
+      tr.querySelectorAll('.sug[data-campo]').forEach(b => { if (campoDe(tr, b.dataset.campo).value === b.dataset.valor) b.remove(); });
+      return true;
+    } catch (e) {
+      estado.innerHTML = '';
+      const err = document.createElement('span'); err.className = 'text-danger';
+      err.innerHTML = '<i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> ';
+      err.append(`No se guardó: ${e.message}`);
+      estado.append(err);
+      return false;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg" aria-hidden="true"></i> Guardar';
+    }
+  }
+
+  filas.forEach(tr => {
+    campos(tr).forEach(i => {
+      i.dataset.original = i.value;
+      i.addEventListener('input', () => marcar(tr));
+      i.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); deshacer(tr); } });
+    });
+    const form = document.getElementById(tr.dataset.form);
+    form.addEventListener('submit', (e) => { e.preventDefault(); if (tr.classList.contains('editado')) guardar(tr); });
+    tr.querySelector('.btn-deshacer').addEventListener('click', () => deshacer(tr));
+  });
+
+  document.getElementById('btn-guardar-todo').addEventListener('click', async (e) => {
+    const btn = e.currentTarget; btn.disabled = true;
+    for (const tr of filas.filter(t => t.classList.contains('editado'))) { await guardar(tr); }
+    btn.disabled = false;
+  });
+  document.getElementById('btn-deshacer-todo').addEventListener('click', () =>
+    filas.filter(t => t.classList.contains('editado')).forEach(deshacer));
+
+  // ---- Selección para clasificación masiva ----
+  const sels = [...document.querySelectorAll('.sel')];
+  const todos = document.getElementById('sel-todos');
+  sels.forEach(s => s.addEventListener('change', () => {
+    const n = sels.filter(x => x.checked).length;
+    todos.checked = n === sels.length && n > 0; todos.indeterminate = n > 0 && n < sels.length;
+    actualizarBarra();
+  }));
+  todos && todos.addEventListener('change', () => { sels.forEach(s => s.checked = todos.checked); actualizarBarra(); });
+  document.getElementById('btn-quitar-sel').addEventListener('click', () => {
+    sels.forEach(s => s.checked = false); todos.checked = false; todos.indeterminate = false; actualizarBarra();
+  });
+
+  // ---- Aviso al salir con cambios sin guardar ----
+  let enviandoMasivo = false;
+  document.getElementById('masivo').addEventListener('submit', () => { enviandoMasivo = true; });
+  window.addEventListener('beforeunload', (e) => {
+    if (!enviandoMasivo && filas.some(t => t.classList.contains('editado'))) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  // ---- Filtro de subfamilia dependiente de la familia ----
+  const fFam = document.getElementById('filtro-familia'), fSub = document.getElementById('filtro-subfamilia');
+  function llenarSub() {
+    const actual = fSub.dataset.actual;
+    const subs = fFam.value ? (arbol[fFam.value] || []) : [...new Set(Object.values(arbol).flat())].sort();
+    fSub.replaceChildren(new Option('Todas', ''), ...subs.map(s => new Option(s, s, false, s === actual)));
+  }
+  fFam.addEventListener('change', () => { fSub.dataset.actual = ''; llenarSub(); });
+  llenarSub();
+})();
+</script>
+{% endblock %}

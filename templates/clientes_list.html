@@ -3,7 +3,12 @@
 {% block title %}Modificar Clientes{% endblock %}
 
 {% block content %}
-<h1>Listado de Clientes</h1>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <h1 class="mb-0">Listado de Clientes</h1>
+    <a href="{{ url_for('cargar_clientes.cargar_clientes') }}" class="btn btn-success">
+        <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Actualizar desde Excel
+    </a>
+</div>
 
 <!-- Formulario de búsqueda -->
 <form method="get" action="/clientes" class="mb-3 d-flex">

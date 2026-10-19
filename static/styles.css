@@ -271,3 +271,35 @@ td.vertical-text {
   white-space: normal;           /* permite saltos de línea si es necesario */
   text-align: left;
 }
+/* Fijar primera columna sin dejar ver nada detrás */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  background-color: #fff;   /* Fondo sólido para tapar */
+  z-index: 3;               /* Asegura que quede encima */
+  min-width: 180px;         /* Ajusta ancho mínimo según tus nombres */
+  padding-left: 8px;        /* Espaciado interno */
+  border-right: 1px solid #dee2e6; /* Línea divisoria clara */
+}
+
+/* Encabezado de la primera columna */
+thead .sticky-col {
+  background-color: #17a2b8; /* Color del header */
+  color: #fff;
+  z-index: 4;
+}
+
+
+
+
+
+/* ===== Menú superior ===== */
+.navbar .dropdown-menu { font-size: .85rem; min-width: 250px; }
+.navbar .dropdown-header { color: var(--color-secundario); font-weight: 700; }
+.navbar .dropdown-item { padding: .4rem 1rem; }
+.navbar .dropdown-item.active, .navbar .dropdown-item:active { background-color: var(--color-secundario); color: #fff; }
+.navbar .dropdown-item.active i { color: #fff !important; }
+.navbar .nav-link.active { color: #fff; border-bottom: 2px solid var(--color-principal); }
+.icono-naranja { color: var(--color-principal); }
+.icono-verde { color: var(--color-secundario); }
+.icono-gris { color: var(--color-neutro); }

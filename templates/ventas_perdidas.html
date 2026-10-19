@@ -1,197 +1,430 @@
 {% extends "layout.html" %}
 {% block title %}Ventas Perdidas{% endblock %}
-{% block header_title %}Ventas Perdidas{% endblock %}
+{% macro num(v) %}{% set r = (v or 0)|float|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endmacro %}
 
 {% block content %}
-<div class="container-fluid px-3">
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .vp h4 { color: var(--credito); }
+  .vp .tabs-vp { gap: .25rem; overflow-x: auto; flex-wrap: nowrap; }
+  .vp .tabs-vp .nav-link { color: var(--ink-2); font-weight: 600; white-space: nowrap; min-height: 44px; display: flex; align-items: center; gap: .35rem; }
+  .vp .tabs-vp .nav-link.active { color: var(--credito); border-bottom: 3px solid var(--contado); }
+  /* ---------- Formulario (celular primero) ---------- */
+  .registro { max-width: 760px; }
+  .paso { background: #fff; border: 1px solid var(--grid); border-radius: 12px; padding: .9rem 1rem; margin-bottom: .75rem; }
+  .paso > label, .paso .titulo { font-weight: 700; color: var(--ink); font-size: .95rem; margin-bottom: .4rem; display: block; }
+  .paso .ayuda { font-size: .8rem; color: var(--ink-3); }
+  .vp input.form-control, .vp select.form-select, .vp textarea.form-control { font-size: 16px; min-height: 46px; }  /* 16px: iPhone no hace zoom */
+  .sugerencias { list-style: none; margin: .35rem 0 0; padding: 0; border: 1px solid var(--grid); border-radius: 10px; overflow: hidden; max-height: 340px; overflow-y: auto; }
+  .sugerencias li button { width: 100%; text-align: left; background: #fff; border: 0; border-bottom: 1px solid var(--grid); padding: .6rem .75rem; min-height: 48px; }
+  .sugerencias li button:hover, .sugerencias li button:focus-visible { background: #eef7f6; outline: none; }
+  .sugerencias .parte { font-weight: 700; color: var(--ink); }
+  .sugerencias .det { font-size: .82rem; color: var(--ink-2); }
+  .exist { font-size: .75rem; font-weight: 700; border-radius: 8px; padding: 1px 7px; white-space: nowrap; }
+  .exist.si { background: #e3f3f1; color: var(--credito); }
+  .exist.no { background: #fde8e8; color: #b42318; }
+  .elegido { border: 2px solid var(--credito); background: #f4faf9; border-radius: 10px; padding: .6rem .75rem; display: flex; gap: .6rem; align-items: flex-start; }
+  .elegido .parte { font-weight: 800; font-size: 1.05rem; }
+  .btn-tenue { background: none; border: 0; color: var(--credito); font-weight: 600; text-decoration: underline; padding: .5rem 0; min-height: 44px; }
+  .stepper { display: flex; align-items: stretch; max-width: 220px; }
+  .stepper button { width: 52px; min-height: 48px; font-size: 1.4rem; font-weight: 700; border: 1px solid #ced4da; background: #f6f5f1; }
+  .stepper button:first-child { border-radius: 10px 0 0 10px; } .stepper button:last-child { border-radius: 0 10px 10px 0; }
+  .stepper input { text-align: center; font-weight: 700; border-radius: 0; border-left: 0; border-right: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: .45rem; }
+  .chips input { position: absolute; opacity: 0; pointer-events: none; }
+  .chips label { border: 1px solid #ced4da; border-radius: 22px; padding: .5rem .9rem; min-height: 44px; display: inline-flex; align-items: center; cursor: pointer; font-weight: 600; color: var(--ink-2); background: #fff; margin: 0; font-size: .9rem; }
+  .chips input:checked + label { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .chips input:focus-visible + label { outline: 3px solid var(--contado); outline-offset: 2px; }
+  .btn-registrar { background: var(--contado); border-color: var(--contado); color: #fff; font-weight: 700; font-size: 1.05rem; min-height: 54px; border-radius: 12px; }
+  .btn-registrar:hover, .btn-registrar:focus-visible { background: #e2550b; border-color: #e2550b; color: #fff; }
+  .barra-envio { position: sticky; bottom: 0; background: linear-gradient(to top, #f8f9fa 75%, rgba(248,249,250,0)); padding: .75rem 0 .5rem; z-index: 5; }
+  .aviso { border-radius: 10px; padding: .6rem .8rem; font-weight: 600; }
+  .hoy-lista .item { display: flex; justify-content: space-between; gap: .5rem; align-items: center; border-bottom: 1px solid var(--grid); padding: .5rem 0; }
+  .hoy-lista .item:last-child { border-bottom: 0; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .vp .btn:focus-visible, .vp a:focus-visible, .vp button:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  /* ---------- Listado ---------- */
+  .tabla-vp { width: 100%; font-size: .82rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-vp thead th { position: sticky; top: 0; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .45rem; border-bottom: 1px solid var(--grid); white-space: nowrap; z-index: 1; }
+  .tabla-vp td { padding: .45rem; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  .tabla-vp .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .liga { font-size: .72rem; font-weight: 600; border-radius: 8px; padding: 1px 6px; white-space: nowrap; }
+  .liga.si { background: #e3f3f1; color: var(--credito); }
+  .liga.no { background: #eeede8; color: #52514e; }
+  @media (max-width: 767.98px) {   /* en celular cada registro es una tarjeta */
+    .tabla-vp thead { display: none; }
+    .tabla-vp tr { display: block; border: 1px solid var(--grid); border-radius: 10px; margin-bottom: .6rem; background: #fff; padding: .35rem .5rem; }
+    .tabla-vp td { display: flex; justify-content: space-between; gap: .75rem; border: 0; padding: .2rem 0; text-align: right; }
+    .tabla-vp td::before { content: attr(data-t); font-weight: 600; color: var(--ink-3); text-align: left; }
+    .tabla-vp td.num { white-space: normal; }
+  }
+</style>
 
-    <!-- Filtro por vendedor y fechas -->
-    <form method="get" action="/ventas_perdidas" 
-          class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm border-start border-4 border-info">
-        <div class="col-12 col-md-4">
-            <label class="form-label small fw-bold text-info">Filtrar por Vendedor</label>
-            <select name="filtro_vendedor" class="form-select form-select-sm campo-estilizado">
-                <option value="">-- Todos --</option>
-                {% for v in vendedores %}
-                    <option value="{{ v.nomb_vendedor }}" 
-                            {% if filtro_vendedor == v.nomb_vendedor %}selected{% endif %}>
-                        {{ v.nomb_vendedor }}
-                    </option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-12 col-md-3">
-            <label class="form-label small fw-bold text-info">Fecha Inicio</label>
-            <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" 
-                   class="form-control form-control-sm campo-estilizado">
-        </div>
-        <div class="col-12 col-md-3">
-            <label class="form-label small fw-bold text-info">Fecha Fin</label>
-            <input type="date" name="fecha_fin" value="{{ fecha_fin }}" 
-                   class="form-control form-control-sm campo-estilizado">
-        </div>
-        <div class="col-12 col-md-2 d-flex gap-2">
-            <button type="submit" class="btn btn-sm btn-primary w-100">🔍 Filtrar</button>
-            <a href="{{ url_for('ventas_perdidas.ventas_perdidas') }}" class="btn btn-sm btn-secondary w-100">♻️ Limpiar</a>
-        </div>
-    </form>
+{% set filtros = {'vendedor': f.vendedor, 'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'q': f.q, 'motivo': f.motivo, 'liga': f.liga} %}
+<div class="dash vp container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <h4 class="mb-0"><i class="bi bi-graph-down-arrow" aria-hidden="true"></i> Ventas perdidas</h4>
+  </div>
+  <ul class="nav tabs-vp border-bottom mb-3">
+    <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'registrar' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas') }}" {% if vista == 'registrar' %}aria-current="page"{% endif %}><i class="bi bi-plus-circle" aria-hidden="true"></i> Registrar</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'registros' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='registros', **filtros) }}" {% if vista == 'registros' %}aria-current="page"{% endif %}><i class="bi bi-list-ul" aria-hidden="true"></i> Registros</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'resumen' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='resumen', **filtros) }}" {% if vista == 'resumen' %}aria-current="page"{% endif %}><i class="bi bi-bar-chart" aria-hidden="true"></i> Por producto</a></li>
+  </ul>
 
-    <!-- Importar Excel -->
-    <form method="post" action="/importar_ventas_perdidas" enctype="multipart/form-data"
-          class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm border-start border-4 border-success">
-        <div class="col-12 col-md-6">
-            <label class="form-label small fw-bold text-success">Archivo Excel</label>
-            <input type="file" class="form-control form-control-sm campo-estilizado"
-                   name="archivo_excel" accept=".xlsx,.xls" required>
+{% if vista == 'registrar' %}
+  {# ===================== REGISTRAR ===================== #}
+  <form id="form-vp" class="registro mx-auto" novalidate autocomplete="off">
+    <div id="mensaje" class="mb-2" role="status" aria-live="polite"></div>
+
+    <div class="paso">
+      <label for="vendedor">1. Vendedor</label>
+      <select id="vendedor" name="nomb_vendedor" class="form-select" required>
+        <option value="">Seleccione su nombre…</option>
+        {% for v in vendedores %}<option value="{{ v }}">{{ v }}</option>{% endfor %}
+      </select>
+      <div class="ayuda mt-1">Se recuerda en este dispositivo.</div>
+    </div>
+
+    <div class="paso">
+      <label for="cliente">2. Cliente</label>
+      <input id="cliente" name="nomb_cliente" class="form-control" maxlength="100" placeholder="Escriba el nombre del cliente" required
+             role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lista-clientes">
+      <ul id="lista-clientes" class="sugerencias" role="listbox" hidden></ul>
+      <div class="ayuda mt-1">Si el cliente no aparece, deje el nombre como lo escribió.</div>
+    </div>
+
+    <div class="paso">
+      <span class="titulo" id="t-producto">3. Producto</span>
+      <div id="buscar-producto">
+        <input id="producto" class="form-control" placeholder="Número de parte o descripción" aria-labelledby="t-producto"
+               role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lista-productos" inputmode="search">
+        <ul id="lista-productos" class="sugerencias" role="listbox" hidden></ul>
+        <button type="button" class="btn-tenue" id="btn-manual"><i class="bi bi-pencil" aria-hidden="true"></i> No está en el catálogo / escribirlo a mano</button>
+      </div>
+      <div id="producto-elegido" class="elegido" hidden>
+        <i class="bi bi-check-circle-fill fs-4" style="color: var(--credito)" aria-hidden="true"></i>
+        <div class="flex-grow-1">
+          <div class="parte" id="pe-parte"></div>
+          <div class="small" id="pe-nombre"></div>
+          <div class="small text-muted" id="pe-extra"></div>
         </div>
-        <div class="col-12 col-md-2">
-            <button type="submit" class="btn btn-sm btn-secondary w-100">📥 Importar Excel</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btn-cambiar">Cambiar</button>
+      </div>
+      <div id="producto-manual" hidden>
+        <div class="chips mb-2" role="group" aria-label="Tipo de producto">
+          {% for p in palabras_clave %}<input type="radio" name="palabra" id="pc{{ loop.index }}" value="{{ p }}"><label for="pc{{ loop.index }}">{{ p|title }}</label>{% endfor %}
         </div>
-    </form>
-
-    <!-- Formulario para agregar -->
-    <form method="post" action="/ventas_perdidas" 
-          class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm border-start border-4 border-primary">
-
-        <div class="col-12 col-md-2">
-            <label class="form-label small fw-bold text-success">Fecha</label>
-            <input type="date" class="form-control form-control-sm campo-estilizado" 
-                   name="fecha" value="{{ fecha_hoy }}" required>
+        <div class="row g-2">
+          <div class="col-12 col-sm-5"><label class="form-label small mb-1" for="m-parte">Número de parte</label>
+            <input id="m-parte" class="form-control" maxlength="100"></div>
+          <div class="col-12 col-sm-7"><label class="form-label small mb-1" for="m-desc">Descripción</label>
+            <input id="m-desc" class="form-control" maxlength="80"></div>
+          <div class="col-12 col-sm-5"><label class="form-label small mb-1" for="m-marca">Marca que pidió (si la sabe)</label>
+            <input id="m-marca" class="form-control" maxlength="100"></div>
         </div>
+        <button type="button" class="btn-tenue" id="btn-volver-buscar"><i class="bi bi-search" aria-hidden="true"></i> Volver a buscar en el catálogo</button>
+      </div>
+      <input type="hidden" name="codigo_producto" id="codigo_producto">
+    </div>
 
-        <div class="col-12 col-md-2">
-            <label class="form-label small fw-bold text-success">Vendedor</label>
-            <input type="text" maxlength="50" class="form-control form-control-sm campo-estilizado" 
-                   name="nomb_vendedor" required>
+    <div class="paso">
+      <div class="d-flex flex-wrap gap-4">
+        <div>
+          <label for="cantidad" class="titulo">4. Cantidad</label>
+          <div class="stepper">
+            <button type="button" data-paso="-1" aria-label="Restar uno">−</button>
+            <input id="cantidad" name="cantidad" type="number" min="1" step="1" value="1" class="form-control" inputmode="numeric" required>
+            <button type="button" data-paso="1" aria-label="Sumar uno">+</button>
+          </div>
         </div>
-
-        <div class="col-12 col-md-3">
-            <label class="form-label small fw-bold text-success">Cliente</label>
-            <input type="text" maxlength="100" class="form-control form-control-sm campo-estilizado" 
-                   name="nomb_cliente" required>
+        <div class="flex-grow-1">
+          <span class="titulo" id="t-motivo">5. ¿Por qué se perdió?</span>
+          <div class="chips" role="radiogroup" aria-labelledby="t-motivo">
+            {% for m in motivos %}<input type="radio" name="motivo" id="mo{{ loop.index }}" value="{{ m }}" {% if loop.first %}checked{% endif %}><label for="mo{{ loop.index }}">{{ m }}</label>{% endfor %}
+          </div>
         </div>
+      </div>
+    </div>
 
-        <div class="col-12 col-md-2">
-            <label class="form-label small fw-bold text-success">N° Parte</label>
-            <input type="text" maxlength="30" class="form-control form-control-sm campo-estilizado" 
-                   name="numero_parte" required>
-        </div>
+    <div class="paso">
+      <label for="nota">Nota <span class="fw-normal text-muted">(opcional)</span></label>
+      <textarea id="nota" name="nota" rows="2" class="form-control" maxlength="255" placeholder="Ej.: lo necesita para el viernes, aceptaría otra marca…"></textarea>
+      <div class="mt-2 small">Fecha: <strong id="fecha-txt">hoy</strong>
+        <button type="button" class="btn-tenue ms-1" id="btn-fecha">cambiar</button>
+        <input type="date" id="fecha" name="fecha" value="{{ hoy.isoformat() }}" max="{{ hoy.isoformat() }}" class="form-control mt-1" hidden aria-label="Fecha de la venta perdida"></div>
+    </div>
 
-        <div class="col-12 col-md-3">
-            <label class="form-label small fw-bold text-success">Palabra Clave</label>
-            <select name="palabra_clave" id="palabra_clave" class="form-select form-select-sm campo-estilizado" required>
-                <option value="">-- Seleccione --</option>
-                <option value="RODAMIENTO">RODAMIENTO</option>
-                <option value="RETENEDOR">RETENEDOR</option>
-                <option value="CORREA">CORREA</option>
-                <option value="FILTRO">FILTRO</option>
-                <option value="MANGUERA">MANGUERA</option>
-                <option value="FITINERIA">FITINERIA</option>
-                <option value="EQUIPO PESADO">EQUIPO PESADO</option>
-                <option value="EQUIPO LIVIANO">EQUIPO LIVIANO</option>
-            </select>
-        </div>
+    <div class="barra-envio">
+      <button type="submit" class="btn btn-registrar w-100" id="btn-registrar"><i class="bi bi-plus-circle" aria-hidden="true"></i> Registrar venta perdida</button>
+    </div>
 
-        <div class="col-12 col-md-3">
-            <label class="form-label small fw-bold text-success">Descripción</label>
-            <input type="text" maxlength="200" class="form-control form-control-sm campo-estilizado" 
-                   name="descripcion" id="descripcion" required>
-        </div>
+    <div class="paso mt-2" id="caja-hoy" hidden>
+      <span class="titulo">Registrados hoy</span>
+      <div class="hoy-lista" id="lista-hoy"></div>
+    </div>
+  </form>
 
-        <div class="col-12 col-md-1">
-            <label class="form-label small fw-bold text-success">Cantidad</label>
-            <input type="number" min="1" class="form-control form-control-sm campo-estilizado text-start" 
-                   name="cantidad" required>
-        </div>
+{% else %}
+  {# ===================== FILTROS (registros y resumen) ===================== #}
+  <form method="get" class="card card-body py-2 mb-3">
+    <input type="hidden" name="vista" value="{{ vista }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-3"><label class="form-label small mb-1" for="f-vendedor">Vendedor</label>
+        <select id="f-vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for v in vendedores_filtro %}<option value="{{ v }}" {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-2"><label class="form-label small mb-1" for="f-desde">Desde</label>
+        <input type="date" id="f-desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-2"><label class="form-label small mb-1" for="f-hasta">Hasta</label>
+        <input type="date" id="f-hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-2"><label class="form-label small mb-1" for="f-motivo">Motivo</label>
+        <select id="f-motivo" name="motivo" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for m in motivos %}<option {% if m == f.motivo %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-1"><label class="form-label small mb-1" for="f-liga">Catálogo</label>
+        <select id="f-liga" name="liga" class="form-select form-select-sm"><option value="">Todos</option>
+          <option value="si" {% if f.liga == 'si' %}selected{% endif %}>Ligados</option><option value="no" {% if f.liga == 'no' %}selected{% endif %}>Sin ligar</option></select></div>
+      <div class="col-12 col-md-2"><label class="form-label small mb-1" for="f-q">Buscar</label>
+        <input type="search" id="f-q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Cliente, parte, marca…"></div>
+      <div class="col-12 d-flex flex-wrap gap-2">
+        <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button>
+        <a class="btn btn-verde btn-sm" href="{{ url_for('ventas_perdidas.descargar_excel', **filtros) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+      </div>
+    </div>
+  </form>
 
-        <div class="col-12 col-md-6">
-            <label class="form-label small fw-bold text-success">Marca - Nota</label>
-            <textarea maxlength="255" class="form-control campo-estilizado auto-ajuste" 
-                    name="nota" required></textarea>
-        </div>
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-md-3"><div class="card kpi"><div class="etiqueta">Registros</div><div class="valor">{{ "{:,}".format(registros|length) }}</div></div></div>
+    <div class="col-6 col-md-3"><div class="card kpi"><div class="etiqueta">Unidades perdidas</div><div class="valor">{{ num(unidades) }}</div></div></div>
+    <div class="col-6 col-md-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div><div class="etiqueta">Ligados al catálogo</div>
+      <div class="valor">{{ "{:,}".format(ligados) }}</div><div class="sub">aparecen en el Sugerido de compras</div></div></div>
+    <div class="col-6 col-md-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div><div class="etiqueta">No están en catálogo</div>
+      <div class="valor">{{ "{:,}".format(registros|length - ligados) }}</div><div class="sub">productos que no manejamos</div></div></div>
+  </div>
 
-
-        <div class="col-12 col-md-2">
-            <button type="submit" class="btn btn-sm btn-success w-100">➕ Agregar</button>
-        </div>
-    </form>
-
-    <!-- Tabla de registros con scroll en móviles -->
-<div id="tablaVentasPerdidas" class="mt-3 table-responsive">
-    <table id="tablaVentas" class="table table-sm table-hover table-bordered align-middle w-100 shadow-sm rounded">
-        <thead style="background: linear-gradient(90deg, #0d6efd, #198754); color:white;">
-            <tr class="table-warning">
-                <th>Fecha</th>
-                <th>Vendedor</th>
-                <th>Cliente</th>
-                <th>N° Parte</th>
-                <th>Descripción</th>
-                <th>Cantidad</th>
-                <th>Nota</th>
-                <th class="text-center">Acciones</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in registros %}
-            <tr style="background-color:{% if loop.index is even %}#e9f7ef{% else %}#fdfefe{% endif %};">
-                <td>{{ r.fecha }}</td>
-                <td class="fw-bolder text-uppercase">{{ r.nomb_vendedor }}</td>
-                <td class="text-uppercase">{{ r.nomb_cliente }}</td>
-                <td class="fw-bold fs-6 text-primary text-uppercase">{{ r.numero_parte }}</td>
-                <td class="vertical-text">{{ r.descripcion }}</td>
-                <td class="fw-bold fs-6 text-danger">{{ r.cantidad }}</td>
-                <td class="vertical-text">{{ r.nota }}</td>
-                <td class="text-center">
-                    <a href="{{ url_for('ventas_perdidas.editar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-warning">✏️</a>
-                    <a href="{{ url_for('ventas_perdidas.eliminar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-danger"
-                       onclick="return confirm('¿Seguro que deseas eliminar este registro?');">🗑️</a>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
+  {% if vista == 'registros' %}
+  <div class="table-responsive border rounded-3 bg-white p-md-0 p-2" style="max-height: 70vh">
+    <table class="tabla-vp">
+      <thead><tr><th>Fecha</th><th>Vendedor</th><th>Cliente</th><th>Producto</th><th>Marca</th><th class="num">Cant.</th><th>Motivo</th><th>Nota</th><th>Catálogo</th><th></th></tr></thead>
+      <tbody>
+        {% for r in registros %}
+        <tr>
+          <td data-t="Fecha">{{ r.fecha.strftime('%d/%m/%Y') if r.fecha else '' }}</td>
+          <td data-t="Vendedor">{{ r.nomb_vendedor }}</td>
+          <td data-t="Cliente">{{ r.nomb_cliente }}</td>
+          <td data-t="Producto"><div><strong>{{ r.numero_parte or '—' }}</strong></div><div class="small text-muted">{{ r.descripcion or '' }}</div></td>
+          <td data-t="Marca">{{ r.marca or (r.producto.marca if r.producto else '') or '' }}</td>
+          <td data-t="Cantidad" class="num fw-bold">{{ num(r.cantidad) }}</td>
+          <td data-t="Motivo">{{ r.motivo or '—' }}</td>
+          <td data-t="Nota" class="small">{{ r.nota or '' }}</td>
+          <td data-t="Catálogo">{% if r.codigo_ligado %}<span class="liga si" title="{{ r.liga }}">{{ r.codigo_ligado }}</span>
+              {% if r.producto %}<div class="small text-muted">exist. {{ num(r.producto.existencia) }}</div>{% endif %}
+            {% else %}<span class="liga no">{{ r.liga }}</span>{% endif %}</td>
+          <td data-t="" class="text-nowrap">
+            <a href="{{ url_for('ventas_perdidas.editar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-outline-secondary" aria-label="Editar"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+            <form method="post" action="{{ url_for('ventas_perdidas.eliminar_venta_perdida', id=r.id) }}" class="d-inline" onsubmit="return confirm('¿Eliminar este registro?');">
+              <button class="btn btn-sm btn-outline-danger" aria-label="Eliminar"><i class="bi bi-trash" aria-hidden="true"></i></button></form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-center text-muted py-4">No hay ventas perdidas con estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
     </table>
+  </div>
+  <details class="mt-3"><summary class="small">Importar desde Excel</summary>
+    <form method="post" action="{{ url_for('ventas_perdidas.importar_ventas_perdidas') }}" enctype="multipart/form-data" class="row g-2 align-items-end mt-1">
+      <div class="col-12 col-md-6"><input type="file" name="archivo_excel" class="form-control form-control-sm" accept=".xlsx,.xls" required aria-label="Archivo Excel">
+        <div class="form-text">Columnas: nomb_vendedor, nomb_cliente, fecha, numero_parte, descripcion, cantidad (opcionales: marca, motivo, nota, codigo_producto). Si alguna fila tiene error no se importa nada.</div></div>
+      <div class="col-12 col-md-2"><button class="btn btn-sm btn-secondary w-100">Importar</button></div>
+    </form>
+  </details>
+
+  {% else %}
+  <p class="small text-muted">Agrupado por producto, ordenado por cuántos clientes distintos lo pidieron. Los ligados al catálogo se ven en el Sugerido de compras.</p>
+  <div class="table-responsive border rounded-3 bg-white p-md-0 p-2" style="max-height: 70vh">
+    <table class="tabla-vp">
+      <thead><tr><th>Producto</th><th>Marca</th><th class="num">Clientes</th><th class="num">Unidades</th><th class="num">Registros</th><th>Última</th><th class="num">Existencia hoy</th><th></th></tr></thead>
+      <tbody>
+        {% for g in resumen %}
+        {% set p = g.producto %}
+        <tr>
+          <td data-t="Producto"><div><strong>{{ (p.parte if p else g.numero_parte) or '—' }}</strong></div><div class="small text-muted">{{ (p.nombre if p else g.descripcion) or '' }}</div></td>
+          <td data-t="Marca">{{ (p.marca if p else g.marca) or '' }}</td>
+          <td data-t="Clientes" class="num fw-bold">{{ g.clientes|length }}</td>
+          <td data-t="Unidades" class="num">{{ num(g.unidades) }}</td>
+          <td data-t="Registros" class="num">{{ g.registros }}</td>
+          <td data-t="Última">{{ g.ultima.strftime('%d/%m/%Y') if g.ultima else '' }}</td>
+          <td data-t="Existencia hoy" class="num">{% if p %}{{ num(p.existencia) }}{% else %}<span class="liga no">no está en catálogo</span>{% endif %}</td>
+          <td data-t="">{% if p %}<a class="btn btn-sm btn-outline-secondary text-nowrap" href="{{ url_for('sugerido_compras.sugerido_compras', calcular=1, q=g.codigo, solo_sugerido='') }}">Ver en sugerido</a>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">No hay ventas perdidas con estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+{% endif %}
 </div>
-</div>
 
-<!-- Script para anteponer palabra clave en descripción -->
+{% if vista == 'registrar' %}
 <script>
-document.getElementById("palabra_clave").addEventListener("change", function() {
-    const clave = this.value;
-    const descripcionInput = document.getElementById("descripcion");
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const form = $('form-vp'), msg = $('mensaje');
+  const URL_POST = "{{ url_for('ventas_perdidas.ventas_perdidas') }}";
+  const URL_PROD = "{{ url_for('ventas_perdidas.buscar_producto') }}";
+  const URL_CLI = "{{ url_for('ventas_perdidas.buscar_cliente') }}";
+  const URL_HOY = "{{ url_for('ventas_perdidas.recientes') }}";
+  const URL_DESH = "{{ url_for('ventas_perdidas.deshacer', id=0) }}".replace(/0$/, '');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const leer = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+  const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  const aviso = (texto, tipo) => { msg.innerHTML = `<div class="aviso alert alert-${tipo} mb-0">${texto}</div>`; };
 
-    if (clave) {
-        const textoActual = descripcionInput.value.replace(/^.*? - /, "");
-        descripcionInput.value = clave + " - " + textoActual;
-        descripcionInput.focus();
-    } else {
-        descripcionInput.value = descripcionInput.value.replace(/^.*? - /, "");
-    }
-});
-</script>
+  // ---- Vendedor recordado en el dispositivo ----
+  const vend = $('vendedor');
+  if (leer('vp_vendedor') && [...vend.options].some(o => o.value === leer('vp_vendedor'))) vend.value = leer('vp_vendedor');
+  vend.addEventListener('change', () => { guardar('vp_vendedor', vend.value); cargarHoy(); });
 
-<!-- DataTables -->
-<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-<script>
-$(document).ready(function() {
-    $('#tablaVentas').DataTable({
-        pageLength: 10,
-        lengthChange: false,
-        searching: false,
-        info: true,
-        order: []
+  // ---- Lista de sugerencias reutilizable (cliente y producto) ----
+  function autocompletar(input, lista, url, pintar, elegir) {
+    let timer, ctrl;
+    const cerrar = () => { lista.hidden = true; input.setAttribute('aria-expanded', 'false'); };
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = input.value.trim();
+      if (q.length < 2) { cerrar(); return; }
+      timer = setTimeout(async () => {
+        ctrl?.abort(); ctrl = new AbortController();
+        try {
+          const r = await fetch(`${url}?q=${encodeURIComponent(q)}`, { signal: ctrl.signal });
+          const datos = await r.json();
+          lista.innerHTML = datos.length ? datos.map((d, i) => `<li role="option"><button type="button" data-i="${i}">${pintar(d)}</button></li>`).join('')
+                                         : '<li class="p-2 small text-muted">Sin resultados</li>';
+          lista.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { elegir(datos[b.dataset.i]); cerrar(); }));
+          lista.hidden = false; input.setAttribute('aria-expanded', 'true');
+        } catch (e) { if (e.name !== 'AbortError') cerrar(); }
+      }, 250);
     });
-});
-</script>
-<script>
-document.addEventListener("input", function(e) {
-    if (e.target.classList.contains("auto-ajuste")) {
-        e.target.style.height = "auto";
-        e.target.style.height = (e.target.scrollHeight) + "px";
-    }
-});
-</script>
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' && !lista.hidden) { e.preventDefault(); lista.querySelector('button')?.focus(); }
+      if (e.key === 'Escape') cerrar();
+    });
+    lista.addEventListener('keydown', (e) => {
+      const bs = [...lista.querySelectorAll('button')], i = bs.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); bs[Math.min(i + 1, bs.length - 1)]?.focus(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); i <= 0 ? input.focus() : bs[i - 1].focus(); }
+      if (e.key === 'Escape') { cerrar(); input.focus(); }
+    });
+    document.addEventListener('click', (e) => { if (!lista.contains(e.target) && e.target !== input) cerrar(); });
+  }
 
+  autocompletar($('cliente'), $('lista-clientes'), URL_CLI,
+    d => `<span class="parte">${esc(d.nombre)}</span>${d.municipio ? `<div class="det">${esc(d.municipio)}</div>` : ''}${d.activo ? '' : ' <span class="exist no">inactivo</span>'}`,
+    d => { $('cliente').value = d.nombre; $('producto').focus(); });
+
+  // ---- Producto: del catálogo o escrito a mano ----
+  let producto = null;
+  const motivo = (v) => { const r = form.querySelector(`input[name=motivo][value="${v}"]`); if (r) r.checked = true; };
+  function mostrarElegido(p) {
+    producto = p;
+    $('codigo_producto').value = p.codigo;
+    $('pe-parte').textContent = p.parte || p.codigo;
+    $('pe-nombre').textContent = p.nombre || '';
+    $('pe-extra').innerHTML = `${esc(p.marca || '')} · ${esc(p.codigo)} · <span class="exist ${p.existencia > 0 ? 'si' : 'no'}">existencia ${p.existencia}</span>`;
+    $('buscar-producto').hidden = true; $('producto-manual').hidden = true; $('producto-elegido').hidden = false;
+    motivo(p.existencia > 0 ? 'Precio' : 'Sin existencia');
+    $('cantidad').focus();
+  }
+  autocompletar($('producto'), $('lista-productos'), URL_PROD,
+    d => `<div class="d-flex justify-content-between gap-2"><span class="parte">${esc(d.parte || d.codigo)}</span>
+          <span class="exist ${d.existencia > 0 ? 'si' : 'no'}">${d.existencia > 0 ? 'exist. ' + d.existencia : 'sin existencia'}</span></div>
+          <div class="det">${esc(d.nombre)}</div><div class="det">${esc(d.marca || '')} · ${esc(d.codigo)}</div>`,
+    mostrarElegido);
+  function modoBuscar() {
+    producto = null; $('codigo_producto').value = '';
+    $('producto-elegido').hidden = true; $('producto-manual').hidden = true; $('buscar-producto').hidden = false;
+    $('producto').value = ''; $('producto').focus();
+  }
+  $('btn-cambiar').addEventListener('click', modoBuscar);
+  $('btn-volver-buscar').addEventListener('click', modoBuscar);
+  $('btn-manual').addEventListener('click', () => {
+    producto = null; $('codigo_producto').value = '';
+    $('buscar-producto').hidden = true; $('producto-manual').hidden = false;
+    const escrito = $('producto').value.trim();
+    if (escrito && !$('m-parte').value) $('m-parte').value = escrito;
+    motivo('No lo manejamos');
+    $('m-parte').focus();
+  });
+
+  // ---- Cantidad ----
+  form.querySelectorAll('.stepper button').forEach(b => b.addEventListener('click', () => {
+    const c = $('cantidad'); c.value = Math.max(1, (parseInt(c.value) || 0) + parseInt(b.dataset.paso));
+  }));
+
+  // ---- Fecha (normalmente hoy) ----
+  $('btn-fecha').addEventListener('click', () => { $('fecha').hidden = false; $('fecha').focus(); $('btn-fecha').hidden = true; });
+  $('fecha').addEventListener('change', () => {
+    const f = $('fecha').value; $('fecha-txt').textContent = f === "{{ hoy.isoformat() }}" ? 'hoy' : f.split('-').reverse().join('/');
+  });
+
+  // ---- Registrados hoy (con opción de deshacer) ----
+  async function cargarHoy() {
+    if (!vend.value) { $('caja-hoy').hidden = true; return; }
+    try {
+      const datos = await (await fetch(`${URL_HOY}?vendedor=${encodeURIComponent(vend.value)}`)).json();
+      $('caja-hoy').hidden = !datos.length;
+      $('lista-hoy').innerHTML = datos.map(d => `<div class="item"><div><strong>${esc(d.numero_parte || d.descripcion)}</strong> × ${d.cantidad}
+          <div class="small text-muted">${esc(d.nomb_cliente)}${d.motivo ? ' · ' + esc(d.motivo) : ''}</div></div>
+          ${d.deshacer ? `<button type="button" class="btn btn-sm btn-outline-danger" data-id="${d.id}">Deshacer</button>` : ''}</div>`).join('');
+      $('lista-hoy').querySelectorAll('button[data-id]').forEach(b => b.addEventListener('click', async () => {
+        if (!confirm('¿Quitar este registro?')) return;
+        const r = await fetch(URL_DESH + b.dataset.id, { method: 'POST', headers: { 'X-Requested-With': 'fetch' } });
+        const j = await r.json(); j.ok ? (aviso('Registro quitado.', 'secondary'), cargarHoy()) : aviso(esc(j.error), 'danger');
+      }));
+    } catch {}
+  }
+  cargarHoy();
+
+  // ---- Enviar ----
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const palabra = form.querySelector('input[name=palabra]:checked')?.value;
+    const manualDesc = $('m-desc').value.trim();
+    const datos = {
+      nomb_vendedor: vend.value, nomb_cliente: $('cliente').value.trim(), fecha: $('fecha').value,
+      codigo_producto: $('codigo_producto').value,
+      numero_parte: producto ? producto.parte : ($('m-parte').value.trim() || (!$('producto-manual').hidden ? '' : $('producto').value.trim())),
+      descripcion: producto ? producto.nombre : [palabra, manualDesc].filter(Boolean).join(' - '),
+      marca: producto ? producto.marca : $('m-marca').value.trim(),
+      cantidad: $('cantidad').value, motivo: form.querySelector('input[name=motivo]:checked')?.value || '',
+      nota: $('nota').value.trim(),
+    };
+    const faltan = [];
+    if (!datos.nomb_vendedor) faltan.push('el vendedor');
+    if (!datos.nomb_cliente) faltan.push('el cliente');
+    if (!datos.numero_parte && !datos.descripcion) faltan.push('el producto');
+    if (!(parseFloat(datos.cantidad) > 0)) faltan.push('la cantidad');
+    if (faltan.length) { aviso('Falta ' + faltan.join(', ') + '.', 'warning'); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+
+    const btn = $('btn-registrar'); btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const r = await fetch(URL_POST, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' }, body: JSON.stringify(datos) });
+      const j = await r.json();
+      if (!j.ok) { aviso(esc((j.errores || ['No se pudo guardar']).join(' ')), 'danger'); return; }
+      aviso(`✅ Registrado: <strong>${esc(datos.numero_parte || datos.descripcion)}</strong> × ${esc(datos.cantidad)} para ${esc(datos.nomb_cliente)}. Puede agregar otro producto del mismo cliente.`, 'success');
+      // Se conservan vendedor, cliente y fecha para registrar el siguiente producto rápido
+      modoBuscar(); $('m-parte').value = ''; $('m-desc').value = ''; $('m-marca').value = '';
+      form.querySelectorAll('input[name=palabra]').forEach(x => x.checked = false);
+      $('cantidad').value = 1; $('nota').value = ''; motivo('Sin existencia');
+      cargarHoy();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch { aviso('Sin conexión: no se guardó. Intente de nuevo.', 'danger'); }
+    finally { btn.disabled = false; btn.innerHTML = '<i class="bi bi-plus-circle" aria-hidden="true"></i> Registrar venta perdida'; }
+  });
+  if (!vend.value) vend.focus(); else $('cliente').focus();
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,50 @@
+/* Estilo común de reportes con gráficos (dashboard, ventas por vendedor).
+   Colores corporativos: crédito = verde azulado, contado = naranja. */
+.dash {
+  --surface: #ffffff;
+  --ink: #1f1f1d;
+  --ink-2: #52514e;
+  --ink-3: #8a8984;
+  --grid: #ecebe8;
+  --credito: #027266;   /* --color-secundario */
+  --contado: #FE6412;   /* --color-principal */
+  --credito-suave: rgba(2, 114, 102, .25);
+  --contado-suave: rgba(254, 100, 18, .25);
+  color: var(--ink-2);
+}
+.dash .card { border: 1px solid var(--grid); border-radius: 10px; box-shadow: none; }
+.dash .card-header { background: transparent; border-bottom: 1px solid var(--grid); font-weight: 600; color: var(--ink); font-size: .95rem; }
+.dash .card-header small { font-weight: 400; color: var(--ink-3); }
+.kpi { padding: .8rem 1rem; height: 100%; }
+.kpi .etiqueta { font-size: .75rem; color: var(--ink-3); text-transform: uppercase; letter-spacing: .03em; }
+.kpi .valor { font-size: clamp(1.1rem, 1.45vw, 1.55rem); font-weight: 700; color: var(--ink); line-height: 1.2; white-space: nowrap; }
+.kpi .sub { font-size: .78rem; color: var(--ink-2); }
+.kpi-hero .valor { font-size: clamp(1.8rem, 2.6vw, 2.4rem); }
+.kpi .franja { height: 4px; border-radius: 2px; margin-bottom: .5rem; width: 36px; }
+.delta-pos { color: #1a7f37; font-weight: 600; }
+.delta-neg { color: #c4320a; font-weight: 600; }
+.medidor { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; background: var(--surface); margin: .4rem 0 .2rem; }
+.medidor span { display: block; }
+.clave { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+/* Tablas propias (anulan el estilo global .table de styles.css) */
+.dash table.tabla { width: 100%; margin: 0; font-size: .8rem; }
+.dash table.tabla thead { background: transparent; color: var(--ink-3); }
+.dash table.tabla th { font-weight: 600; text-align: left; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+.dash table.tabla td { text-align: left; color: var(--ink); white-space: nowrap; }
+.dash table.tabla .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dash table.tabla tr.total td { font-weight: 700; border-top: 2px solid var(--grid); background: #fafaf8; }
+.dash table.tabla tr.resaltado td { background: #fff1e8; font-weight: 600; }
+.dash td.desc { white-space: normal; min-width: 220px; }
+.rank { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; align-items: center; justify-content: center;
+        background: #f1f0ec; color: var(--ink); font-weight: 700; font-size: .75rem; }
+.rank.top3 { background: var(--credito); color: #fff; }
+.barra-celda { position: relative; min-width: 150px; }
+.barra-celda .barra { position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 14px; border-radius: 0 4px 4px 0;
+                      background: var(--credito); opacity: .18; }
+.barra-celda .txt { position: relative; }
+.segmento { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #f1f0ec; color: var(--ink-2); font-size: .72rem; }
+.vacio { color: var(--ink-3); text-align: center; padding: 1.5rem; }
+.grafico { position: relative; }
+.solo-pdf, .solo-imagen { display: none; }
+.pdf-generando .solo-pdf { display: inline; }
+.imagen-generando .solo-imagen { display: block; }

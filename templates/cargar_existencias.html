@@ -1,0 +1,167 @@
+{% extends "layout.html" %}
+{% block title %}Actualizar Existencias{% endblock %}
+{% block content %}
+<div class="container mt-3">
+  <h5>📥 Actualizar Existencias por Bodega</h5>
+  <p class="text-muted small mb-3">
+    El archivo <strong>reemplaza completa</strong> la tabla de existencias por bodega.
+    Primero se muestra qué cambia; nada se guarda hasta que presione <strong>Confirmar actualización</strong>.
+  </p>
+
+  <form action="{{ url_for('cargar_existencias.cargar_existencias') }}" method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3"
+        onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Leyendo archivo (puede tardar ~30 s)…';">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Reporte de Inventario (análisis por bodega) <span class="text-danger">*</span></label>
+        <input type="file" name="archivo_existencias" class="form-control" accept=".xls,.xlsx" required>
+        <div class="form-text">Reporte_Inventario (…).xlsx — archivo grande, tarda unos 30 segundos en leerse.</div>
+      </div>
+      <div class="col-md-6">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Validar archivo</button>
+      </div>
+    </div>
+  </form>
+
+  {% if errores_archivo %}
+    <div class="alert alert-danger">
+      <strong>No se pudo leer el archivo:</strong>
+      <ul class="mb-0">{% for e in errores_archivo %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  {% if validado %}
+    {% if periodo %}<p class="small mb-2">Período del reporte: <strong>{{ periodo[0] }}</strong> al <strong>{{ periodo[1] }}</strong></p>{% endif %}
+
+    <div class="row g-2 mb-3 text-center">
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Filas en archivo</div><div class="fs-4 fw-bold">{{ "{:,}".format(total) }}</div><div class="small text-muted">hoy en BD: {{ "{:,}".format(dif.actuales) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-success"><div class="small text-muted">Nuevas</div><div class="fs-4 fw-bold text-success">{{ "{:,}".format(dif.nuevos|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-primary"><div class="small text-muted">Modificadas</div><div class="fs-4 fw-bold text-primary">{{ "{:,}".format(dif.modificados|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Sin cambios</div><div class="fs-4 fw-bold text-secondary">{{ "{:,}".format(dif.sin_cambio) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-danger"><div class="small text-muted">Se eliminan</div><div class="fs-4 fw-bold text-danger">{{ "{:,}".format(dif.eliminados|length) }}</div></div></div>
+    </div>
+
+    {% if errores %}
+      <div class="alert alert-danger">
+        <strong>❌ Filas con error (no se cargarán):</strong>
+        <ul class="mb-0 small">{% for e in errores[:max_detalle] %}<li>{{ e }}</li>{% endfor %}</ul>
+        {% if errores|length > max_detalle %}<div class="small">… y {{ errores|length - max_detalle }} más</div>{% endif %}
+      </div>
+    {% endif %}
+
+    {% if advertencias %}
+      <div class="alert alert-warning">
+        <strong>⚠️ Advertencias (revise antes de confirmar):</strong>
+        <ul class="mb-0 small">{% for a in advertencias[:max_detalle] %}<li>{{ a }}</li>{% endfor %}</ul>
+        {% if advertencias|length > max_detalle %}<div class="small">… y {{ advertencias|length - max_detalle }} más</div>{% endif %}
+      </div>
+    {% endif %}
+
+    {% if descuadres or dif.vs_catalogo %}
+      <div class="alert alert-light border small">
+        <strong>ℹ️ Inconsistencias del sistema de origen</strong> (no impiden la carga; se guardan tal como vienen):
+        {% if descuadres %}
+          <details class="mt-1"><summary>{{ descuadres|length }} filas donde la Cantidad Final no cuadra con los movimientos del período</summary>
+            <ul class="mb-0">{% for d in descuadres[:max_detalle] %}<li>{{ d }}</li>{% endfor %}</ul>
+          </details>
+        {% endif %}
+        {% if dif.vs_catalogo %}
+          <details class="mt-1"><summary>{{ dif.vs_catalogo|length }} productos cuya suma por bodega no coincide con la existencia de catalogo_productos</summary>
+            <div class="text-muted">Actualice primero el catálogo con un reporte descargado a la misma hora para que esta comparación sea útil.</div>
+            <ul class="mb-0">{% for d in dif.vs_catalogo[:max_detalle] %}<li>{{ d }}</li>{% endfor %}</ul>
+          </details>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <h6>📦 Resumen por bodega</h6>
+    <div class="table-responsive mb-3" style="max-height: 360px;">
+      <table class="table table-sm table-striped small">
+        <thead class="sticky-top bg-white">
+          <tr><th>Bodega</th><th class="text-end">Productos antes</th><th class="text-end">Productos después</th>
+              <th class="text-end">Unidades antes</th><th class="text-end">Unidades después</th>
+              <th class="text-end">Monto final antes</th><th class="text-end">Monto final después</th></tr>
+        </thead>
+        <tbody>
+          {% for b in dif.bodegas %}
+          <tr>
+            <td>{{ b.bodega }}</td>
+            <td class="text-end">{{ "{:,}".format(b.antes[0]) }}</td><td class="text-end">{{ "{:,}".format(b.despues[0]) }}</td>
+            <td class="text-end">{{ "{:,.2f}".format(b.antes[1]) }}</td><td class="text-end{% if (b.antes[1] - b.despues[1])|abs > 0.001 %} fw-bold{% endif %}">{{ "{:,.2f}".format(b.despues[1]) }}</td>
+            <td class="text-end">{{ "{:,.2f}".format(b.antes[2]) }}</td><td class="text-end">{{ "{:,.2f}".format(b.despues[2]) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if cambios_por_columna %}
+      <p class="small mb-1"><strong>Columnas que cambian:</strong>
+        {% for col, n in cambios_por_columna %}{{ col }} ({{ "{:,}".format(n) }}){% if not loop.last %} · {% endif %}{% endfor %}
+      </p>
+    {% endif %}
+
+    {% if dif.modificados %}
+      <details class="mb-2">
+        <summary>✏️ Ver filas modificadas{% if dif.modificados|length > max_detalle %} (primeras {{ max_detalle }}){% endif %}</summary>
+        <div class="table-responsive mt-2" style="max-height: 400px;">
+          <table class="table table-sm table-striped small">
+            <thead class="sticky-top bg-white"><tr><th>Código</th><th>Bodega</th><th>Producto</th><th>Cambios</th></tr></thead>
+            <tbody>
+              {% for m in dif.modificados[:max_detalle] %}
+              <tr><td>{{ m.codigo }}</td><td>{{ m.bodega }}</td><td>{{ m.nombre }}</td>
+                <td>{% for col, antes, despues in m.cambios %}<div><strong>{{ col }}:</strong> {{ antes if antes is not none else "—" }} → {{ despues if despues is not none else "—" }}</div>{% endfor %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if dif.nuevos %}
+      <details class="mb-2">
+        <summary>🆕 Ver filas nuevas (producto en una bodega donde antes no estaba){% if dif.nuevos|length > max_detalle %} (primeras {{ max_detalle }}){% endif %}</summary>
+        <div class="table-responsive mt-2" style="max-height: 400px;">
+          <table class="table table-sm table-striped small">
+            <thead class="sticky-top bg-white"><tr><th>Código</th><th>Bodega</th><th>Producto</th><th>Marca</th><th class="text-end">Cant. final</th><th class="text-end">Monto final</th></tr></thead>
+            <tbody>
+              {% for r in dif.nuevos[:max_detalle] %}
+              <tr><td>{{ r.Codigo_producto }}</td><td>{{ r.Bodega }}</td><td>{{ r.Producto }}</td><td>{{ r.Marca or "" }}</td>
+                <td class="text-end">{{ r.Cant_Final }}</td><td class="text-end">{{ r["Monto Final"] }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if dif.eliminados %}
+      <details class="mb-3">
+        <summary class="text-danger">🗑️ Ver filas que se eliminan{% if dif.eliminados|length > max_detalle %} (primeras {{ max_detalle }}){% endif %}</summary>
+        <div class="table-responsive mt-2" style="max-height: 400px;">
+          <table class="table table-sm table-striped small">
+            <thead class="sticky-top bg-white"><tr><th>Código</th><th>Bodega</th><th>Producto</th><th class="text-end">Cant. final</th></tr></thead>
+            <tbody>
+              {% for r in dif.eliminados[:max_detalle] %}
+              <tr><td>{{ r.Codigo_producto }}</td><td>{{ r.Bodega }}</td><td>{{ r.Producto }}</td><td class="text-end">{{ r.Cant_Final }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    <form action="{{ url_for('cargar_existencias.confirmar_carga_existencias') }}" method="post" class="mb-4"
+          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Actualizando…';">
+      <input type="hidden" name="token" value="{{ token }}">
+      {% if pedir_confirmacion %}
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="acepto" required>
+          <label class="form-check-label text-danger" for="acepto">Entiendo que se eliminarán {{ "{:,}".format(dif.eliminados|length) }} filas de existencias</label>
+        </div>
+      {% endif %}
+      <button type="submit" class="btn btn-success"><i class="bi bi-cloud-arrow-up"></i> Confirmar actualización ({{ "{:,}".format(total) }} filas)</button>
+      <a href="{{ url_for('cargar_existencias.cargar_existencias') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -24,7 +24,22 @@ from router.accesos import requiere_acceso
 from router.ventas_perdidas import ventas_perdidas_bp
 from router.productos_agotarse import productos_agotarse_bp
 from router.ventas_bodegas import ventas_bodega_bp
-
+from router.clase_prod import clase_prod_bp
+from router.dashboard import dashboard_bp
+from router.dashboard import ultima_fecha_con_ventas, ranking_marcas
+import router.ventas_vendedor as vv
+from router.cargar_ventas import cargar_ventas_bp
+from router.cargar_ventas_producto import cargar_ventas_producto_bp
+from router.cargar_inventario import cargar_inventario_bp
+from router.cargar_catalogo import cargar_catalogo_bp
+from router.cargar_existencias import cargar_existencias_bp
+from router.sugerido_compras import sugerido_bp
+from router.top_clientes import top_clientes_bp
+from router.productos_incompletos import productos_incompletos_bp
+from router.productos_sin_movimiento import productos_sin_movimiento_bp
+from router.revision_precios import revision_precios_bp
+from router.cargar_clientes import cargar_clientes_bp
+from router.menu import contexto_menu
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
@@ -67,11 +82,20 @@ app.register_blueprint(login_bp)
 app.register_blueprint(ventas_perdidas_bp)
 app.register_blueprint(productos_agotarse_bp)
 app.register_blueprint(ventas_bodega_bp)
-
-
-
-
-
+app.register_blueprint(clase_prod_bp)
+app.register_blueprint(dashboard_bp)
+app.register_blueprint(cargar_ventas_bp)
+app.register_blueprint(cargar_ventas_producto_bp)
+app.register_blueprint(cargar_inventario_bp)
+app.register_blueprint(cargar_catalogo_bp)
+app.register_blueprint(cargar_existencias_bp)
+app.register_blueprint(sugerido_bp)
+app.register_blueprint(top_clientes_bp)
+app.register_blueprint(productos_incompletos_bp)
+app.register_blueprint(productos_sin_movimiento_bp)
+app.register_blueprint(revision_precios_bp)
+app.register_blueprint(cargar_clientes_bp)
+app.context_processor(contexto_menu)  # menú único para inicio y barra superior
 
 # -----------------------------
 # Configuración de la base de datos
@@ -640,10 +664,42 @@ def reporte_ventas():
 @app.route("/rep_vend_totales", methods=["GET"])
 @requiere_acceso("rep_vend_totales")
 def rep_vend_totales():
-    fecha_inicio = request.args.get("fecha_inicio", datetime.today().strftime("%Y-%m-%d"))
-    fecha_fin = request.args.get("fecha_fin", datetime.today().strftime("%Y-%m-%d"))
-    datos = obtener_reporte_ventas(fecha_inicio, fecha_fin)
-    return render_template("RepVendTotales.html", **datos)
+    # Por defecto: mes en curso hasta el último día con ventas cargadas
+    ultima = ultima_fecha_con_ventas() or datetime.today().date()
+    def fecha_param(nombre, defecto):
+        try:
+            return datetime.strptime(request.args.get(nombre) or "", "%Y-%m-%d").date()
+        except ValueError:
+            return defecto
+    fecha_fin = fecha_param("fecha_fin", ultima)
+    fecha_inicio = min(fecha_param("fecha_inicio", fecha_fin.replace(day=1)), fecha_fin)
+    vendedor = (request.args.get("vendedor") or "").strip() or None
+
+    datos = obtener_reporte_ventas(fecha_inicio.isoformat(), fecha_fin.isoformat())
+    vendedores = vv.ranking_vendedores(datos)
+    seleccionado = next((v for v in vendedores if v["vendedor"] == vendedor), None)
+    if vendedor and not seleccionado:
+        vendedor = None  # sin ventas en el período: se muestra el reporte general
+
+    productos = vv.productos_periodo(fecha_inicio, fecha_fin, vendedor)
+    marcas, top_marcas, otras_marcas = ranking_marcas(productos)
+    facturas, dias = vv.facturas_periodo(fecha_inicio, fecha_fin, vendedor)
+    base = seleccionado or {"credito": sum(v["credito"] for v in vendedores),
+                            "contado": sum(v["contado"] for v in vendedores),
+                            "total": sum(v["total"] for v in vendedores)}
+
+    return render_template(
+        "RepVendTotales.html",
+        fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, ultima_fecha=ultima,
+        rangos=vv.rangos_rapidos(ultima), vendedor=vendedor, seleccionado=seleccionado,
+        vendedores=vendedores, grupos=vv.resumen_grupos(vendedores),
+        indice_resaltado=(seleccionado["posicion"] - 1) if seleccionado else None,
+        base=base, devoluciones=seleccionado["devoluciones"] if seleccionado else float(datos["total_dev"]),
+        facturas=facturas, dias=dias,
+        top_productos=productos[:10], total_productos=len(productos),
+        venta_productos=sum(p["venta"] for p in productos),
+        top_marcas=top_marcas, otras_marcas=otras_marcas, total_marcas=len(marcas),
+    )
 
 @app.route("/rep_vend_netocreco", methods=["GET"])
 @requiere_acceso("rep_vend_netocreco")

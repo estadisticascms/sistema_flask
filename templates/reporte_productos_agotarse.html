@@ -1,72 +1,207 @@
 {% extends "layout.html" %}
-{% block title %}Reporte Productos Próximos a Agotarse{% endblock %}
-{% block header_title %}Productos Próximos a Agotarse{% endblock %}
+{% block title %}Próximos a Agotarse{% endblock %}
+{% macro num(v, d=0) %}{% set r = v|round(2) %}{{ ("{:,.%df}"|format(d)).format(r) if d else ("{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r)) }}{% endmacro %}
 
 {% block content %}
-<div class="container-fluid px-3">
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .pa h4 { color: var(--credito); }
+  .pa .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .pa .form-control-sm, .pa .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-pa { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1100px; }
+  .tabla-pa thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem .45rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-pa td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: middle; }
+  .tabla-pa tbody tr:hover td { background: #faf9f6; }
+  .tabla-pa .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .prod .desc { font-weight: 600; }
+  .prod .meta { font-size: .72rem; color: var(--ink-3); }
+  /* Mini barras de ventas por mes (más antiguo a la izquierda) */
+  .mini { display: flex; align-items: flex-end; gap: 2px; height: 26px; }
+  .mini span { width: 9px; background: var(--credito); border-radius: 2px 2px 0 0; min-height: 1px; }
+  .mini span.cero { background: var(--grid); height: 2px !important; }
+  /* Cobertura: nivel con icono + texto (no solo color) */
+  .nivel { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .74rem; white-space: nowrap; }
+  .nivel.agotado { background: #fde8e8; color: #b42318; }
+  .nivel.critico { background: #fff1e8; color: #9a3412; }
+  .nivel.bajo { background: #fef7e0; color: #854d0e; }
+  .sugerido { font-weight: 700; font-size: .9rem; color: var(--ink); }
+  /* Equivalentes (igual que en Sugerido de compras) */
+  .btn-eq { border: 1px solid #b7d9d4; background: #fff; border-radius: 6px; padding: .2rem .45rem; font-size: .72rem;
+            color: var(--ink); text-align: left; line-height: 1.25; min-height: 32px; }
+  .btn-eq:hover, .btn-eq:focus-visible { background: #e6f2f0; }
+  .btn-eq[aria-expanded="true"] { background: #e6f2f0; border-color: var(--credito); }
+  .btn-eq .disp { color: var(--credito); font-weight: 700; }
+  .btn-eq .sin { color: var(--ink-3); }
+  tr.detalle-eq > td { background: #f4faf9 !important; padding: .4rem .6rem .6rem 1.4rem; }
+  .tabla-eq { width: 100%; font-size: .74rem; }
+  .tabla-eq th { color: var(--ink-3); font-weight: 600; text-align: left; padding: .15rem .4rem; border-bottom: 1px solid var(--grid); }
+  .tabla-eq td { padding: .2rem .4rem; border-bottom: 1px solid #e3eeec; background: transparent !important; vertical-align: middle; }
+  .tabla-eq .misma { color: var(--ink-3); }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .pa .btn:focus-visible, .pa a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
 
-  <!-- Filtros -->
-  <form method="get" action="{{ url_for('productos_agotarse.reporte_productos_agotarse') }}" 
-        class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm border-start border-4 border-info">
-    <div class="col-md-3">
-      <label class="form-label fw-bold text-info">Cobertura máxima (meses)</label>
-      <input type="number" name="cobertura" value="{{ cobertura }}" 
-             class="form-control form-control-sm">
+{% set params = {'historial': f.historial, 'meses_venta': f.meses_venta, 'promedio_min': f.promedio_min, 'cobertura': f.cobertura,
+                 'comprar_para': f.comprar_para, 'marca': f.marca, 'q': f.q, 'con_perdidas': '1' if f.con_perdidas else '0'} %}
+<div class="dash pa container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Productos próximos a agotarse</h4>
+      <div class="text-muted small">Productos con buen movimiento (vendieron en al menos {{ f.meses_venta }} de los últimos {{ f.historial }} meses)
+        cuya existencia disponible alcanza para menos de {{ f.cobertura }} mes{{ 'es' if f.cobertura != 1 }}.
+        Ventas del {{ periodo.inicio.strftime('%d/%m/%Y') }} al {{ periodo.fin.strftime('%d/%m/%Y') }}.</div>
     </div>
-    <div class="col-md-3">
-      <label class="form-label fw-bold text-info">Fecha ingreso inicio</label>
-      <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" 
-             class="form-control form-control-sm">
+    {% if filas %}
+    <a class="btn btn-verde btn-sm" href="{{ url_for('productos_agotarse.descargar_excel', **params) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+    {% endif %}
+  </div>
+
+  {# ---------- Criterios ---------- #}
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="historial">Promedio de los últimos</label>
+        <select id="historial" name="historial" class="form-select form-select-sm">
+          {% for h in historiales %}<option value="{{ h }}" {% if h == f.historial %}selected{% endif %}>{{ h }} meses</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="meses_venta">Vendió en al menos</label>
+        <select id="meses_venta" name="meses_venta" class="form-select form-select-sm">
+          {% for m in range(1, f.historial + 1) %}<option value="{{ m }}" {% if m == f.meses_venta %}selected{% endif %}>{{ m }} de {{ f.historial }} meses</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="promedio_min">Prom. mínimo</label>
+        <input type="number" id="promedio_min" name="promedio_min" min="0" step="0.5" value="{{ f.promedio_min|round(1) }}" class="form-control form-control-sm" title="Unidades por mes"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="cobertura">Se agota en menos de</label>
+        <select id="cobertura" name="cobertura" class="form-select form-select-sm">
+          {% for c in coberturas %}<option value="{{ c }}" {% if c == f.cobertura %}selected{% endif %}>{{ c }} mes{{ 'es' if c != 1 }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="comprar_para">Sugerido para</label>
+        <select id="comprar_para" name="comprar_para" class="form-select form-select-sm">
+          {% for c in comprar_para %}<option value="{{ c }}" {% if c == f.comprar_para %}selected{% endif %}>{{ c }} m</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="marca">Marca</label>
+        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Producto"></div>
+      <div class="col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button></div>
     </div>
-    <div class="col-md-3">
-      <label class="form-label fw-bold text-info">Fecha ingreso fin</label>
-      <input type="date" name="fecha_fin" value="{{ fecha_fin }}" 
-             class="form-control form-control-sm">
-    </div>
-    <div class="col-md-3 d-flex gap-2">
-      <button type="submit" class="btn btn-sm btn-primary w-100">🔍 Filtrar</button>
-      <a href="{{ url_for('productos_agotarse.reporte_productos_agotarse') }}" class="btn btn-sm btn-secondary w-100">♻️ Limpiar</a>
+    <div class="form-check mt-1 mb-0" title="Suma al promedio vendido las unidades registradas como venta perdida en el período">
+      <input class="form-check-input" type="checkbox" name="con_perdidas" value="1" id="con_perdidas" {% if f.con_perdidas %}checked{% endif %}>
+      <input type="hidden" name="con_perdidas" value="0">
+      <label class="form-check-label small" for="con_perdidas">Sumar ventas perdidas al sugerido</label>
     </div>
   </form>
 
-  <!-- Tabla -->
-  <table class="table table-sm table-hover table-bordered align-middle w-100 shadow-sm rounded">
-    <thead style="background: linear-gradient(90deg, #dc3545, #ffc107); color:white;">
-      <tr>
-        <th>Código</th>
-        <th>N° Parte</th>
-        <th>Descripción</th>
-        <th>Marca</th>
-        <th>Existencia Actual</th>
-        <th>Promedio Mensual</th>
-        <th>Meses Cobertura</th>
-        <th>Última Fecha Ingreso</th>
-        <th>Última Fecha Venta</th>
-        <th>Meses Transcurridos</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in productos %}
-      <tr style="background-color:{% if loop.index is even %}#f8f9fa{% else %}#ffffff{% endif %};">
-        <td>{{ r.Codigo }}</td>
-        <td class="fw-bold text-primary text-uppercase">{{ r.NumeroParte }}</td>
-        <td>{{ r.Descripcion }}</td>
-        <td>{{ r.Marca }}</td>
-        <td class="text-end">{{ r.ExistenciaActual }}</td>
-        <td class="text-end">{{ r.PromedioMensual|round(1) }}</td>
-        <td class="text-center fw-bold 
-            {% if r.MesesCobertura <= 1 %}text-danger
-            {% elif r.MesesCobertura <= 2 %}text-warning
-            {% else %}text-success{% endif %}">
-            {{ r.MesesCobertura }}
-        </td>
-        <td>{{ r.UltimaFechaIngreso }}</td>
-        <td>{{ r.UltimaFechaVenta }}</td>
-        <td class="text-center">{{ r.MesesTranscurridos }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endblock %}
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Productos por agotarse</div><div class="valor">{{ "{:,}".format(filas|length) }}</div>
+      <div class="sub">con buen movimiento</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Ya agotados</div><div class="valor" style="color: #b42318">{{ "{:,}".format(agotados) }}</div>
+      <div class="sub">sin existencia disponible</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Menos de 1 mes</div><div class="valor" style="color: #9a3412">{{ "{:,}".format(menos_un_mes) }}</div>
+      <div class="sub">se agotan en semanas</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Con equivalente disponible</div><div class="valor" style="color: var(--credito)">{{ "{:,}".format(con_equivalente) }}</div>
+      <div class="sub">hay en otra marca o código</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Sugerido total</div><div class="valor">{{ "{:,}".format(unidades) }}</div>
+      <div class="sub">unidades para {{ f.comprar_para }} mes{{ 'es' if f.comprar_para != 1 }}{% if por_perdidas %} · {{ "{:,}".format(por_perdidas) }} por ventas perdidas{% endif %}</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Costo estimado</div><div class="valor">C$ {{ "{:,.2f}".format(costo) }}</div>
+      <div class="sub">según último costo</div></div></div>
+  </div>
 
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-pa">
+      <caption class="visually-hidden">Productos con buen movimiento próximos a agotarse</caption>
+      <thead><tr>
+        <th scope="col">Producto</th><th scope="col">Marca</th>
+        <th scope="col" title="Ventas de cada mes, del más antiguo al último">Ventas por mes</th>
+        <th scope="col" class="num">Prom. / mes</th><th scope="col" class="num">Existencia</th>
+        <th scope="col" class="num" title="Existencia menos bodegas NHE">Disponible</th>
+        <th scope="col">Se agota en</th>
+        <th scope="col" title="Productos del mismo grupo de equivalencia (Clasificación de productos)">Equivalentes</th>
+        <th scope="col" class="num">Sugerido</th>
+        <th scope="col" class="num">Costo C$</th><th scope="col">Última compra</th><th scope="col">Última venta</th>
+      </tr></thead>
+      <tbody>
+        {% for x in filas %}
+        {% set maximo = [x.meses|max, 1]|max %}
+        <tr>
+          <td class="prod"><div class="desc">{{ x.nombre }}</div>
+            <div class="meta"><strong>{{ x.numero_parte }}</strong> · {{ x.codigo }}{% if x.familia %} · {{ x.familia }}{% if x.subfamilia %} / {{ x.subfamilia }}{% endif %}{% endif %}</div></td>
+          <td>{{ x.marca }}</td>
+          <td>
+            <div class="mini" role="img" aria-label="Ventas por mes: {{ x.meses|map('round', 0)|map('int')|join(', ') }}"
+                 title="{{ x.meses|map('round', 1)|join(' · ') }} (del más antiguo al último mes) · vendió en {{ x.meses_con_venta }} de {{ f.historial }} meses">
+              {% for m in x.meses %}<span class="{{ 'cero' if not m }}" style="height: {{ (m / maximo * 100)|round(0) }}%"></span>{% endfor %}
+            </div>
+          </td>
+          <td class="num fw-semibold">{{ num(x.promedio, 1) }}</td>
+          <td class="num">{{ num(x.existencia) }}{% if x.nhe %}<div class="small text-muted" title="En bodegas NHE (mercadería faltante)">NHE {{ num(x.nhe) }}</div>{% endif %}</td>
+          <td class="num fw-semibold">{{ num(x.disponible) }}</td>
+          <td>
+            {% if x.disponible <= 0 %}<span class="nivel agotado"><i class="bi bi-x-circle-fill" aria-hidden="true"></i> Agotado</span>
+            {% elif x.cobertura < 1 %}<span class="nivel critico"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> {{ (x.cobertura * 30.44)|round(0)|int }} días</span>
+            {% else %}<span class="nivel bajo"><i class="bi bi-hourglass-split" aria-hidden="true"></i> {{ num(x.cobertura, 1) }} meses</span>{% endif %}
+          </td>
+          <td>
+            {% if x.equivalentes %}
+            <button type="button" class="btn-eq" aria-expanded="false" aria-controls="eq-{{ loop.index }}">
+              <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+              {{ x.equivalentes|length }} equiv.{% if x.eq_marcas %} · {{ x.eq_marcas }} marca{{ 's' if x.eq_marcas != 1 }}{% endif %}<br>
+              {% if x.eq_disponible > 0 %}<span class="disp">{{ "{:,.0f}".format(x.eq_disponible) }} disponibles</span>
+              {% else %}<span class="sin">sin existencia</span>{% endif %}
+            </button>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="num"><span class="sugerido">{{ "{:,}".format(x.sugerido) }}</span>
+            {% if x.sugerido > x.sugerido_sin_perdidas %}<div class="small" style="color: #9a3412" title="{{ num(x.perdidas) }} unid. registradas como venta perdida; sin ellas serían {{ x.sugerido_sin_perdidas }}">+{{ x.sugerido - x.sugerido_sin_perdidas }} v. perdidas</div>{% endif %}</td>
+          <td class="num">{{ "{:,.2f}".format(x.sugerido * x.costo) }}</td>
+          <td class="small">{% if x.ultima_compra %}{{ x.ultima_compra.strftime('%d/%m/%Y') }}<div class="text-muted">hace {{ x.dias_compra }} días</div>{% else %}<span class="text-muted">sin compras</span>{% endif %}</td>
+          <td class="small">{{ x.ultima_venta.strftime('%d/%m/%Y') if x.ultima_venta else '—' }}</td>
+        </tr>
+        {% if x.equivalentes %}
+        <tr class="detalle-eq" id="eq-{{ loop.index }}" hidden>
+          <td colspan="12">
+            <div class="small fw-semibold mb-1" style="color: var(--credito)">
+              Equivalentes de {{ x.numero_parte or x.codigo }} ({{ x.marca }}) · grupo {{ x.grupo }}</div>
+            <table class="tabla-eq">
+              <thead><tr><th>Marca</th><th>Código</th><th>Nº parte</th><th>Descripción</th>
+                <th class="num">Disponible</th><th class="num">Prom. / mes</th></tr></thead>
+              <tbody>
+                {% for e in x.equivalentes %}
+                <tr class="{{ 'misma' if e.marca == x.marca }}">
+                  <td>{{ e.marca }}{% if e.marca == x.marca %} <span class="small">(misma marca)</span>{% endif %}</td>
+                  <td>{{ e.codigo }}</td><td>{{ e.numero_parte or '—' }}</td><td>{{ e.nombre }}</td>
+                  <td class="num {{ 'fw-bold' if e.disponible > 0 }}" {% if e.disponible > 0 %}style="color: var(--credito)"{% endif %}>{{ "{:,.0f}".format(e.disponible) }}</td>
+                  <td class="num">{{ "{:,.1f}".format(e.promedio) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr><td colspan="12" class="text-center text-muted py-4"><i class="bi bi-check2-circle d-block fs-3 mb-1" aria-hidden="true" style="color: var(--credito)"></i>
+          Ningún producto con buen movimiento se agota en menos de {{ f.cobertura }} meses con estos criterios.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="small text-muted mt-2 mb-4">
+    Sugerido = promedio mensual × {{ f.comprar_para }} mes{{ 'es' if f.comprar_para != 1 }} − disponible. Para revisar equivalencias y editar el pedido use el
+    <a href="{{ url_for('sugerido_compras.sugerido_compras') }}">Sugerido de compras</a>.
+  </div>
+</div>
+<script>
+  document.querySelectorAll('.btn-eq').forEach(b => b.addEventListener('click', () => {
+    const fila = document.getElementById(b.getAttribute('aria-controls'));
+    const abrir = b.getAttribute('aria-expanded') !== 'true';
+    b.setAttribute('aria-expanded', abrir); fila.hidden = !abrir;
+  }));
+</script>
+<datalist id="dl-marcas">{% for m in marcas %}<option value="{{ m }}">{% endfor %}</datalist>
+{% endblock %}

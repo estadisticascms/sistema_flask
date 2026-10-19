@@ -1,121 +1,301 @@
 {% extends "layout.html" %}
-{% block content %}
-<div class="container mt-4">
-    <h2>Reporte de Ventas por Bodega y Marca</h2>
+{% block title %}Ventas por Bodega{% endblock %}
 
-    <!-- Formulario -->
-    <form method="post" class="row g-3 mb-4">
-        <div class="col-auto">
-            <label for="fecha_inicio" class="form-label">Fecha inicio:</label>
-            <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control" value="{{ fecha_inicio }}">
+{% set meses_nombre = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+{% macro fecha_larga(d) %}{{ d.day }} de {{ meses_nombre[d.month-1] }}{% endmacro %}
+{% macro periodo(i, fn) -%}
+  {%- if i == fn -%}{{ fecha_larga(fn) }} de {{ fn.year }}
+  {%- elif i.year == fn.year and i.month == fn.month -%}{{ i.day }} al {{ fecha_larga(fn) }} de {{ fn.year }}
+  {%- elif i.year == fn.year -%}{{ fecha_larga(i) }} al {{ fecha_larga(fn) }} de {{ fn.year }}
+  {%- else -%}{{ fecha_larga(i) }} de {{ i.year }} al {{ fecha_larga(fn) }} de {{ fn.year }}{%- endif -%}
+{%- endmacro %}
+{# Redondea antes de decidir si es entero: las sumas de cantidades fraccionadas (pies, litros) arrastran decimales #}
+{% macro num(v) %}{% if v %}{% set r = v|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .vb h4 { color: var(--credito); }
+  .vb .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .vb .form-control-sm, .vb .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .vb .controles .btn.active { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .carga { display: flex; flex-direction: row; align-items: center; gap: .8rem; padding: .7rem 1rem; height: 100%; }
+  .carga .icono { width: 42px; height: 42px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.3rem; }
+  .carga .etiqueta { font-size: .75rem; color: var(--ink-3); }
+  .carga .nombre { font-size: 1.05rem; font-weight: 700; color: var(--ink); line-height: 1.2; }
+  .carga .sub { font-size: .75rem; color: var(--ink-2); }
+  /* Paneles por bodega (pequeños múltiplos con la misma escala) */
+  .paneles { display: grid; grid-template-columns: repeat(6, minmax(130px, 1fr)); gap: 0; }
+  .panel { border-left: 1px solid var(--grid); padding: 0 .4rem; }
+  .panel:first-child { border-left: 0; }
+  .panel h6 { font-size: .74rem; text-align: center; color: var(--ink); margin: 0 0 .2rem; min-height: 2.2em; display: flex; align-items: center; justify-content: center; }
+  @media (max-width: 992px) { .paneles { grid-template-columns: repeat(3, 1fr); row-gap: 1rem; } .panel:nth-child(4) { border-left: 0; } }
+  .leyenda { display: flex; justify-content: center; gap: 1rem; font-size: .78rem; color: var(--ink-2); margin-bottom: .4rem; }
+  /* Tabla resumen al estilo de la imagen */
+  .tabla-res { width: 100%; font-size: .8rem; border-collapse: collapse; }
+  .tabla-res th { background: var(--contado); color: #fff; text-align: center; font-weight: 600; padding: .35rem .5rem; border: 1px solid #fff; }
+  .tabla-res thead tr:first-child th { font-size: .82rem; }
+  .tabla-res td { padding: .35rem .5rem; border-bottom: 1px solid var(--grid); color: var(--ink); }
+  .tabla-res td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tabla-res .bloque-total { background: #fafaf8; font-weight: 700; }
+  .tabla-res tbody tr:nth-child(even) td { background: #f6f5f1; }
+  .tabla-res tr.otras td { color: var(--ink-2); font-style: italic; }
+  .tabla-res tr.total td { font-weight: 700; border-top: 2px solid var(--ink-3); background: #fff !important; }
+  .tabla-res tr.total-general td { font-weight: 700; background: #fff1e8 !important; }
+  /* Detalle por producto */
+  .bodega-det { border: 1px solid var(--grid); border-radius: 10px; background: #fff; margin-bottom: .6rem; }
+  .bodega-det > summary { list-style: none; cursor: pointer; padding: .6rem .9rem; display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+  .bodega-det > summary::-webkit-details-marker { display: none; }
+  .bodega-det > summary::before { content: "\F285"; font-family: bootstrap-icons; color: var(--ink-3); transition: transform .15s; }
+  .bodega-det[open] > summary::before { transform: rotate(90deg); }
+  .bodega-det > summary:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; border-radius: 10px; }
+  .bodega-det .titulo { font-weight: 700; color: var(--ink); }
+  .bodega-det .datos { font-size: .78rem; color: var(--ink-3); }
+  .tabla-det { width: 100%; font-size: .76rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-det th { position: sticky; top: 0; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .35rem .45rem;
+                  border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  .tabla-det td { padding: .3rem .45rem; border-bottom: 1px solid var(--grid); color: var(--ink); }
+  .tabla-det .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-det td.cero { color: #c9c8c2; }
+  .tabla-det td.hay { color: var(--credito); font-weight: 700; }
+  .tabla-det tr.total td { font-weight: 700; background: #fafaf8; border-top: 2px solid var(--grid); }
+  .vb .btn:focus-visible, .vb a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  @media (prefers-reduced-motion: reduce) { .bodega-det > summary::before { transition: none; } }
+</style>
+
+{% set base = {'marca': f.marca, 'vendedor': f.vendedor, 'tipo': f.tipo, 'detalle': f.detalle} %}
+<div class="dash vb container-fluid px-3 mt-2">
+
+
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" class="controles card card-body py-2 mb-3">
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      <div class="btn-group btn-group-sm" role="group" aria-label="Períodos rápidos">
+        {% for nombre, i, fn in rangos %}
+          <a class="btn btn-outline-secondary {% if i == f.fecha_inicio and fn == f.fecha_fin %}active{% endif %}"
+             href="{{ url_for('ventas_bodega.reporte_ventas_bodega', fecha_inicio=i, fecha_fin=fn, **base) }}">{{ nombre }}</a>
+        {% endfor %}
+      </div>
+      <div><label class="form-label" for="fi">Desde</label>
+        <input type="date" id="fi" name="fecha_inicio" value="{{ f.fecha_inicio }}" class="form-control form-control-sm"></div>
+      <div><label class="form-label" for="ff">Hasta</label>
+        <input type="date" id="ff" name="fecha_fin" value="{{ f.fecha_fin }}" class="form-control form-control-sm"></div>
+      <div><label class="form-label" for="marca">Marca</label>
+        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" style="width: 130px"></div>
+      <div><label class="form-label" for="vendedor">Vendedor</label>
+        <select id="vendedor" name="vendedor" class="form-select form-select-sm" style="max-width: 190px">
+          <option value="">Todos</option>
+          {% for v in vendedores %}<option {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      <div><label class="form-label" for="tipo">Tipo de venta</label>
+        <select id="tipo" name="tipo" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          <option value="CONTADO" {% if f.tipo == 'CONTADO' %}selected{% endif %}>Contado</option>
+          <option value="CREDITO" {% if f.tipo == 'CREDITO' %}selected{% endif %}>Crédito</option>
+        </select></div>
+      <input type="hidden" name="detalle" value="{{ f.detalle }}">
+      <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ventas_bodega.reporte_ventas_bodega') }}" title="Quitar filtros" aria-label="Quitar filtros"><i class="bi bi-x-lg" aria-hidden="true"></i></a>
+    </div>
+  </form>
+
+  {% if not unidades %}
+    <div class="alert alert-warning">No hay ventas por producto con estos filtros.</div>
+  {% else %}
+
+    {# ---------- Encabezado y bodegas con más / menos carga ---------- #}
+  <div class="row g-2 mb-2 align-items-stretch">
+    <div class="col-lg-4">
+      <div class="card h-100 d-flex justify-content-center px-3 py-2">
+        <h4 class="mb-0"><i class="bi bi-shop" aria-hidden="true"></i> Ventas por bodega</h4>
+        <div class="text-muted">Resumen del {{ periodo(f.fecha_inicio, f.fecha_fin) }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card kpi"><div class="etiqueta">Unidades vendidas</div><div class="valor">{{ "{:,.0f}".format(unidades) }}</div>
+        <div class="sub">{{ "{:,}".format(productos_distintos) }} productos · {{ "{:,}".format(facturas) }} facturas</div></div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="card carga">
+        <span class="icono" style="background: #fff1e8; color: var(--contado)" aria-hidden="true"><i class="bi bi-trophy-fill"></i></span>
+        <div><div class="etiqueta">Bodega con más carga</div>
+          <div class="nombre">{{ mas_carga.bodega if mas_carga else '—' }}</div>
+          {% if mas_carga %}<div class="sub">{{ "{:,.0f}".format(mas_carga.total.cantidad) }} unidades · {{ mas_carga.total.facturas }} facturas</div>{% endif %}</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-3">
+      <div class="card carga">
+        <span class="icono" style="background: #e6f2f0; color: var(--credito)" aria-hidden="true"><i class="bi bi-hourglass-bottom"></i></span>
+        <div><div class="etiqueta">Bodega con menos carga</div>
+          <div class="nombre">{{ menos_carga.bodega if menos_carga else '—' }}</div>
+          {% if menos_carga %}<div class="sub">{{ "{:,.0f}".format(menos_carga.total.cantidad) }} unidades · {{ menos_carga.total.facturas }} facturas</div>{% endif %}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- Gráfico por bodega ---------- #}
+  <div class="card mb-3">
+    <div class="card-header text-center">Cantidad vendida, productos y facturas emitidas por bodega</div>
+    <div class="card-body p-2">
+      <div class="leyenda" aria-hidden="true">
+        <span><span class="clave" style="background: var(--contado)"></span>Cantidad vendida</span>
+        <span><span class="clave" style="background: var(--credito)"></span>Productos</span>
+        <span><span class="clave" style="background: #9a9890"></span>Facturas emitidas</span>
+      </div>
+      <div class="paneles" role="img" aria-label="Por cada bodega principal: cantidad vendida, productos y facturas, al contado y a crédito. Los valores exactos están en la tabla.">
+        {% for b in paneles %}
+        <div class="panel">
+          <h6>{{ b.bodega }}</h6>
+          <div class="grafico" style="height: 220px"><canvas id="panel-{{ loop.index }}"></canvas></div>
         </div>
-        <div class="col-auto">
-            <label for="fecha_fin" class="form-label">Fecha fin:</label>
-            <input type="date" id="fecha_fin" name="fecha_fin" class="form-control" value="{{ fecha_fin }}">
-        </div>
-        <div class="col-auto align-self-end">
-            <button type="submit" class="btn btn-primary">Actualizar</button>
-        </div>
-    </form>
-    <!-- Bloque 1: Ventas diarias -->
-    <h4>Detalle Diario por Bodega</h4>
-    {% for bodega, productos in data_dias.items() %}
-        <h5><i class="bi bi-building text-primary"></i> {{ bodega }}</h5>
-        <table class="table table-bordered table-sm mb-4">
-            <thead>
-                <tr>
-                    <th>Número Parte</th>
-                    <th>Descripción Prod.</th>
-                    <th>Marca</th>
-                    {% for fecha in fechas %}
-                        <th>{{ fecha }}</th>
-                    {% endfor %}
-                    <th>Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for producto in productos %}
-                <tr>
-                    <td>{{ producto.Numero_Parte }}</td>
-                    <td>{{ producto.DescripProd }}</td>
-                    <td>{{ producto.Marca }}</td>
-                    {% for fecha in fechas %}
-                        <td>
-                            {% if producto.get(fecha, 0) > 0 %}
-                                <strong class="text-success">
-                                    {{ producto.get(fecha, 0) }}
-                                    <i class="bi bi-graph-up-arrow"></i>
-                                </strong>
-                            {% else %}
-                                {{ producto.get(fecha, 0) }}
-                            {% endif %}
-                        </td>
-                    {% endfor %}
-                    <td>{{ producto.Total }}</td>
-                </tr>
-                {% endfor %}
-                <tr class="table-secondary fw-bold">
-                    <td colspan="3">Total {{ bodega }}</td>
-                    {% for fecha in fechas %}
-                        <td>{{ totales_dias[bodega][fecha] }}</td>
-                    {% endfor %}
-                    <td>{{ totales_dias[bodega]["Total"] }}</td>
-                </tr>
-            </tbody>
-        </table>
-    {% endfor %}
-    <!-- Bloque 2: Ventas semanales -->
-    <h4>Resumen Semanal por Bodega</h4>
-    {% for bodega, productos in data_sem.items() %}
-        <h5><i class="bi bi-building text-primary"></i> {{ bodega }}</h5>
-        <table class="table table-striped table-sm mb-4">
-            <thead>
-                <tr>
-                    <th>Número Parte</th>
-                    <th>Descripción Prod.</th>
-                    <th>Marca</th>
-                    {% for semana in semanas %}
-                        <th>{{ semana }}</th>
-                    {% endfor %}
-                    <th>Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for producto in productos %}
-                <tr>
-                    <td>{{ producto.Numero_Parte }}</td>
-                    <td>{{ producto.DescripProd }}</td>
-                    <td>{{ producto.Marca }}</td>
-                    {% for semana in semanas %}
-                        <td>
-                            {% if producto.get(semana, 0) > 0 %}
-                                <strong class="text-success">
-                                    {{ producto.get(semana, 0) }}
-                                    <i class="bi bi-graph-up-arrow"></i>
-                                </strong>
-                            {% else %}
-                                {{ producto.get(semana, 0) }}
-                            {% endif %}
-                        </td>
-                    {% endfor %}
-                    <td>{{ producto.Total }}</td>
-                </tr>
-                {% endfor %}
-                <tr class="table-secondary fw-bold">
-                    <td colspan="3">Total {{ bodega }}</td>
-                    {% for semana in semanas %}
-                        <td>{{ totales_sem[bodega][semana] }}</td>
-                    {% endfor %}
-                    <td>{{ totales_sem[bodega]["Total"] }}</td>
-                </tr>
-            </tbody>
-        </table>
-    {% endfor %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# ---------- Tabla resumen ---------- #}
+  <div class="card mb-3">
+    <div class="card-body p-2 table-responsive">
+      <table class="tabla-res">
+        <caption class="visually-hidden">Cantidad, productos y facturas por bodega y tipo de venta</caption>
+        <thead>
+          <tr><th rowspan="2" scope="col">Bodega</th><th colspan="3" scope="colgroup">Contado</th>
+              <th colspan="3" scope="colgroup">Crédito</th><th colspan="3" scope="colgroup">Total</th></tr>
+          <tr>{% for _ in range(3) %}<th scope="col">Cantidad</th><th scope="col">Productos</th><th scope="col">Facturas</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% macro celdas(x) %}
+            {% for t in ['CONTADO', 'CREDITO'] %}
+              <td class="num">{{ num(x[t].cantidad) }}</td><td class="num">{{ num(x[t].productos) }}</td><td class="num">{{ num(x[t].facturas) }}</td>
+            {% endfor %}
+            <td class="num bloque-total">{{ num(x.total.cantidad) }}</td><td class="num bloque-total">{{ num(x.total.productos) }}</td><td class="num bloque-total">{{ num(x.total.facturas) }}</td>
+          {% endmacro %}
+          {% for b in principales %}<tr><td><strong>{{ b.bodega }}</strong></td>{{ celdas(b) }}</tr>{% endfor %}
+          <tr class="total"><td>Total bodegas principales</td>{{ celdas(total_principales) }}</tr>
+          {% if otras %}
+          <tr class="otras"><td title="{{ otras.nombres|join(', ') }}">{{ otras.bodega }}</td>{{ celdas(otras) }}</tr>
+          <tr class="total-general"><td>Total general</td>{{ celdas(total_general) }}</tr>
+          {% endif %}
+        </tbody>
+      </table>
+      {% if otras %}<div class="small text-muted mt-1">Otras bodegas: {{ otras.nombres|join(', ') }}.</div>{% endif %}
+    </div>
+  </div>
+
+  {# ---------- Detalle por producto (todas las bodegas) ---------- #}
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <h5 class="mb-0" style="color: var(--credito)"><i class="bi bi-list-ul" aria-hidden="true"></i> Detalle de unidades por producto</h5>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <div class="btn-group btn-group-sm controles" role="group" aria-label="Agrupar columnas por">
+        {% for clave, nombre in [('dia', 'Por día'), ('semana', 'Por semana'), ('mes', 'Por mes')] %}
+          {% set deshabilitado = clave == 'dia' and f.dias > 31 %}
+          <a class="btn btn-outline-secondary {% if f.detalle == clave %}active{% endif %} {% if deshabilitado %}disabled{% endif %}"
+             {% if deshabilitado %}aria-disabled="true" title="Disponible para rangos de hasta 31 días"{% endif %}
+             href="{{ url_for('ventas_bodega.reporte_ventas_bodega', fecha_inicio=f.fecha_inicio, fecha_fin=f.fecha_fin, marca=f.marca, vendedor=f.vendedor, tipo=f.tipo, detalle=clave) }}">{{ nombre }}</a>
+        {% endfor %}
+      </div>
+      <input type="search" id="buscar-prod" class="form-control form-control-sm" style="width: 240px"
+             placeholder="Buscar producto, nº parte o marca" aria-label="Buscar en el detalle">
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="abrir-todas">Abrir todas</button>
+    </div>
+  </div>
+
+  {% for bl in bloques %}
+  <details class="bodega-det" {% if loop.first %}open{% endif %}>
+    <summary>
+      <span class="titulo"><i class="bi bi-building" aria-hidden="true" style="color: {{ 'var(--contado)' if bl.principal else 'var(--ink-3)' }}"></i> {{ bl.bodega }}</span>
+      <span class="datos">{{ "{:,}".format(bl.total_productos) }} productos · {{ num(bl.unidades) }} unidades</span>
+      <span class="datos ms-auto conteo-busqueda"></span>
+    </summary>
+    <div class="table-responsive" style="max-height: 520px">
+      <table class="tabla-det">
+        <thead><tr>
+          <th scope="col">Nº parte</th><th scope="col">Descripción</th><th scope="col">Marca</th>
+          {% for clave, etiqueta in periodos %}<th scope="col" class="num">{{ etiqueta }}</th>{% endfor %}
+          <th scope="col" class="num">Total</th>
+        </tr></thead>
+        <tbody>
+          {% for p in bl.productos %}
+          <tr class="prod" data-buscar="{{ (p.numero_parte ~ ' ' ~ p.descripcion ~ ' ' ~ p.marca ~ ' ' ~ p.codigo)|lower }}">
+            <td><strong>{{ p.numero_parte }}</strong></td><td>{{ p.descripcion }}</td><td>{{ p.marca }}</td>
+            {% for clave, etiqueta in periodos %}
+              {% set v = p.periodos.get(clave, 0) %}
+              <td class="num {{ 'hay' if v else 'cero' }}">{{ num(v) if v else '·' }}</td>
+            {% endfor %}
+            <td class="num fw-bold">{{ num(p.total) }}</td>
+          </tr>
+          {% endfor %}
+          <tr class="total"><td colspan="3">Total {{ bl.bodega }}</td>
+            {% for clave, etiqueta in periodos %}<td class="num">{{ num(bl.por_periodo[clave]) }}</td>{% endfor %}
+            <td class="num">{{ num(bl.unidades) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    {% if bl.total_productos > max_productos %}
+      <div class="small text-muted px-3 py-2">Se muestran los {{ max_productos }} productos con más unidades de {{ "{:,}".format(bl.total_productos) }}. El total incluye todos.</div>
+    {% endif %}
+  </details>
+  {% endfor %}
+  {% endif %}
 </div>
+<datalist id="dl-marcas">{% for m in marcas %}<option value="{{ m }}">{% endfor %}</datalist>
 {% endblock %}
 
+{% block scripts %}
+{% if unidades %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='graficos_comersa.js') }}"></script>
+<script>
+(function () {
+  const G = window.ComersaGraficos;
+  const paneles = {{ paneles | tojson }};
+  const tipos = ['CONTADO', 'CREDITO'];
+  const series = [['cantidad', 'Cantidad vendida', G.C.contado], ['productos', 'Productos', G.C.credito], ['facturas', 'Facturas emitidas', '#9a9890']];
+  // misma escala en todos los paneles para poder comparar bodegas
+  const maximo = Math.max(1, ...paneles.flatMap(b => tipos.map(t => b[t].cantidad)));
+  const etiquetas = {   // valor encima de cada barra (pocas barras por panel)
+    id: 'valoresArriba',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart; ctx.save(); ctx.font = "600 10px 'Segoe UI', Arial"; ctx.fillStyle = G.C.ink2; ctx.textAlign = 'center';
+      chart.data.datasets.forEach((ds, i) => chart.getDatasetMeta(i).data.forEach((barra, j) => {
+        const v = ds.data[j]; if (v) ctx.fillText(Number(v).toLocaleString('es-NI', { maximumFractionDigits: 0 }), barra.x, barra.y - 4);
+      }));
+      ctx.restore();
+    }
+  };
+  paneles.forEach((b, n) => {
+    new Chart(document.getElementById('panel-' + (n + 1)), {
+      type: 'bar',
+      data: { labels: ['Contado', 'Crédito'],
+              datasets: series.map(([clave, nombre, color]) => G.barra(nombre, tipos.map(t => b[t][clave]), color,
+                                                                       { maxBarThickness: 18, borderRadius: 3 })) },
+      options: { layout: { padding: { top: 16 } },
+        scales: { y: { display: false, beginAtZero: true, max: maximo * 1.12 }, x: { grid: { display: false }, border: { color: G.C.grid }, ticks: { color: G.C.ink2 } } },
+        plugins: { tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${Number(c.parsed.y).toLocaleString('es-NI')}` } } } },
+      plugins: [etiquetas]
+    });
+  });
 
-
-
-
-
+  // Buscar en el detalle de todas las bodegas
+  const buscar = document.getElementById('buscar-prod');
+  buscar.addEventListener('input', () => {
+    const q = buscar.value.trim().toLowerCase();
+    document.querySelectorAll('.bodega-det').forEach(det => {
+      let visibles = 0;
+      det.querySelectorAll('tr.prod').forEach(tr => { const ok = !q || tr.dataset.buscar.includes(q); tr.hidden = !ok; if (ok) visibles++; });
+      det.querySelector('.conteo-busqueda').textContent = q ? `${visibles} coincidencia${visibles === 1 ? '' : 's'}` : '';
+      if (q && visibles) det.open = true;
+    });
+  });
+  const abrir = document.getElementById('abrir-todas');
+  abrir.addEventListener('click', () => {
+    const todas = [...document.querySelectorAll('.bodega-det')];
+    const cerrar = todas.every(d => d.open);
+    todas.forEach(d => d.open = !cerrar);
+    abrir.textContent = cerrar ? 'Abrir todas' : 'Cerrar todas';
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

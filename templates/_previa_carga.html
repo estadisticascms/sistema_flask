@@ -1,0 +1,65 @@
+{# Vista previa común de cargas por clave (recibos, devoluciones).
+   Espera: dif, nombres, clave, columnas (lista de (campo, título)), etiqueta, url_confirmar, url_cancelar,
+           errores, advertencias, max_detalle, token #}
+{% macro valor(v) %}{% if v is none or v == '' %}—{% elif v is number %}{{ "{:,.2f}".format(v) }}{% elif v.strftime is defined %}{{ v.strftime('%d/%m/%Y') }}{% else %}{{ v }}{% endif %}{% endmacro %}
+
+{% if errores %}
+  <div class="alert alert-danger">
+    <strong>❌ Filas con error (no se cargarán):</strong>
+    <ul class="mb-0 small">{% for e in errores[:max_detalle] %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% if errores|length > max_detalle %}<div class="small">… y {{ errores|length - max_detalle }} más</div>{% endif %}
+  </div>
+{% endif %}
+
+{% if advertencias %}
+  <div class="alert alert-warning">
+    <strong>⚠️ Advertencias (revise antes de confirmar):</strong>
+    <ul class="mb-0 small">{% for a in advertencias[:max_detalle] %}<li>{{ a }}</li>{% endfor %}</ul>
+    {% if advertencias|length > max_detalle %}<div class="small">… y {{ advertencias|length - max_detalle }} más</div>{% endif %}
+  </div>
+{% endif %}
+
+{% if dif.modificados %}
+  <details class="mb-2" open>
+    <summary>✏️ {{ dif.modificados|length }} {{ etiqueta }} ya existen con datos distintos y se actualizarán</summary>
+    <div class="table-responsive mt-2" style="max-height: 360px;">
+      <table class="table table-sm table-striped small">
+        <thead class="sticky-top bg-white"><tr><th>{{ nombres[clave] }}</th><th>Cambios</th></tr></thead>
+        <tbody>
+          {% for m in dif.modificados[:max_detalle] %}
+          <tr><td>{{ m.registro[clave] }}</td>
+            <td>{% for campo, antes, despues in m.cambios %}<div><strong>{{ nombres[campo] }}:</strong> {{ valor(antes) }} → {{ valor(despues) }}</div>{% endfor %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+{% endif %}
+
+{% if dif.nuevos %}
+  <details class="mb-3">
+    <summary>🆕 Ver {{ etiqueta }} {{ nuevos_txt|default("nuevos") }} ({{ dif.nuevos|length }}){% if dif.nuevos|length > max_detalle %} — primeros {{ max_detalle }}{% endif %}</summary>
+    <div class="table-responsive mt-2" style="max-height: 400px;">
+      <table class="table table-sm table-striped small">
+        <thead class="sticky-top bg-white"><tr>{% for campo, titulo in columnas %}<th class="{{ 'text-end' if campo in ('total', 'totaldv', 'saldofact') }}">{{ titulo }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for r in dif.nuevos[:max_detalle] %}
+          <tr>{% for campo, titulo in columnas %}<td class="{{ 'text-end' if campo in ('total', 'totaldv', 'saldofact') }}">{{ valor(r[campo]) }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+{% endif %}
+
+{% if dif.nuevos or dif.modificados %}
+  <form action="{{ url_confirmar }}" method="post" class="mb-4"
+        onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Guardando…';">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit" class="btn btn-success"><i class="bi bi-cloud-arrow-up" aria-hidden="true"></i>
+      Confirmar carga ({{ dif.nuevos|length }} {{ nuevos_txt|default("nuevos") }}{% if dif.modificados %}, {{ dif.modificados|length }} {{ "actualizadas" if nuevos_txt == "nuevas" else "actualizados" }}{% endif %})</button>
+    <a href="{{ url_cancelar }}" class="btn btn-outline-secondary">Cancelar</a>
+  </form>
+{% else %}
+  <div class="alert alert-success">Todo lo del archivo ya está cargado y sin cambios: no hay nada que guardar.</div>
+{% endif %}

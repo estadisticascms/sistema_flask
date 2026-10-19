@@ -1,0 +1,441 @@
+{% extends "layout.html" %}
+{% block title %}Sugerido de Compras{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .sc h4 { color: var(--credito); }
+  .sc .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .sc .form-control-sm, .sc .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .chip { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .3rem .15rem .6rem; border-radius: 999px;
+          background: #e6f2f0; border: 1px solid #b7d9d4; color: var(--ink); font-size: .78rem; }
+  .chip button { border: 0; background: transparent; width: 22px; height: 22px; border-radius: 50%; line-height: 1; color: var(--ink-2); }
+  .chip button:hover, .chip button:focus-visible { background: #b7d9d4; color: var(--ink); }
+  .tabla-sc { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-sc thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem .4rem; vertical-align: bottom; white-space: nowrap; }
+  .tabla-sc td { padding: .35rem .4rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: top; }
+  .tabla-sc .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-sc tbody tr:hover td { background: #faf9f6; }
+  .tabla-sc tr.editado td { background: #fff7ed !important; }
+  .tabla-sc .marca-grupo td { background: #f1f0ec !important; font-weight: 700; color: var(--credito); padding-top: .5rem; }
+  .prod .desc { font-weight: 600; }
+  .prod .meta { font-size: .72rem; color: var(--ink-3); }
+  .ingresos { font-size: .72rem; line-height: 1.35; white-space: nowrap; color: var(--ink-2); }
+  .ingresos strong { color: var(--ink); font-weight: 600; }
+  .nhe { color: var(--contado); font-weight: 700; }
+  .bajo { color: #c4320a; font-weight: 700; }
+  .pedido { width: 84px; min-height: 32px; text-align: right; font-weight: 700; border: 1px solid #cfccc4; border-radius: 6px; padding: .2rem .4rem; }
+  .pedido:focus { outline: none; border-color: var(--credito); box-shadow: 0 0 0 3px rgba(2,114,102,.18); }
+  tr.editado .pedido { border-color: var(--contado); background: #fff; }
+  .sistema { font-size: .7rem; color: var(--ink-3); }
+  .barra-inferior { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030; background: #fff; border-top: 1px solid var(--grid);
+                    box-shadow: 0 -4px 16px rgba(0,0,0,.08); padding: .55rem 1rem calc(.55rem + env(safe-area-inset-bottom, 0px)); }
+  .barra-inferior .total-valor { font-size: 1.1rem; font-weight: 700; color: var(--ink); }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .sc .btn:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .perdida { display: inline-block; background: #fff1e8; color: #9a3412; font-weight: 700; border-radius: 8px; padding: 0 7px; }
+  .btn-perdidas { border: 1px solid #f6b48d; cursor: pointer; padding: .1rem .5rem; min-height: 30px; }
+  .btn-perdidas:hover, .btn-perdidas:focus-visible { background: #ffe0cc; outline: none; box-shadow: 0 0 0 3px rgba(254,100,18,.25); }
+  .tabla-perdidas { font-size: .82rem; }
+  .tabla-perdidas th { color: var(--ink-3, #74736e); font-weight: 600; white-space: nowrap; }
+  .tabla-perdidas th, .tabla-perdidas td { text-align: left; vertical-align: top; }
+  .tabla-perdidas .text-end { text-align: right; }
+  #modal-perdidas .modal-title { font-size: 1.05rem; color: var(--credito, #027266); font-weight: 700; }
+  .btn-eq { border: 1px solid #b7d9d4; background: #fff; border-radius: 6px; padding: .2rem .45rem; font-size: .72rem;
+            color: var(--ink); text-align: left; line-height: 1.25; min-height: 32px; }
+  .btn-eq:hover, .btn-eq:focus-visible { background: #e6f2f0; }
+  .btn-eq[aria-expanded="true"] { background: #e6f2f0; border-color: var(--credito); }
+  .btn-eq .disp { color: var(--credito); font-weight: 700; }
+  .btn-eq .sin { color: var(--ink-3); }
+  tr.detalle-eq > td { background: #f4faf9 !important; padding: .4rem .6rem .6rem 1.4rem; }
+  .tabla-eq { width: 100%; font-size: .74rem; }
+  .tabla-eq th { color: var(--ink-3); font-weight: 600; text-align: left; padding: .15rem .4rem; border-bottom: 1px solid var(--grid); }
+  .tabla-eq td { padding: .2rem .4rem; border-bottom: 1px solid #e3eeec; background: transparent !important; vertical-align: middle; }
+  .tabla-eq .misma { color: var(--ink-3); }
+  .vacio-grande { text-align: center; padding: 2.5rem 1rem; color: var(--ink-3); }
+  .vacio-grande i { font-size: 2.2rem; color: var(--credito); }
+</style>
+
+<div class="dash sc container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-cart-plus-fill" aria-hidden="true"></i> Sugerido de compras</h4>
+      <div class="text-muted small">Pedido sugerido = promedio mensual de ventas × meses a cubrir − existencia disponible
+        (sin la mercadería faltante de bodegas NHE).</div>
+    </div>
+  </div>
+
+  {# ---------- Parámetros ---------- #}
+  <form method="get" class="card card-body py-2 mb-3" id="form-filtros">
+    <input type="hidden" name="calcular" value="1">
+    <div class="row g-2 align-items-end">
+      <div class="col-lg-4">
+        <label class="form-label" for="marca-input">Marcas <span class="text-muted">(vacío = todas)</span></label>
+        <div class="input-group input-group-sm">
+          <input id="marca-input" list="dl-marcas" class="form-control" placeholder="Escriba una marca y presione Enter" autocomplete="off">
+          <button type="button" class="btn btn-outline-secondary" id="btn-agregar-marca">Agregar</button>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="meses_cobertura">Comprar para</label>
+        <select id="meses_cobertura" name="meses_cobertura" class="form-select form-select-sm">
+          {% for m in opciones_cobertura %}<option value="{{ m }}" {% if m == p.meses_cobertura %}selected{% endif %}>{{ m }} mes{{ 'es' if m != 1 }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="meses_historial">Promedio de ventas de</label>
+        <select id="meses_historial" name="meses_historial" class="form-select form-select-sm">
+          {% for m in opciones_historial %}<option value="{{ m }}" {% if m == p.meses_historial %}selected{% endif %}>Últimos {{ m }} meses</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="dias_reciente">Ocultar comprados en</label>
+        <select id="dias_reciente" name="dias_reciente" class="form-select form-select-sm">
+          {% for d in opciones_reciente %}<option value="{{ d }}" {% if d == p.dias_reciente %}selected{% endif %}>{{ 'No ocultar' if d == 0 else 'los últimos ' ~ d ~ ' días' }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ p.q }}" class="form-control form-control-sm" placeholder="Código, nombre o nº parte">
+      </div>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+      <div id="chips-marcas" class="d-flex flex-wrap gap-1" aria-label="Marcas seleccionadas">
+        {% for m in p.marcas %}
+          <span class="chip">{{ m }}<input type="hidden" name="marca" value="{{ m }}">
+            <button type="button" aria-label="Quitar marca {{ m }}"><i class="bi bi-x" aria-hidden="true"></i></button></span>
+        {% endfor %}
+      </div>
+      <div class="form-check ms-lg-auto mb-0" title="Suma a lo vendido las unidades registradas como venta perdida en el período">
+        <input class="form-check-input" type="checkbox" name="con_perdidas" value="1" id="con_perdidas" {% if p.con_perdidas %}checked{% endif %}>
+        <input type="hidden" name="con_perdidas" value="0">
+        <label class="form-check-label small" for="con_perdidas">Sumar ventas perdidas al sugerido</label>
+      </div>
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" name="ocultar_cubiertos" value="1" id="ocultar_cubiertos" {% if p.ocultar_cubiertos %}checked{% endif %}>
+        <label class="form-check-label small" for="ocultar_cubiertos">Ocultar si los equivalentes cubren el sugerido</label>
+      </div>
+      <div class="form-check mb-0">
+        <input class="form-check-input" type="checkbox" name="solo_sugerido" value="1" id="solo_sugerido" {% if p.solo_sugerido %}checked{% endif %}>
+        <input type="hidden" name="solo_sugerido" value="0">
+        <label class="form-check-label small" for="solo_sugerido">Solo productos con sugerido</label>
+      </div>
+      <button class="btn btn-primary btn-sm"><i class="bi bi-calculator" aria-hidden="true"></i> Calcular sugerido</button>
+    </div>
+  </form>
+
+  {% if not p.calculado %}
+    <div class="card"><div class="vacio-grande">
+      <i class="bi bi-cart-check" aria-hidden="true"></i>
+      <p class="mt-2 mb-1 fw-semibold" style="color: var(--ink)">Elija las marcas y los meses a cubrir, y presione <em>Calcular sugerido</em>.</p>
+      <p class="small mb-0">Se usan las ventas por producto, las existencias por bodega (restando bodegas NHE) y los ingresos por orden de compra.</p>
+    </div></div>
+  {% else %}
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg"><div class="card kpi">
+      <div class="etiqueta">Productos</div><div class="valor">{{ "{:,}".format(total_filas) }}</div>
+      <div class="sub">{{ "{:,}".format(con_sugerido) }} con sugerido</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi">
+      <div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Unidades a pedir</div><div class="valor" id="kpi-unidades">—</div>
+      <div class="sub" id="kpi-lineas">—</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi">
+      <div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Costo estimado</div><div class="valor" id="kpi-costo">—</div>
+      <div class="sub">según último costo</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi">
+      <div class="etiqueta">Con equivalente disponible</div><div class="valor">{{ "{:,}".format(con_equivalente) }}</div>
+      <div class="sub">revise antes de pedir</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi">
+      <div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Con ventas perdidas</div><div class="valor">{{ "{:,}".format(con_perdidas) }}</div>
+      <div class="sub">{% if p.con_perdidas and por_perdidas %}+{{ "{:,}".format(por_perdidas) }} unid. al sugerido · {% elif perdidas_sin_sugerido %}{{ perdidas_sin_sugerido }} sin sugerido · {% endif %}<a href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='resumen') }}">ver detalle</a></div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi">
+      <div class="etiqueta">Mercadería en NHE</div><div class="valor">{{ "{:,.0f}".format(total_nhe) }}</div>
+      <div class="sub">unidades restadas de la existencia</div></div></div>
+  </div>
+  <div class="small text-muted mb-2">
+    Promedio calculado con las ventas del {{ periodo.inicio.strftime('%d/%m/%Y') }} al {{ periodo.fin.strftime('%d/%m/%Y') }}.
+    Modifique la columna <strong>Pedido</strong> si lo necesita; los cambios se guardan en este navegador y se incluyen en el Excel.
+    {% if recortado %}<span class="text-danger">Se muestran los primeros {{ "{:,}".format(filas|length) }} de {{ "{:,}".format(total_filas) }} productos: filtre por marca para ver todos (el Excel los incluye todos).</span>{% endif %}
+  </div>
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="tabla-sc">
+      <caption class="visually-hidden">Sugerido de compras por producto</caption>
+      <thead>
+        <tr>
+          <th scope="col">Producto</th>
+          <th scope="col" class="num">Existencia</th>
+          <th scope="col" class="num" title="Mercadería faltante en bodegas NHE: se resta de la existencia">En NHE <span class="text-muted fw-normal">(−)</span></th>
+          <th scope="col" class="num">Disponible</th>
+          <th scope="col" class="num">Prom. / mes</th>
+          <th scope="col" class="num" title="Meses que alcanza la existencia disponible">Cobertura</th>
+          <th scope="col" class="num" title="Unidades que los vendedores registraron como venta perdida en el período{{ ' (se suman a la demanda del sugerido)' if p.con_perdidas else ' (no se suman al sugerido)' }}">Vtas. perdidas</th>
+          <th scope="col" title="Productos del mismo grupo de equivalencia (Clasificación de productos)">Equivalentes</th>
+          <th scope="col">Últimos 3 ingresos</th>
+          <th scope="col">Última venta</th>
+          <th scope="col" class="num">Pedido</th>
+          <th scope="col" class="num">Últ. costo</th>
+          <th scope="col" class="num">Costo pedido</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set ns = namespace(marca=None) %}
+        {% for f in filas %}
+          {% if f.marca != ns.marca %}{% set ns.marca = f.marca %}
+            <tr class="marca-grupo"><td colspan="13"><i class="bi bi-bookmark-fill" aria-hidden="true"></i> {{ f.marca or 'Sin marca' }}</td></tr>
+          {% endif %}
+          <tr data-codigo="{{ f.codigo }}" data-sugerido="{{ f.sugerido }}" data-costo="{{ f.costo }}">
+            <td class="prod">
+              <div class="desc">{{ f.nombre }}</div>
+              <div class="meta">{{ f.codigo }}{% if f.numero_parte %} · Nº {{ f.numero_parte }}{% endif %}{% if f.segmento %} · {{ f.segmento }}{% endif %}{% if f.familia %} · {{ f.familia }}{% if f.subfamilia %} / {{ f.subfamilia }}{% endif %}{% endif %}</div>
+            </td>
+            <td class="num">{{ "{:,.0f}".format(f.existencia) }}</td>
+            <td class="num">{% if f.nhe %}<span class="nhe">{{ "{:,.0f}".format(f.nhe) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td class="num fw-semibold">{{ "{:,.0f}".format(f.disponible) }}</td>
+            <td class="num">{{ "{:,.1f}".format(f.promedio) }}</td>
+            <td class="num">
+              {% if f.cobertura is none %}<span class="text-muted">sin ventas</span>
+              {% else %}<span class="{{ 'bajo' if f.cobertura < 1 }}">{{ "{:,.1f}".format(f.cobertura) }} m</span>{% endif %}
+            </td>
+            <td class="num">{% if f.perdidas %}<button type="button" class="perdida btn-perdidas" data-codigo="{{ f.codigo }}"
+                data-titulo="{{ f.numero_parte or f.codigo }} · {{ f.marca or '' }} — {{ f.nombre }}"
+                title="Ver quién lo pidió: {{ f.perdidas_clientes }} cliente{{ 's' if f.perdidas_clientes != 1 }} · última {{ f.perdidas_ultima.strftime('%d/%m/%Y') if f.perdidas_ultima else '' }}">
+                <i class="bi bi-eye" aria-hidden="true"></i> {{ "{:,.0f}".format(f.perdidas) }}</button>
+                <div class="text-muted" style="font-size: .7rem">{{ f.perdidas_clientes }} cliente{{ 's' if f.perdidas_clientes != 1 }}</div>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td>
+              {% if f.equivalentes %}
+                <button type="button" class="btn-eq" aria-expanded="false" aria-controls="eq-{{ loop.index }}">
+                  <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+                  {{ f.equivalentes|length }} equiv.{% if f.eq_marcas %} · {{ f.eq_marcas }} marca{{ 's' if f.eq_marcas != 1 }}{% endif %}<br>
+                  {% if f.eq_disponible > 0 %}<span class="disp">{{ "{:,.0f}".format(f.eq_disponible) }} disponibles</span>
+                  {% else %}<span class="sin">sin existencia</span>{% endif %}
+                </button>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="ingresos">
+              {% for i in f.ingresos %}<div><strong>{{ i.fecha.strftime('%d/%m/%y') if i.fecha else '—' }}</strong> · {{ "{:,.0f}".format(i.cantidad) }}</div>
+              {% else %}<span class="text-muted">sin compras</span>{% endfor %}
+              {% if f.dias_compra is not none %}<div class="text-muted">hace {{ f.dias_compra }} días</div>{% endif %}
+            </td>
+            <td class="ingresos">{{ f.ultima_venta.strftime('%d/%m/%Y') if f.ultima_venta else '—' }}</td>
+            <td class="num">
+              <input type="number" min="0" step="1" class="pedido" value="{{ f.sugerido }}" inputmode="numeric"
+                     aria-label="Pedido de {{ f.codigo }} (sugerido {{ f.sugerido }})">
+              <div class="sistema">sugerido {{ "{:,}".format(f.sugerido) }}{% if f.sugerido > f.sugerido_sin_perdidas %}
+                <span class="perdida" title="Sin ventas perdidas serían {{ f.sugerido_sin_perdidas }}">+{{ f.sugerido - f.sugerido_sin_perdidas }} v. perdidas</span>{% endif %}</div>
+            </td>
+            <td class="num">{{ "{:,.2f}".format(f.costo) }}</td>
+            <td class="num fw-semibold costo-linea">—</td>
+          </tr>
+          {% if f.equivalentes %}
+          <tr class="detalle-eq" id="eq-{{ loop.index }}" hidden>
+            <td colspan="13">
+              <div class="small fw-semibold mb-1" style="color: var(--credito)">
+                Equivalentes de {{ f.numero_parte or f.codigo }} ({{ f.marca }}) · grupo {{ f.grupo }}</div>
+              <table class="tabla-eq">
+                <thead><tr><th>Marca</th><th>Código</th><th>Nº parte</th><th>Descripción</th>
+                  <th class="num">Disponible</th><th class="num">Prom. / mes</th></tr></thead>
+                <tbody>
+                  {% for e in f.equivalentes %}
+                  <tr class="{{ 'misma' if e.marca == f.marca }}">
+                    <td>{{ e.marca }}{% if e.marca == f.marca %} <span class="small">(misma marca)</span>{% endif %}</td>
+                    <td>{{ e.codigo }}</td><td>{{ e.numero_parte or '—' }}</td><td>{{ e.nombre }}</td>
+                    <td class="num {{ 'fw-bold' if e.disponible > 0 }}" {% if e.disponible > 0 %}style="color: var(--credito)"{% endif %}>{{ "{:,.0f}".format(e.disponible) }}</td>
+                    <td class="num">{{ "{:,.1f}".format(e.promedio) }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+        {% else %}
+          <tr><td colspan="13"><div class="vacio-grande"><i class="bi bi-check2-circle" aria-hidden="true"></i>
+            <p class="mt-2 mb-0">No hay productos que pedir con estos parámetros.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div style="height: 90px"></div>
+
+  {# ---------- Barra inferior: totales y descarga ---------- #}
+  <div class="barra-inferior">
+    <form method="post" action="{{ url_for('sugerido_compras.descargar_excel') }}" id="form-excel" class="d-flex flex-wrap align-items-center gap-3">
+      {% for m in p.marcas %}<input type="hidden" name="marca" value="{{ m }}">{% endfor %}
+      <input type="hidden" name="meses_cobertura" value="{{ p.meses_cobertura }}">
+      <input type="hidden" name="meses_historial" value="{{ p.meses_historial }}">
+      <input type="hidden" name="dias_reciente" value="{{ p.dias_reciente }}">
+      <input type="hidden" name="q" value="{{ p.q }}">
+      <input type="hidden" name="solo_sugerido" value="{{ '1' if p.solo_sugerido else '0' }}">
+      <input type="hidden" name="ocultar_cubiertos" value="{{ '1' if p.ocultar_cubiertos else '0' }}">
+      <input type="hidden" name="con_perdidas" value="{{ '1' if p.con_perdidas else '0' }}">
+      <input type="hidden" name="cambios" id="cambios">
+      <div><div class="small text-muted">Pedido total</div><div class="total-valor" id="barra-total">—</div></div>
+      <div class="small" id="barra-cambios" aria-live="polite"></div>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-restablecer" hidden>
+        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Volver al sugerido</button>
+      <div class="form-check ms-auto mb-0">
+        <input class="form-check-input" type="checkbox" name="solo_pedido" value="1" id="solo_pedido" checked>
+        <label class="form-check-label small" for="solo_pedido">Excel solo con pedido &gt; 0</label>
+      </div>
+      <button class="btn btn-verde btn-sm" id="btn-excel"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<datalist id="dl-marcas">{% for m, n in marcas %}<option value="{{ m }}">{{ n }} productos</option>{% endfor %}</datalist>
+{# ---------- Ventana: detalle de ventas perdidas de un producto ---------- #}
+<div class="modal fade" id="modal-perdidas" tabindex="-1" aria-labelledby="modal-perdidas-titulo" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="modal-perdidas-titulo">Ventas perdidas</h5>
+          <div class="small text-muted" id="modal-perdidas-sub"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modal-perdidas-cuerpo"></div>
+      <div class="modal-footer justify-content-between">
+        <a class="small" href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='resumen') }}">Ver todas las ventas perdidas</a>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const modal = document.getElementById('modal-perdidas');
+  if (!modal) return;
+  const URL = "{{ url_for('sugerido_compras.detalle_perdidas', codigo='__COD__') }}";
+  const DESDE = "{{ periodo.inicio.isoformat() if periodo else '' }}", HASTA = "{{ periodo.fin.isoformat() if periodo else '' }}";
+  const PERIODO = "{{ (periodo.inicio.strftime('%d/%m/%Y') ~ ' al ' ~ periodo.fin.strftime('%d/%m/%Y')) if periodo else '' }}";
+  const cuerpo = document.getElementById('modal-perdidas-cuerpo');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = (n) => Number(n).toLocaleString('es-NI', { maximumFractionDigits: 2 });
+  let ventana = null;
+  document.querySelectorAll('.btn-perdidas').forEach(b => b.addEventListener('click', async () => {
+    ventana = ventana || new bootstrap.Modal(modal);
+    document.getElementById('modal-perdidas-titulo').textContent = 'Ventas perdidas · ' + b.dataset.titulo;
+    document.getElementById('modal-perdidas-sub').textContent = 'Período ' + PERIODO;
+    cuerpo.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando…</div>';
+    ventana.show();
+    try {
+      const r = await fetch(URL.replace('__COD__', encodeURIComponent(b.dataset.codigo)) + `?desde=${DESDE}&hasta=${HASTA}`);
+      const datos = await r.json();
+      if (!datos.length) { cuerpo.innerHTML = '<p class="text-muted mb-0">No se encontraron registros.</p>'; return; }
+      const total = datos.reduce((a, d) => a + d.cantidad, 0);
+      const clientes = new Set(datos.map(d => d.cliente.trim().toUpperCase())).size;
+      cuerpo.innerHTML = `<div class="d-flex flex-wrap gap-3 mb-2 small">
+          <span><strong>${num(total)}</strong> unidades</span><span><strong>${datos.length}</strong> registro(s)</span>
+          <span><strong>${clientes}</strong> cliente(s)</span></div>
+        <div class="table-responsive"><table class="table table-sm table-striped tabla-perdidas mb-0">
+          <thead><tr><th>Fecha</th><th>Vendedor</th><th>Cliente</th><th class="text-end">Cant.</th><th>Motivo</th><th>Nota</th></tr></thead>
+          <tbody>${datos.map(d => `<tr><td class="text-nowrap">${esc(d.fecha)}</td><td>${esc(d.vendedor)}</td><td>${esc(d.cliente)}</td>
+            <td class="text-end fw-bold">${num(d.cantidad)}</td><td>${esc(d.motivo) || '—'}</td>
+            <td class="small">${esc(d.nota)}${d.liga !== 'elegido' ? `<div class="text-muted" style="font-size:.7rem">ligado ${esc(d.liga)} (${esc(d.numero_parte)})</div>` : ''}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+    } catch {
+      cuerpo.innerHTML = '<p class="text-danger mb-0">No se pudo cargar el detalle. Intente de nuevo.</p>';
+    }
+  }));
+})();
+</script>
+<script>
+(function () {
+  // ---- Selector de marcas (chips) ----
+  const marcasValidas = new Set([...document.querySelectorAll('#dl-marcas option')].map(o => o.value));
+  const entrada = document.getElementById('marca-input');
+  const chips = document.getElementById('chips-marcas');
+  function quitarChip(e) { e.target.closest('.chip').remove(); }
+  chips.querySelectorAll('.chip button').forEach(b => b.addEventListener('click', quitarChip));
+  function agregarMarca() {
+    const valor = entrada.value.trim();
+    if (!valor) return;
+    const marca = [...marcasValidas].find(m => m.toUpperCase() === valor.toUpperCase());
+    entrada.setCustomValidity(marca ? '' : 'Elija una marca de la lista');
+    if (!marca) { entrada.reportValidity(); return; }
+    if (![...chips.querySelectorAll('input')].some(i => i.value === marca)) {
+      const chip = document.createElement('span'); chip.className = 'chip';
+      chip.append(marca);
+      const oculto = Object.assign(document.createElement('input'), { type: 'hidden', name: 'marca', value: marca });
+      const boton = Object.assign(document.createElement('button'), { type: 'button', innerHTML: '<i class="bi bi-x" aria-hidden="true"></i>' });
+      boton.setAttribute('aria-label', 'Quitar marca ' + marca);
+      boton.addEventListener('click', quitarChip);
+      chip.append(oculto, boton); chips.append(chip);
+    }
+    entrada.value = '';
+  }
+  entrada.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); agregarMarca(); } });
+  entrada.addEventListener('change', () => { if (marcasValidas.has(entrada.value)) agregarMarca(); });
+  entrada.addEventListener('input', () => entrada.setCustomValidity(''));
+  document.getElementById('btn-agregar-marca').addEventListener('click', agregarMarca);
+  // Si dejó una marca escrita sin agregar, se agrega al calcular
+  document.getElementById('form-filtros').addEventListener('submit', () => { if (entrada.value.trim()) agregarMarca(); });
+
+  // ---- Detalle de equivalentes ----
+  document.querySelectorAll('.btn-eq').forEach(b => b.addEventListener('click', () => {
+    const fila = document.getElementById(b.getAttribute('aria-controls'));
+    const abrir = b.getAttribute('aria-expanded') !== 'true';
+    b.setAttribute('aria-expanded', abrir); fila.hidden = !abrir;
+  }));
+
+  // ---- Pedido editable ----
+  const filas = [...document.querySelectorAll('.tabla-sc tbody tr[data-codigo]')];
+  if (!filas.length && !document.getElementById('form-excel')) return;
+  const CLAVE = 'sugerido_compras_cambios';
+  const leer = () => { try { return JSON.parse(localStorage.getItem(CLAVE) || '{}'); } catch { return {}; } };
+  const escribir = (o) => { try { localStorage.setItem(CLAVE, JSON.stringify(o)); } catch {} };
+  const num = (n, d = 0) => n.toLocaleString('es-NI', { minimumFractionDigits: d, maximumFractionDigits: d });
+  let cambios = leer();
+
+  function recalcular() {
+    let unidades = 0, costo = 0, lineas = 0, editados = 0;
+    filas.forEach(tr => {
+      const inp = tr.querySelector('.pedido');
+      const valor = Math.max(0, Math.round(Number(inp.value) || 0));
+      const sugerido = Number(tr.dataset.sugerido), c = Number(tr.dataset.costo);
+      const editado = valor !== sugerido;
+      tr.classList.toggle('editado', editado);
+      tr.querySelector('.costo-linea').textContent = valor ? num(valor * c, 2) : '—';
+      unidades += valor; costo += valor * c; if (valor > 0) lineas++; if (editado) editados++;
+      if (editado) cambios[tr.dataset.codigo] = valor; else delete cambios[tr.dataset.codigo];
+    });
+    escribir(cambios);
+    document.getElementById('kpi-unidades').textContent = num(unidades);
+    document.getElementById('kpi-lineas').textContent = `${num(lineas)} producto${lineas === 1 ? '' : 's'} con pedido`;
+    document.getElementById('kpi-costo').textContent = 'C$ ' + num(costo, 2);
+    document.getElementById('barra-total').textContent = `${num(unidades)} unid. · C$ ${num(costo, 2)}`;
+    document.getElementById('barra-cambios').textContent = editados ? `${editados} pedido(s) modificado(s)` : '';
+    document.getElementById('btn-restablecer').hidden = editados === 0;
+  }
+
+  filas.forEach(tr => {
+    const inp = tr.querySelector('.pedido');
+    if (tr.dataset.codigo in cambios) inp.value = cambios[tr.dataset.codigo];  // recuperar cambios guardados
+    inp.addEventListener('input', recalcular);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') { inp.value = tr.dataset.sugerido; recalcular(); } });
+    inp.addEventListener('focus', () => inp.select());
+  });
+  document.getElementById('btn-restablecer').addEventListener('click', () => {
+    filas.forEach(tr => { tr.querySelector('.pedido').value = tr.dataset.sugerido; });
+    recalcular();
+  });
+  document.getElementById('form-excel').addEventListener('submit', () => {
+    // incluye también cambios hechos en otras búsquedas (el servidor solo usa los de este resultado)
+    document.getElementById('cambios').value = JSON.stringify(leer());
+  });
+  recalcular();
+})();
+</script>
+{% endblock %}

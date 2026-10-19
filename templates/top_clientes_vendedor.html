@@ -1,0 +1,198 @@
+{% extends "layout.html" %}
+{% block title %}Top Clientes por Vendedor{% endblock %}
+
+{% set meses_nombre = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+{% macro fecha_larga(d) %}{{ d.day }} de {{ meses_nombre[d.month-1] }}{% endmacro %}
+{% macro periodo(i, f) -%}
+  {%- if i == f -%}{{ fecha_larga(f) }} de {{ f.year }}
+  {%- elif i.year == f.year and i.month == f.month -%}{{ i.day }} al {{ fecha_larga(f) }} de {{ f.year }}
+  {%- elif i.year == f.year -%}{{ fecha_larga(i) }} al {{ fecha_larga(f) }} de {{ f.year }}
+  {%- else -%}{{ fecha_larga(i) }} de {{ i.year }} al {{ fecha_larga(f) }} de {{ f.year }}{%- endif -%}
+{%- endmacro %}
+
+{# Tabla de ranking reutilizable. compacta=True para las tarjetas de dos columnas:
+   crédito/contado, facturas y última compra pasan a una línea bajo el cliente #}
+{% macro tabla_ranking(r, mostrar_vendedores=False, compacta=False) %}
+  {% set maximo = (r.top[0].total if r.top and r.top[0].total > 0 else 1) %}
+  <div class="table-responsive">
+    <table class="table table-sm tabla mb-0 {{ 'compacta' if compacta }}">
+      {% if compacta %}<colgroup><col style="width: 36px"><col><col style="width: 140px"><col style="width: 56px"></colgroup>{% endif %}
+      <thead><tr>
+        <th>#</th><th>Cliente</th>
+        {% if not compacta %}<th class="num">Fact.</th><th class="num">Crédito</th><th class="num">Contado</th>{% endif %}
+        <th>Venta neta</th><th class="num">%</th>
+        {% if not compacta %}<th class="num">Última compra</th>{% endif %}
+      </tr></thead>
+      <tbody>
+        {% for c in r.top %}
+        <tr>
+          <td><span class="rank {{ 'top3' if loop.index <= 3 }}">{{ c.posicion }}</span></td>
+          <td class="desc">{{ c.cliente.lstrip('*') }}
+            {% if c.cliente.startswith('*') %}<span class="segmento ms-1" title="Cliente de contado sin ficha">ocasional</span>{% endif %}
+            {% if compacta %}
+              <div class="small text-muted">{{ c.facturas }} fact. ·
+                {{ "%.0f"|format(c.credito / c.total * 100 if c.total else 0) }}% crédito
+                {% if c.ultima %}· últ. {{ c.ultima.strftime('%d/%m') }}{% endif %}</div>
+            {% endif %}
+            {% if mostrar_vendedores and c.vendedores|length > 1 %}<div class="small text-muted">{{ c.vendedores|length }} vendedores</div>{% endif %}
+          </td>
+          {% if not compacta %}
+          <td class="num">{{ c.facturas }}</td>
+          <td class="num">{{ c.credito | cordobas }}</td>
+          <td class="num">{{ c.contado | cordobas }}</td>
+          {% endif %}
+          <td class="barra-celda"><span class="barra" style="width: {{ ([c.total, 0]|max / maximo * 100)|round(1) }}%"></span><span class="txt fw-semibold">{{ c.total | cordobas }}</span></td>
+          <td class="num">{{ "%.1f"|format(c.pct) }}%</td>
+          {% if not compacta %}<td class="num">{{ c.ultima.strftime('%d/%m/%Y') if c.ultima else '—' }}</td>{% endif %}
+        </tr>
+        {% endfor %}
+        {% if r.resto %}
+        <tr class="text-muted">
+          <td></td><td>Otros {{ "{:,}".format(r.resto.clientes) }} clientes</td>
+          {% if not compacta %}<td class="num">{{ r.resto.facturas }}</td>
+          <td class="num">{{ r.resto.credito | cordobas }}</td><td class="num">{{ r.resto.contado | cordobas }}</td>{% endif %}
+          <td>{{ r.resto.total | cordobas }}</td><td class="num">{{ "%.1f"|format(100 - r.concentracion) }}%</td>
+          {% if not compacta %}<td></td>{% endif %}
+        </tr>
+        {% endif %}
+        <tr class="total">
+          <td></td><td>Total</td>
+          {% if not compacta %}<td class="num">{{ r.facturas }}</td><td class="num">{{ r.credito | cordobas }}</td>
+          <td class="num">{{ r.contado | cordobas }}</td>{% endif %}
+          <td>{{ r.total | cordobas }}</td><td class="num">100%</td>
+          {% if not compacta %}<td></td>{% endif %}
+        </tr>
+      </tbody>
+    </table>
+  </div>
+{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .tc h4 { color: var(--credito); }
+  .tc .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .tc .controles .btn.active { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .tc td.desc { min-width: 180px; }
+  .tc table.compacta { table-layout: fixed; }
+  .tc table.compacta td.desc { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+  .tc table.compacta .barra-celda { min-width: 0; }
+  .tc .card-header .total-vend { font-size: 1.05rem; font-weight: 700; color: var(--ink); }
+  .concentracion { display: flex; align-items: center; gap: .5rem; font-size: .75rem; color: var(--ink-2); }
+  .concentracion .pista { flex: 1; height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; min-width: 80px; }
+  .concentracion .pista span { display: block; height: 100%; background: var(--contado); }
+  .tc a.vend-link { color: inherit; text-decoration: none; }
+  .tc a.vend-link:hover, .tc a.vend-link:focus-visible { color: var(--credito); text-decoration: underline; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .tc .btn:focus-visible, .tc a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+<div class="dash tc container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-person-lines-fill" aria-hidden="true"></i> Top {{ n }} clientes {% if vendedor %}de {{ vendedor }}{% else %}por vendedor{% endif %}</h4>
+      <div class="text-muted small">{{ periodo(fecha_inicio, fecha_fin) }} · venta neta ajustada (sin IVA, menos devoluciones)</div>
+    </div>
+  </div>
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" class="controles card card-body py-2 mb-3 d-flex flex-row flex-wrap align-items-end gap-2">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Períodos rápidos">
+      {% for nombre, i, f in rangos %}
+        <a class="btn btn-outline-secondary {% if i == fecha_inicio and f == fecha_fin %}active{% endif %}"
+           href="{{ url_for('top_clientes.top_clientes_vendedor', fecha_inicio=i, fecha_fin=f, vendedor=vendedor or '', n=n) }}"
+           {% if i == fecha_inicio and f == fecha_fin %}aria-current="true"{% endif %}>{{ nombre }}</a>
+      {% endfor %}
+    </div>
+    <div><label class="form-label" for="fi">Desde</label>
+      <input type="date" id="fi" name="fecha_inicio" value="{{ fecha_inicio }}" class="form-control form-control-sm"></div>
+    <div><label class="form-label" for="ff">Hasta</label>
+      <input type="date" id="ff" name="fecha_fin" value="{{ fecha_fin }}" class="form-control form-control-sm"></div>
+    <div><label class="form-label" for="vend">Vendedor</label>
+      <select id="vend" name="vendedor" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">Todos los vendedores</option>
+        {% for v in vendedores %}<option {% if v == vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}
+      </select></div>
+    <div><label class="form-label" for="n">Mostrar</label>
+      <select id="n" name="n" class="form-select form-select-sm" style="min-width: 96px" onchange="this.form.submit()">
+        {% for t in tamanos %}<option value="{{ t }}" {% if t == n %}selected{% endif %}>Top {{ t }}</option>{% endfor %}
+      </select></div>
+    <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button>
+    {% if bloques %}
+    <a class="btn btn-verde btn-sm ms-auto"
+       href="{{ url_for('top_clientes.descargar_excel', fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, vendedor=vendedor or '', n=n) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+    {% endif %}
+  </form>
+
+  {% if not bloques %}
+    <div class="alert alert-warning">No hay ventas en este período.</div>
+  {% endif %}
+
+  {# ---------- Top de la empresa (solo con todos los vendedores) ---------- #}
+  {% if empresa and empresa.top %}
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <span><i class="bi bi-building" aria-hidden="true"></i> Top {{ n }} clientes de la empresa
+        <small>· {{ "{:,}".format(empresa.clientes) }} clientes con compra</small></span>
+      <span class="total-vend">{{ empresa.total | cordobas }}</span>
+    </div>
+    <div class="card-body p-2">
+      <div class="concentracion mb-2" title="Parte de la venta que hacen los {{ n }} mejores clientes">
+        <span>Los {{ n }} mejores concentran <strong>{{ "%.1f"|format(empresa.concentracion) }}%</strong> de la venta</span>
+        <span class="pista"><span style="width: {{ empresa.concentracion }}%"></span></span>
+      </div>
+      {{ tabla_ranking(empresa, True) }}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ---------- Un bloque por vendedor ---------- #}
+  <div class="row g-3 mb-4">
+    {% for vend, r in bloques %}
+    <div class="{{ 'col-12' if vendedor else 'col-xl-6' }}">
+      <div class="card h-100">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <span>
+            {% if not vendedor %}<span class="rank {{ 'top3' if loop.index <= 3 }} me-1">{{ loop.index }}</span>{% endif %}
+            <a class="vend-link" href="{{ url_for('top_clientes.top_clientes_vendedor', fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, vendedor=vend, n=n) }}"
+               title="Ver solo {{ vend }}">{{ vend }}</a>
+            <small>· {{ "{:,}".format(r.clientes) }} clientes · {{ "{:,}".format(r.facturas) }} facturas</small>
+          </span>
+          <span class="total-vend">{{ r.total | cordobas }}</span>
+        </div>
+        <div class="card-body p-2">
+          <div class="concentracion mb-2" title="Parte de la venta del vendedor que hacen sus {{ n }} mejores clientes">
+            <span>Top {{ n }}: <strong>{{ "%.1f"|format(r.concentracion) }}%</strong> de su venta</span>
+            <span class="pista"><span style="width: {{ r.concentracion }}%"></span></span>
+            <span><span class="clave" style="background: var(--credito)"></span>{{ "%.0f"|format(r.credito / r.total * 100 if r.total else 0) }}% crédito</span>
+            {% if vendedor %}<span><span class="clave" style="background: var(--contado)"></span>{{ "%.0f"|format(r.contado / r.total * 100 if r.total else 0) }}% contado</span>{% endif %}
+          </div>
+          {% if vendedor and r.top %}
+            <div class="grafico mb-2" style="height: {{ r.top|length * 30 + 40 }}px">
+              <canvas id="graficoClientes" role="img" aria-label="Venta neta por cliente, crédito y contado"></canvas>
+            </div>
+          {% endif %}
+          {{ tabla_ranking(r, compacta=not vendedor) }}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if vendedor and bloques and bloques[0][1].top %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='graficos_comersa.js') }}"></script>
+<script>
+  {% set top = bloques[0][1].top %}
+  window.ComersaGraficos.creditoContado(document.getElementById('graficoClientes'),
+    {{ top | map(attribute='cliente') | map('replace', '*', '') | list | tojson }},
+    {{ top | map(attribute='credito') | map('float') | list | tojson }},
+    {{ top | map(attribute='contado') | map('float') | list | tojson }});
+</script>
+{% endif %}
+{% endblock %}

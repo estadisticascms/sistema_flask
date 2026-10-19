@@ -1,0 +1,475 @@
+{% extends "layout.html" %}
+{% block title %}Resumen de Ventas{% endblock %}
+{% block content %}
+{% set dias_semana = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'] %}
+{% set meses_nombre = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+
+<div class="dash container-fluid px-3">
+
+  {# ---------- Encabezado y filtros (una sola fila, arriba de todo) ---------- #}
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3 pdf-bloque">
+    <div>
+      <h4 class="mb-0">Resumen de ventas</h4>
+      <div class="text-muted">
+        {{ dias_semana[fecha_dia.weekday()]|capitalize }} {{ fecha_dia.day }} de {{ meses_nombre[fecha_dia.month-1] }} de {{ fecha_dia.year }}
+        <span class="solo-pdf"> · Grupo Comersa · Mensual desde {{ fecha_inicio }} · Generado el <span id="fecha-generado"></span></span>
+        {% if ultima_fecha and fecha_dia != ultima_fecha %}<span data-html2canvas-ignore> · <a href="{{ url_for('dashboard.dashboard_view', fecha_inicio=fecha_inicio) }}">ir al último día cargado ({{ ultima_fecha }})</a></span>{% endif %}
+      </div>
+    </div>
+    <form method="get" action="{{ url_for('dashboard.dashboard_view') }}" class="d-flex flex-wrap align-items-end gap-2" data-html2canvas-ignore>
+      <div>
+        <label class="form-label small mb-0">Día</label>
+        <div class="input-group input-group-sm">
+          <a class="btn btn-outline-secondary" href="{{ url_for('dashboard.dashboard_view', fecha_fin=dia_anterior, fecha_inicio=fecha_inicio) }}" title="Día anterior"><i class="bi bi-chevron-left"></i></a>
+          <input type="date" name="fecha_fin" class="form-control" value="{{ fecha_fin }}">
+          <a class="btn btn-outline-secondary" href="{{ url_for('dashboard.dashboard_view', fecha_fin=dia_siguiente, fecha_inicio=fecha_inicio) }}" title="Día siguiente"><i class="bi bi-chevron-right"></i></a>
+        </div>
+      </div>
+      <div>
+        <label class="form-label small mb-0">Mensual desde</label>
+        <input type="date" name="fecha_inicio" class="form-control form-control-sm" value="{{ fecha_inicio }}">
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Aplicar</button>
+      <button type="button" id="btnPDF" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Descargar PDF</button>
+    </form>
+  </div>
+
+  {% if indicadores.facturas == 0 %}
+    <div class="alert alert-warning" data-html2canvas-ignore>
+      <i class="bi bi-exclamation-triangle"></i> No hay ventas cargadas para esta fecha.
+      {% if ultima_fecha %}La última fecha con ventas es <a href="{{ url_for('dashboard.dashboard_view', fecha_fin=ultima_fecha, fecha_inicio=fecha_inicio) }}">{{ ultima_fecha }}</a>.{% endif %}
+      <a href="/cargar_ventas">Cargar ventas del día</a>
+    </div>
+  {% endif %}
+
+  {# ---------- Indicadores del día ---------- #}
+  {% set pct_credito = (indicadores.credito / indicadores.neto * 100) if indicadores.neto else 0 %}
+  <div class="row g-2 mb-3 pdf-bloque">
+    <div class="col-12 col-lg-4">
+      <div class="card kpi kpi-hero">
+        <div class="etiqueta">Venta neta del día</div>
+        <div class="valor">{{ venta_dia | cordobas }}</div>
+        <div class="sub">
+          {% if variacion is not none %}
+            <span class="{{ 'delta-pos' if variacion >= 0 else 'delta-neg' }}">
+              <i class="bi {{ 'bi-arrow-up-right' if variacion >= 0 else 'bi-arrow-down-right' }}"></i> {{ "%+.1f"|format(variacion) }}%
+            </span> vs. promedio diario del mes
+          {% endif %}
+        </div>
+        <div class="sub text-muted">Facturado {{ indicadores.neto | cordobas }} − devoluciones {{ devoluciones_dia | cordobas }}</div>
+        {% if indicadores.neto %}
+        <div class="medidor" role="img" aria-label="Crédito {{ '%.0f'|format(pct_credito) }}%, contado {{ '%.0f'|format(100 - pct_credito) }}%">
+          <span style="width: {{ pct_credito }}%; background: var(--credito)"></span>
+          <span style="width: {{ 100 - pct_credito }}%; background: var(--contado)"></span>
+        </div>
+        <div class="sub d-flex justify-content-between">
+          <span><span class="clave" style="background: var(--credito)"></span>Crédito {{ indicadores.credito | cordobas }} ({{ "%.0f"|format(pct_credito) }}%)</span>
+          <span><span class="clave" style="background: var(--contado)"></span>Contado {{ indicadores.contado | cordobas }}</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card kpi">
+        <div class="etiqueta">Facturas</div>
+        <div class="valor">{{ "{:,.0f}".format(indicadores.facturas) }}</div>
+        <div class="sub">Ticket promedio<br>{{ (indicadores.ticket or 0) | cordobas }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card kpi">
+        <div class="etiqueta">Margen bruto</div>
+        <div class="valor">{{ "%.1f"|format(indicadores.margen) ~ "%" if indicadores.margen is not none else "—" }}</div>
+        <div class="sub">Utilidad<br>{{ indicadores.utilidad | cordobas }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card kpi">
+        <div class="etiqueta">Recuperación del día</div>
+        <div class="valor">{{ recuperacion_dia | cordobas }}</div>
+        <div class="sub">Devoluciones<br>{{ devoluciones_dia | cordobas }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card kpi">
+        <div class="etiqueta">Acumulado {{ meses_nombre[fecha_dia.month-1] }}</div>
+        <div class="valor">{{ mes.neto | cordobas }}</div>
+        <div class="sub">Facturado {{ mes.facturado | cordobas }}<br>− devoluciones {{ mes.devoluciones | cordobas }}</div>
+        <div class="sub">{{ mes.dias }} días con venta · {{ (mes.promedio or 0) | cordobas }}/día</div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- Top 10 productos del día ---------- #}
+  <div class="card mb-3 pdf-bloque">
+    <div class="card-header d-flex justify-content-between">
+      <span><i class="bi bi-trophy"></i> Top 10 productos del día</span>
+      <small>por venta neta · {{ total_productos_dia }} productos vendidos · C$ {{ "{:,.2f}".format(venta_productos_dia) }}</small>
+    </div>
+    <div class="card-body p-2">
+      {% if top_productos %}
+      {% set max_venta = top_productos[0].venta or 1 %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover tabla">
+          <thead><tr>
+            <th>#</th><th>Segmento</th><th>Nº de parte</th><th>Descripción</th><th>Marca</th>
+            <th class="num">Unid.</th><th>Venta neta</th><th class="num">Margen</th><th class="num">% del día</th>
+          </tr></thead>
+          <tbody>
+            {% for p in top_productos %}
+            <tr>
+              <td><span class="rank {{ 'top3' if loop.index <= 3 }}">{{ loop.index }}</span></td>
+              <td>{% if p.segmento %}<span class="segmento">{{ p.segmento }}</span>{% else %}<span class="text-muted small" title="Sin clasificación">—</span>{% endif %}</td>
+              <td><strong>{{ p.numero_parte or "—" }}</strong><div class="small text-muted">{{ p.codigo }}</div></td>
+              <td class="desc">{{ p.descripcion }}{% if p.familia %}<div class="small text-muted">{{ p.familia }}</div>{% endif %}</td>
+              <td>{{ p.marca or "" }}</td>
+              <td class="num">{{ "{:,.0f}".format(p.unidades) if p.unidades == p.unidades|int else "{:,.2f}".format(p.unidades) }}</td>
+              <td class="barra-celda"><span class="barra" style="width: {{ (p.venta / max_venta * 100)|round(1) }}%"></span><span class="txt">{{ p.venta | cordobas }}</span></td>
+              <td class="num">{{ "%.1f"|format(p.margen) ~ "%" if p.margen is not none else "—" }}</td>
+              <td class="num">{{ "%.1f"|format(p.venta / venta_productos_dia * 100) if venta_productos_dia else 0 }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="vacio">Sin ventas por producto cargadas para este día.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- Vendedores y marcas del día ---------- #}
+  <div class="row g-3 mb-3 pdf-bloque">
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-people"></i> Ranking de vendedores del día</span>
+          <span class="small fw-normal">
+            <span class="clave" style="background: var(--credito)"></span>Crédito
+            <span class="clave ms-2" style="background: var(--contado)"></span>Contado
+          </span>
+        </div>
+        <div class="card-body p-2">
+          {% if ranking_vendedores_dia %}
+          <div class="grafico" style="height: {{ ranking_vendedores_dia|length * 30 + 40 }}px">
+            <canvas id="graficoVendedoresDia" aria-label="Venta neta por vendedor, crédito y contado" role="img"></canvas>
+          </div>
+          <details data-html2canvas-ignore class="mt-2">
+            <summary class="small">Ver tabla</summary>
+            <table class="table table-sm tabla mt-1">
+              <thead><tr><th>#</th><th>Vendedor</th><th class="num">Crédito</th><th class="num">Contado</th><th class="num">Total neto</th></tr></thead>
+              <tbody>
+                {% for r in ranking_vendedores_dia %}
+                <tr><td>{{ loop.index }}</td><td>{{ r.Vendedor }}</td><td class="num">{{ r.Credito | cordobas }}</td>
+                    <td class="num">{{ r.Contado | cordobas }}</td><td class="num">{{ r.Neto_Ajustado | cordobas }}</td></tr>
+                {% endfor %}
+                <tr class="total"><td></td><td>Total</td><td class="num">{{ total_credito | cordobas }}</td><td class="num">{{ total_contado | cordobas }}</td><td class="num">{{ total_neto | cordobas }}</td></tr>
+              </tbody>
+            </table>
+          </details>
+          {% else %}<div class="vacio">Sin ventas para este día.</div>{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between">
+          <span><i class="bi bi-award"></i> Ranking de marcas del día</span>
+          <small>top 10 de {{ ranking_marcas_dia|length }}</small>
+        </div>
+        <div class="card-body p-2">
+          {% if top_marcas %}
+          <div class="grafico" style="height: {{ top_marcas|length * 28 + 40 }}px">
+            <canvas id="graficoMarcas" aria-label="Venta neta por marca" role="img"></canvas>
+          </div>
+          {% if otras_marcas %}
+          <div class="small text-muted mt-1">
+            + {{ otras_marcas.Marca }}: {{ otras_marcas.VentasTotales | cordobas }}
+            ({{ "%.0f"|format(otras_marcas.VentasTotales / venta_productos_dia * 100) if venta_productos_dia else 0 }}% del día)
+          </div>
+          {% endif %}
+          <details data-html2canvas-ignore class="mt-2">
+            <summary class="small">Ver todas las marcas</summary>
+            <div style="max-height: 320px; overflow-y: auto">
+            <table class="table table-sm tabla mt-1">
+              <thead><tr><th>#</th><th>Marca</th><th class="num">Unid.</th><th class="num">Venta neta</th><th class="num">Margen</th></tr></thead>
+              <tbody>
+                {% for m in ranking_marcas_dia %}
+                <tr><td>{{ loop.index }}</td><td>{{ m.Marca }}</td><td class="num">{{ "{:,.0f}".format(m.Unidades) }}</td>
+                    <td class="num">{{ m.VentasTotales | cordobas }}</td><td class="num">{{ "%.1f"|format(m.Margen) ~ "%" if m.Margen is not none else "—" }}</td></tr>
+                {% endfor %}
+                <tr class="total"><td></td><td>Total</td><td></td><td class="num">{{ venta_productos_dia | cordobas }}</td><td></td></tr>
+              </tbody>
+            </table>
+            </div>
+          </details>
+          {% else %}<div class="vacio">Sin ventas por producto para este día.</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- Ventas mensuales ---------- #}
+  <div class="card mb-3 pdf-bloque">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-bar-chart"></i> Ventas mensuales <small>{{ fecha_inicio }} a {{ fecha_fin }}</small></span>
+      <span class="small fw-normal">
+        <span class="clave" style="background: var(--credito)"></span>Crédito
+        <span class="clave ms-2" style="background: var(--contado)"></span>Contado
+      </span>
+    </div>
+    <div class="card-body p-2">
+      <div class="grafico" style="height: 300px"><canvas id="graficoVentasMensuales" aria-label="Ventas netas por mes, crédito y contado" role="img"></canvas></div>
+
+      {# Tabla de ventas por mes (netas de devoluciones) #}
+      <div class="table-responsive mt-3">
+        <table class="table table-sm table-hover tabla">
+          <thead><tr>
+            <th>Mes</th><th class="num">Días</th><th class="num">Facturas</th>
+            <th class="num"><span class="clave" style="background: var(--credito)"></span>Crédito</th>
+            <th class="num"><span class="clave" style="background: var(--contado)"></span>Contado</th>
+            <th class="num">Total neto</th><th class="num">% crédito</th>
+            <th class="num">Prom. diario</th><th class="num" title="Variación del promedio diario contra el mes anterior">vs. mes ant.</th>
+            <th class="num">Margen bruto</th>
+          </tr></thead>
+          <tbody>
+            {% for m in resumen_mensual %}
+            {% set anio, num_mes = m.mes.split('-') %}
+            <tr>
+              <td>{{ meses_nombre[num_mes|int - 1]|capitalize }} {{ anio }}{% if m.parcial_al %} <span class="text-muted small">(al {{ m.parcial_al }})</span>{% endif %}</td>
+              <td class="num">{{ m.dias }}</td>
+              <td class="num">{{ "{:,}".format(m.facturas) }}</td>
+              <td class="num">{{ m.credito | cordobas }}</td>
+              <td class="num">{{ m.contado | cordobas }}</td>
+              <td class="num fw-bold">{{ m.total | cordobas }}</td>
+              <td class="num">{{ "%.0f"|format(m.pct_credito) ~ "%" if m.pct_credito is not none else "—" }}</td>
+              <td class="num">{{ m.promedio | cordobas if m.promedio else "—" }}</td>
+              <td class="num">
+                {% if m.variacion is not none %}
+                  <span class="{{ 'delta-pos' if m.variacion >= 0 else 'delta-neg' }}"><i class="bi {{ 'bi-arrow-up-right' if m.variacion >= 0 else 'bi-arrow-down-right' }}"></i> {{ "%+.1f"|format(m.variacion) }}%</span>
+                {% else %}—{% endif %}
+              </td>
+              <td class="num">{{ "%.1f"|format(m.margen) ~ "%" if m.margen is not none else "—" }}</td>
+            </tr>
+            {% endfor %}
+            {% set t_dias = resumen_mensual | sum(attribute='dias') %}
+            {% set t_cred = resumen_mensual | sum(attribute='credito') %}
+            {% set t_total = resumen_mensual | sum(attribute='total') %}
+            <tr class="total">
+              <td>Total</td>
+              <td class="num">{{ t_dias }}</td>
+              <td class="num">{{ "{:,}".format(resumen_mensual | sum(attribute='facturas')) }}</td>
+              <td class="num">{{ t_cred | cordobas }}</td>
+              <td class="num">{{ resumen_mensual | sum(attribute='contado') | cordobas }}</td>
+              <td class="num">{{ t_total | cordobas }}</td>
+              <td class="num">{{ "%.0f"|format(t_cred / t_total * 100) ~ "%" if t_total else "—" }}</td>
+              <td class="num">{{ (t_total / t_dias) | cordobas if t_dias else "—" }}</td>
+              <td></td><td></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="small text-muted">Crédito, contado y total son netos de devoluciones. La variación compara el promedio diario, para que el mes en curso sea comparable aunque esté incompleto. El margen bruto es sobre lo facturado.</div>
+      </div>
+      <details data-html2canvas-ignore class="mt-2">
+        <summary class="small">Ver detalle por vendedor y mes</summary>
+        <div class="table-responsive mt-1">
+          <table class="table table-sm table-hover tabla">
+            <thead><tr><th>Vendedor</th>{% for mes_ in meses_totales %}<th class="num">{{ mes_ }}</th>{% endfor %}<th class="num">Total</th></tr></thead>
+            <tbody>
+              {% for vendedor in vendedores_ordenados %}
+              <tr>
+                <td>{{ vendedor }}</td>
+                {% for mes_ in meses_totales %}<td class="num">{{ (ventas_totales[vendedor][mes_] if mes_ in ventas_totales[vendedor] else 0) | cordobas }}</td>{% endfor %}
+                <td class="num fw-bold">{{ ventas_totales[vendedor].values() | sum | cordobas }}</td>
+              </tr>
+              {% endfor %}
+              <tr class="total">
+                <td>Total</td>
+                {% for mes_ in meses_totales %}<td class="num">{{ (totales_por_mes_credito[mes_] + totales_por_mes_contado[mes_]) | cordobas }}</td>{% endfor %}
+                <td class="num">{{ total_general | cordobas }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  {# ---------- Recuperación mensual ---------- #}
+  <div class="card mb-4 pdf-bloque">
+    <div class="card-header"><i class="bi bi-cash-stack"></i> Recuperación mensual <small>recibos de caja</small></div>
+    <div class="card-body p-2 row g-2">
+      <div class="col-lg-8"><div class="grafico" style="height: 260px"><canvas id="graficoRecuperacionMensual" aria-label="Recuperación por mes" role="img"></canvas></div></div>
+      <div class="col-lg-4">
+        <table class="table table-sm tabla">
+          <thead><tr><th>Mes</th><th class="num">Recibos</th><th class="num">Total</th></tr></thead>
+          <tbody>
+            {% for r in recuperacion_mes %}
+            <tr><td>{{ r.Mes }}</td><td class="num">{{ r.Cantidad }}</td><td class="num">{{ r.TotalCordobas | cordobas }}</td></tr>
+            {% endfor %}
+            <tr class="total"><td>Total</td><td class="num">{{ recuperacion_mes | sum(attribute='Cantidad') }}</td><td class="num">{{ recuperacion_mes | sum(attribute='TotalCordobas') | cordobas }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+// ---- Descargar PDF: cada sección se captura por separado para que ninguna quede cortada entre páginas ----
+document.getElementById('btnPDF').addEventListener('click', async (e) => {
+  const btn = e.currentTarget, texto = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generando…';
+  const raiz = document.querySelector('.dash');
+  document.getElementById('fecha-generado').textContent = new Date().toLocaleString('es-NI');
+  raiz.classList.add('pdf-generando');
+  try {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('l', 'pt', 'a4');               // horizontal: las tablas anchas caben mejor
+    const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight(), M = 24, PIE = 18;
+    let y = M;
+    for (const bloque of raiz.querySelectorAll('.pdf-bloque')) {
+      const canvas = await html2canvas(bloque, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      let w = W - 2 * M, h = canvas.height * w / canvas.width;
+      const alto = H - 2 * M - PIE;
+      if (h > alto) { w = w * alto / h; h = alto; }        // una sección más alta que la página se reduce
+      if (y + h > H - M - PIE && y > M) { pdf.addPage(); y = M; }
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', M, y, w, h);
+      y += h + 10;
+    }
+    const paginas = pdf.getNumberOfPages();
+    for (let i = 1; i <= paginas; i++) {
+      pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(140);
+      pdf.text('Grupo Comersa · Resumen de ventas {{ fecha_fin }}', M, H - 12);
+      pdf.text(`Página ${i} de ${paginas}`, W - M, H - 12, { align: 'right' });
+    }
+    pdf.save('resumen_ventas_{{ fecha_fin }}.pdf');
+  } catch (err) {
+    console.error(err);
+    btn.insertAdjacentHTML('afterend', '<span class="text-danger small ms-2">No se pudo generar el PDF</span>');
+  } finally {
+    raiz.classList.remove('pdf-generando');
+    btn.disabled = false; btn.innerHTML = texto;
+  }
+});
+</script>
+<script>
+(function () {
+  const css = getComputedStyle(document.querySelector('.dash'));
+  const v = (n) => css.getPropertyValue(n).trim();
+  const C = { credito: v('--credito'), contado: v('--contado'), neutro: v('--neutro'), grid: v('--grid'),
+              ink2: v('--ink-2'), ink3: v('--ink-3'), surface: v('--surface') };
+
+  const cordobas = new Intl.NumberFormat('es-NI', { style: 'currency', currency: 'NIO', currencyDisplay: 'code', maximumFractionDigits: 2 });
+  const fmt = (n) => 'C$ ' + new Intl.NumberFormat('es-NI', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  const compacto = (n) => 'C$ ' + new Intl.NumberFormat('es-NI', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
+
+  Chart.defaults.font.family = "'Segoe UI', Arial, sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = C.ink2;
+  Chart.defaults.plugins.legend.display = false;   // la leyenda va en el encabezado de cada tarjeta
+  Chart.defaults.plugins.tooltip.callbacks.label = (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed[ctx.chart.options.indexAxis === 'y' ? 'x' : 'y'])}`;
+  Chart.defaults.maintainAspectRatio = false;
+
+  const ejeValor = { beginAtZero: true, grid: { color: C.grid, drawTicks: false }, border: { display: false },
+                     ticks: { callback: (n) => compacto(n), color: C.ink3, padding: 6 } };
+  const ejeCategoria = { grid: { display: false }, border: { color: C.grid }, ticks: { color: C.ink2 } };
+  // Barra: ≤ 24px, extremo redondeado 4px, 2px de separación en color de superficie
+  const barra = (label, data, color, extra = {}) => Object.assign({
+    label, data, backgroundColor: color, maxBarThickness: 24, borderColor: C.surface, borderWidth: 0,
+    borderRadius: 4, borderSkipped: 'start'
+  }, extra);
+  const totalAlFinal = {   // etiqueta selectiva: solo el total al final de cada barra
+    id: 'totalAlFinal',
+    afterDatasetsDraw(chart, _a, opts) {
+      if (!opts || !opts.totales) return;
+      const { ctx } = chart, horizontal = chart.options.indexAxis === 'y';
+      const ultimo = chart.getDatasetMeta(chart.data.datasets.length - 1);
+      ctx.save(); ctx.fillStyle = C.ink2; ctx.font = "600 11px 'Segoe UI', Arial";
+      ultimo.data.forEach((el, i) => {
+        const t = opts.totales[i]; if (t == null) return;
+        const pos = el.tooltipPosition();
+        if (horizontal) { ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillText(compacto(t), Math.max(pos.x, el.base) + 6, el.y); }
+        else { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(compacto(t), el.x, Math.min(pos.y, el.base) - 4); }
+      });
+      ctx.restore();
+    }
+  };
+
+  // ---- Vendedores del día: barras horizontales apiladas (crédito + contado) ----
+  {% if ranking_vendedores_dia %}
+  const vend = {
+    nombres: {{ ranking_vendedores_dia | map(attribute='Vendedor') | list | tojson }},
+    credito: {{ ranking_vendedores_dia | map(attribute='Credito') | map('float') | list | tojson }},
+    contado: {{ ranking_vendedores_dia | map(attribute='Contado') | map('float') | list | tojson }},
+  };
+  new Chart(document.getElementById('graficoVendedoresDia'), {
+    type: 'bar',
+    data: { labels: vend.nombres, datasets: [
+      barra('Crédito', vend.credito, C.credito, { borderRadius: 0 }),
+      barra('Contado', vend.contado, C.contado, { borderWidth: { left: 2 } }),
+    ]},
+    options: { indexAxis: 'y', layout: { padding: { right: 56 } },
+      scales: { x: Object.assign({ stacked: true }, ejeValor), y: Object.assign({ stacked: true }, ejeCategoria) },
+      interaction: { mode: 'index', axis: 'y', intersect: false },
+      plugins: { totalAlFinal: { totales: vend.credito.map((c, i) => c + vend.contado[i]) },
+                 tooltip: { callbacks: { footer: (items) => 'Total: ' + fmt(items.reduce((s, it) => s + it.parsed.x, 0)) } } } },
+    plugins: [totalAlFinal]
+  });
+  {% endif %}
+
+  // ---- Marcas del día: una serie, un color (el resto de marcas va en la nota y en la tabla) ----
+  {% if top_marcas %}
+  const marcas = {
+    nombres: {{ top_marcas | map(attribute='Marca') | list | tojson }},
+    ventas: {{ top_marcas | map(attribute='VentasTotales') | map('float') | list | tojson }},
+  };
+  new Chart(document.getElementById('graficoMarcas'), {
+    type: 'bar',
+    data: { labels: marcas.nombres, datasets: [barra('Venta neta', marcas.ventas, C.credito)] },
+    options: { indexAxis: 'y', layout: { padding: { right: 56 } },
+      scales: { x: ejeValor, y: ejeCategoria },
+      plugins: { totalAlFinal: { totales: marcas.ventas } } },
+    plugins: [totalAlFinal]
+  });
+  {% endif %}
+
+  // ---- Ventas mensuales: columnas apiladas crédito + contado ----
+  const meses = {{ meses_totales | tojson }};
+  const mesCredito = meses.map(m => ({{ totales_por_mes_credito | tojson }})[m] || 0);
+  const mesContado = meses.map(m => ({{ totales_por_mes_contado | tojson }})[m] || 0);
+  new Chart(document.getElementById('graficoVentasMensuales'), {
+    type: 'bar',
+    data: { labels: meses, datasets: [
+      barra('Crédito', mesCredito, C.credito, { borderRadius: 0, maxBarThickness: 40 }),
+      barra('Contado', mesContado, C.contado, { borderWidth: { bottom: 2 }, maxBarThickness: 40 }),
+    ]},
+    options: { layout: { padding: { top: 20 } },
+      scales: { x: Object.assign({ stacked: true }, ejeCategoria), y: Object.assign({ stacked: true }, ejeValor) },
+      interaction: { mode: 'index', intersect: false },
+      plugins: { totalAlFinal: { totales: mesCredito.map((c, i) => c + mesContado[i]) },
+                 tooltip: { callbacks: { footer: (items) => 'Total: ' + fmt(items.reduce((s, it) => s + it.parsed.y, 0)) } } } },
+    plugins: [totalAlFinal]
+  });
+
+  // ---- Recuperación mensual: una serie ----
+  const recup = {
+    meses: {{ recuperacion_mes | map(attribute='Mes') | list | tojson }},
+    total: {{ recuperacion_mes | map(attribute='TotalCordobas') | map('float') | list | tojson }},
+  };
+  new Chart(document.getElementById('graficoRecuperacionMensual'), {
+    type: 'bar',
+    data: { labels: recup.meses, datasets: [barra('Recuperación', recup.total, C.credito, { maxBarThickness: 40 })] },
+    options: { layout: { padding: { top: 20 } }, scales: { x: ejeCategoria, y: ejeValor },
+      plugins: { totalAlFinal: { totales: recup.total } } },
+    plugins: [totalAlFinal]
+  });
+})();
+</script>
+{% endblock %}

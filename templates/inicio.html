@@ -2,178 +2,69 @@
 {% block title %}Inicio{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="text-center mb-4">
-          <h3>Bienvenido, <span class="text-primary">{{ session["usuario"] }}</span> 👋</h3>
-        <h2 class="fw-bold">Bienvenido al Sistema de Reportes Comersa</h2>
-        <p class="text-muted">Seleccione una opción para comenzar</p>
-    </div>
+<style>
+  .inicio { --naranja: var(--color-principal, #FE6412); --verde: var(--color-secundario, #027266); --gris: var(--color-neutro, #666); }
+  .inicio .bienvenida h2 { color: var(--verde); font-weight: 700; }
+  .inicio .indice a { text-decoration: none; color: var(--gris); font-size: .82rem; padding: .25rem .6rem; border-radius: 999px;
+                      border: 1px solid #e6e4df; background: #fff; }
+  .inicio .indice a:hover, .inicio .indice a:focus-visible { border-color: var(--verde); color: var(--verde); }
+  .inicio .seccion { scroll-margin-top: 1rem; }
+  .inicio .seccion-titulo { display: flex; align-items: center; gap: .6rem; margin: 1.6rem 0 .2rem; }
+  .inicio .seccion-titulo h5 { margin: 0; font-size: 1.05rem; color: #1f1f1d; }
+  .inicio .seccion-titulo .icono { width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center;
+                                   justify-content: center; color: #fff; font-size: 1rem; }
+  .inicio .seccion-desc { color: #74736e; font-size: .82rem; margin-bottom: .7rem; }
+  .inicio .acceso { position: relative; display: flex; gap: .75rem; align-items: center; height: 100%; padding: .75rem .85rem;
+                    background: #fff; border: 1px solid #e6e4df; border-radius: 10px; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+  .inicio .acceso:hover { border-color: #cfccc4; box-shadow: 0 2px 8px rgba(0,0,0,.07); transform: translateY(-1px); }
+  .inicio .acceso:focus-within { outline: 3px solid var(--naranja); outline-offset: 2px; }
+  .inicio .acceso .icono { flex: 0 0 40px; height: 40px; border-radius: 10px; display: inline-flex; align-items: center;
+                           justify-content: center; font-size: 1.2rem; }
+  .inicio .acceso a { color: #1f1f1d; font-weight: 600; text-decoration: none; font-size: .88rem; }
+  .inicio .acceso a:focus { outline: none; }
+  .inicio .acceso .desc { color: #74736e; font-size: .75rem; line-height: 1.3; }
+  .inicio .paso { position: absolute; top: 6px; right: 8px; font-size: .68rem; color: #a3a19a; font-weight: 700; }
+  /* colores corporativos por sección */
+  .inicio .c-naranja .icono { background: #fff1e8; color: var(--naranja); }
+  .inicio .c-verde .icono { background: #e6f2f0; color: var(--verde); }
+  .inicio .c-gris .icono { background: #f1f0ec; color: var(--gris); }
+  .inicio .seccion-titulo.c-naranja .icono { background: var(--naranja); color: #fff; }
+  .inicio .seccion-titulo.c-verde .icono { background: var(--verde); color: #fff; }
+  .inicio .seccion-titulo.c-gris .icono { background: var(--gris); color: #fff; }
+  @media (prefers-reduced-motion: reduce) { .inicio .acceso { transition: none; } .inicio .acceso:hover { transform: none; } }
+</style>
 
-    <!-- Gestión de Datos -->
-    <h5 class="mb-3 text-secondary">Gestión de Datos</h5>
-    <div class="row g-3 mb-4">
-        <!-- Clientes -->
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm text-center">
-                <div class="card-body">
-                    <i class="bi bi-people fs-2 text-primary mb-2"></i>
-                    <h6 class="card-title">Clientes</h6>
-                    <p class="small">Gestione y edite la información de clientes.</p>
-                    <a href="/clientes" class="btn btn-primary btn-sm">Ir</a>
-                </div>
-            </div>
-        </div>
-        <!-- Zonas -->
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm text-center">
-                <div class="card-body">
-                    <i class="bi bi-pin-map-fill fs-2 text-success mb-2"></i>
-                    <h6 class="card-title">Zonas</h6>
-                    <p class="small">Consulte las zonas disponibles.</p>
-                    <a href="/zonas" class="btn btn-success btn-sm">Ir</a>
-                </div>
-            </div>
-        </div>
-        <!-- Agregar Zonas -->
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm text-center">
-                <div class="card-body">
-                    <i class="bi bi-plus-circle-fill fs-2 text-success mb-2"></i>
-                    <h6 class="card-title">Agregar Zonas</h6>
-                    <p class="small">Registre nuevas zonas en el sistema.</p>
-                    <a href="/newzonas" class="btn btn-outline-success btn-sm">Ir</a>
-                </div>
-            </div>
-        </div>
-        <!-- Ventas perdidas -->
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm text-center">
-                <div class="card-body">
-                    <i class="bi bi-graph-down-arrow fs-2 text-danger mb-2"></i>
-                    <h6 class="card-title">Ventas Perdidas</h6>
-                    <p class="small">Revise oportunidades no concretadas.</p>
-                    <a href="/ventas_perdidas" class="btn btn-danger btn-sm">Ir</a>
-                </div>
-            </div>
-        </div>
-        <!-- Carga RC -->
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm text-center">
-                <div class="card-body">
-                    <i class="bi bi-cloud-arrow-up fs-2 text-dark mb-2"></i>
-                    <h6 class="card-title">Carga RC</h6>
-                    <p class="small">Carga recibos a la base de datos.</p>
-                    <a href="/cargar_recibos" class="btn btn-secondary btn-sm">Ir</a>
-                </div>
-            </div>
-        </div>
-        <!-- Carga Devoluciones -->
-        <div class="col-md-4">
-            <div class="card h-100 shadow-sm text-center">
-                <div class="card-body">
-                    <i class="bi bi-cloud-arrow-up fs-2 text-dark mb-2"></i>
-                    <h6 class="card-title">Carga Devoluciones</h6>
-                    <p class="small">Carga devoluciones a la base de datos.</p>
-                    <a href="/devoluciones" class="btn btn-secondary btn-sm">Ir</a>
-                </div>
-            </div>
-        </div>
-    </div>
+<div class="inicio container mt-3 mb-5">
+  <div class="bienvenida text-center mb-3">
+    <h2 class="mb-1">Sistema de Reportes Comersa</h2>
+    <p class="text-muted mb-2">Bienvenido, <strong>{{ session["usuario"] }}</strong>. Elija una opción para comenzar.</p>
+    <nav class="indice d-flex flex-wrap justify-content-center gap-2" aria-label="Ir a una sección">
+      {% for s in menu_secciones %}<a href="#sec-{{ s.id }}"><i class="bi {{ s.icono }} me-1" aria-hidden="true"></i>{{ s.menu }}</a>{% endfor %}
+    </nav>
+  </div>
 
-<!-- Gestión de Usuarios -->
-<h5 class="mb-3 text-secondary">Gestión de Usuarios</h5>
-<div class="row g-3">
-    <!-- Usuarios -->
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm text-center">
-            <div class="card-body">
-                <i class="bi bi-person-lines-fill fs-2 text-primary mb-2"></i>
-                <h6 class="card-title">Usuarios</h6>
-                <p class="small">Administre usuarios y roles del sistema.</p>
-                <a href="/usuarios" class="btn btn-primary btn-sm">Ir</a>
-            </div>
-        </div>
+  {% for s in menu_secciones %}
+  <section class="seccion" id="sec-{{ s.id }}" aria-labelledby="tit-{{ s.id }}">
+    <div class="seccion-titulo c-{{ s.color }}">
+      <span class="icono" aria-hidden="true"><i class="bi {{ s.icono }}"></i></span>
+      <h5 id="tit-{{ s.id }}">{{ s.titulo }}</h5>
     </div>
-    <!-- Accesos -->
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm text-center">
-            <div class="card-body">
-                <i class="bi bi-shield-lock-fill fs-2 text-danger mb-2"></i>
-                <h6 class="card-title">Accesos</h6>
-                <p class="small">Controle permisos de vistas y reportes.</p>
-                <a href="/accesos" class="btn btn-danger btn-sm">Ir</a>
-            </div>
+    <div class="seccion-desc">{{ s.descripcion }}</div>
+    <div class="row g-2">
+      {% for titulo, url, icono, desc in s['items'] %}
+      <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
+        <div class="acceso c-{{ s.color }}">
+          {% if s.id == 'cargas' %}<span class="paso" title="Orden sugerido">{{ loop.index }}</span>{% endif %}
+          <span class="icono" aria-hidden="true"><i class="bi {{ icono }}"></i></span>
+          <div>
+            <a href="{{ url }}" class="stretched-link">{{ titulo }}</a>
+            <div class="desc">{{ desc }}</div>
+          </div>
         </div>
+      </div>
+      {% endfor %}
     </div>
-</div>
-
-<!-- Reportes y Análisis -->
-<h5 class="mb-3 text-secondary mt-4">Reportes y Análisis</h5>
-<div class="row g-3">
-    <!-- Menú de reportes -->
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm text-center">
-            <div class="card-body">
-                <i class="bi bi-clipboard-data-fill fs-2 text-info mb-2"></i>
-                <h6 class="card-title">Reportes</h6>
-                <p class="small">Menú de reportes y dashboards.</p>
-                <a href="/reportes" class="btn btn-info btn-sm">Ir</a>
-            </div>
-        </div>
-    </div>
-    <!-- Resumen General -->
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm text-center">
-            <div class="card-body">
-                <i class="bi bi-bar-chart-line-fill fs-2 text-warning mb-2"></i>
-                <h6 class="card-title">Resumen General</h6>
-                <p class="small">Visión global de ventas y recuperaciones.</p>
-                <a href="/resumen" class="btn btn-warning btn-sm">Ir</a>
-            </div>
-        </div>
-    </div>
-    <!-- Top Marcas -->
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm text-center">
-            <div class="card-body">
-                <i class="bi bi-trophy-fill fs-2 text-warning mb-2"></i>
-                <h6 class="card-title">Top Marcas</h6>
-                <p class="small">Ranking de marcas más destacadas.</p>
-                <a href="/top_marcas" class="btn btn-warning btn-sm">Ir</a>
-            </div>
-        </div>
-    </div>
-    <!-- Productos proximos agotarse -->
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm text-center">
-            <div class="card-body">
-                <i class="bi-hourglass-split fs-2 text-danger mb-2"></i>
-                <h6 class="card-title">Proximo Agotarse</h6>
-                <p class="small">Listado de Productos Proximos Agotarse</p>
-                <a href="/productos_agotarse" class="btn btn-danger btn-sm">Ir</a>
-            </div>
-        </div>
-    </div>
-        <!-- Ventas por Bodega Marcas -->
-    <div class="col-md-4">
-        <div class="card h-100 shadow-sm text-center">
-            <div class="card-body">
-                <i class="bi-box-seam fs-2 text-success mb-2"></i>
-                <h6 class="card-title">Venta Cant Bodega</h6>
-                <p class="small">Ventas por bodega (Marcas- cantidades)</p>
-                <a href="/ventas_bodega" class="btn btn-success btn-sm">Ir</a>
-            </div>
-        </div>
-    </div>
-</div>
-
+  </section>
+  {% endfor %}
 </div>
 {% endblock %}
-
-
-
-
-
-
-
-

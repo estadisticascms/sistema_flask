@@ -30,7 +30,10 @@ def registro():
             "clientes", "zonas", "newzonas", "resumen", "cargar_recibos", "devoluciones",
             "reporteZona", "reporte_ventas_dia", "reporte_ventas", "rep_vend_totales", "rep_vend_netocreco",
             "reporte_facturas", "reporte_ventas_mes", "ventas_zonas_mes", "top_marcas", "reporte_recibos",
-            "accesos", "usuarios"
+            "accesos", "usuarios",
+            "dashboard", "clase_prod", "sugerido_compras", "cargar_ventas", "cargar_ventas_producto",
+            "cargar_inventario", "cargar_catalogo", "cargar_existencias", "top_clientes_vendedor", "productos_incompletos",
+            "productos_sin_movimiento", "revision_precios", "cargar_clientes"
         ]
 
         for v in vistas_denegadas:

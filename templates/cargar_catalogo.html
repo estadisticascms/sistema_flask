@@ -1,0 +1,144 @@
+{% extends "layout.html" %}
+{% block title %}Actualizar Catálogo{% endblock %}
+{% block content %}
+<div class="container mt-3">
+  <h5>📥 Actualizar Catálogo de Productos</h5>
+  <p class="text-muted small mb-3">
+    El archivo <strong>reemplaza completo</strong> el catálogo actual (existencias, costos y precios).
+    Primero se muestra qué cambia; nada se guarda hasta que presione <strong>Confirmar actualización</strong>.
+  </p>
+
+  <form action="{{ url_for('cargar_catalogo.cargar_catalogo') }}" method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3"
+        onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Leyendo archivo…';">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Reporte de Catálogo de Productos con Existencia <span class="text-danger">*</span></label>
+        <input type="file" name="archivo_catalogo" class="form-control" accept=".xls,.xlsx" required>
+        <div class="form-text">Reporte_Catalogo_Productos_Con_Existencia_Actual_…xlsx (tarda unos segundos en leerse).</div>
+      </div>
+      <div class="col-md-6">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Validar archivo</button>
+      </div>
+    </div>
+  </form>
+
+  {% if errores_archivo %}
+    <div class="alert alert-danger">
+      <strong>No se pudo leer el archivo:</strong>
+      <ul class="mb-0">{% for e in errores_archivo %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  {% if validado %}
+    <div class="row g-2 mb-3 text-center">
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Productos en archivo</div><div class="fs-4 fw-bold">{{ "{:,}".format(total) }}</div><div class="small text-muted">hoy en BD: {{ "{:,}".format(dif.actuales) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-success"><div class="small text-muted">Nuevos</div><div class="fs-4 fw-bold text-success">{{ "{:,}".format(dif.nuevos|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-primary"><div class="small text-muted">Modificados</div><div class="fs-4 fw-bold text-primary">{{ "{:,}".format(dif.modificados|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Sin cambios</div><div class="fs-4 fw-bold text-secondary">{{ "{:,}".format(dif.sin_cambio) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-danger"><div class="small text-muted">Se eliminan</div><div class="fs-4 fw-bold text-danger">{{ "{:,}".format(dif.eliminados|length + dif.basura|length) }}</div></div></div>
+    </div>
+
+    <div class="table-responsive mb-3">
+      <table class="table table-sm w-auto">
+        <thead><tr><th></th><th class="text-end">Unidades en existencia</th><th class="text-end">Valor inventario (existencia × costo promedio)</th></tr></thead>
+        <tbody>
+          <tr><td>Antes</td><td class="text-end">{{ "{:,.2f}".format(dif.antes[0]) }}</td><td class="text-end">{{ "{:,.2f}".format(dif.antes[1]) }}</td></tr>
+          <tr><td>Después</td><td class="text-end">{{ "{:,.2f}".format(dif.despues[0]) }}</td><td class="text-end">{{ "{:,.2f}".format(dif.despues[1]) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if errores %}
+      <div class="alert alert-danger">
+        <strong>❌ Filas con error (no se cargarán):</strong>
+        <ul class="mb-0 small">{% for e in errores[:max_detalle] %}<li>{{ e }}</li>{% endfor %}</ul>
+        {% if errores|length > max_detalle %}<div class="small">… y {{ errores|length - max_detalle }} más</div>{% endif %}
+      </div>
+    {% endif %}
+
+    {% if advertencias %}
+      <div class="alert alert-warning">
+        <strong>⚠️ Advertencias (revise antes de confirmar):</strong>
+        <ul class="mb-0 small">{% for a in advertencias[:max_detalle] %}<li>{{ a }}</li>{% endfor %}</ul>
+        {% if advertencias|length > max_detalle %}<div class="small">… y {{ advertencias|length - max_detalle }} más</div>{% endif %}
+      </div>
+    {% endif %}
+
+    {% if dif.basura %}
+      <div class="alert alert-info small py-2">
+        Se eliminarán {{ dif.basura|length }} registros sin Código Producto que hoy están en la tabla
+        (normalmente la fila "TOTAL DE REGISTROS" de una carga anterior).
+      </div>
+    {% endif %}
+
+    {% if cambios_por_columna %}
+      <p class="small mb-1"><strong>Columnas que cambian:</strong>
+        {% for col, n in cambios_por_columna %}{{ col }} ({{ "{:,}".format(n) }}){% if not loop.last %} · {% endif %}{% endfor %}
+      </p>
+    {% endif %}
+
+    {% if dif.modificados %}
+      <details class="mb-2">
+        <summary>✏️ Ver productos modificados{% if dif.modificados|length > max_detalle %} (primeros {{ max_detalle }}){% endif %}</summary>
+        <div class="table-responsive mt-2" style="max-height: 400px;">
+          <table class="table table-sm table-striped small">
+            <thead class="sticky-top bg-white"><tr><th>Código</th><th>Nombre</th><th>Cambios</th></tr></thead>
+            <tbody>
+              {% for m in dif.modificados[:max_detalle] %}
+              <tr><td>{{ m.codigo }}</td><td>{{ m.nombre }}</td>
+                <td>{% for col, antes, despues in m.cambios %}<div><strong>{{ col }}:</strong> {{ antes if antes is not none else "—" }} → {{ despues if despues is not none else "—" }}</div>{% endfor %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if dif.nuevos %}
+      <details class="mb-2">
+        <summary>🆕 Ver productos nuevos{% if dif.nuevos|length > max_detalle %} (primeros {{ max_detalle }}){% endif %}</summary>
+        <div class="table-responsive mt-2" style="max-height: 400px;">
+          <table class="table table-sm table-striped small">
+            <thead class="sticky-top bg-white"><tr><th>Código</th><th>Nombre</th><th>Número Parte</th><th>Marca</th><th class="text-end">Existencia</th><th class="text-end">Costo Prom.</th></tr></thead>
+            <tbody>
+              {% for p in dif.nuevos[:max_detalle] %}
+              <tr><td>{{ p["Codigo Producto"] }}</td><td>{{ p.Nombre }}</td><td>{{ p["Numero Parte"] or "" }}</td><td>{{ p.Marca or "" }}</td>
+                <td class="text-end">{{ p["Existencia Actual"] }}</td><td class="text-end">{{ p["Costo Promedio"] }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if dif.eliminados %}
+      <details class="mb-3">
+        <summary class="text-danger">🗑️ Ver productos que se eliminan{% if dif.eliminados|length > max_detalle %} (primeros {{ max_detalle }}){% endif %}</summary>
+        <div class="table-responsive mt-2" style="max-height: 400px;">
+          <table class="table table-sm table-striped small">
+            <thead class="sticky-top bg-white"><tr><th>Código</th><th>Nombre</th><th>Número Parte</th><th>Marca</th><th class="text-end">Existencia</th></tr></thead>
+            <tbody>
+              {% for p in dif.eliminados[:max_detalle] %}
+              <tr><td>{{ p["Codigo Producto"] }}</td><td>{{ p.Nombre }}</td><td>{{ p["Numero Parte"] or "" }}</td><td>{{ p.Marca or "" }}</td><td class="text-end">{{ p["Existencia Actual"] }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    <form action="{{ url_for('cargar_catalogo.confirmar_carga_catalogo') }}" method="post" class="mb-4"
+          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Actualizando…';">
+      <input type="hidden" name="token" value="{{ token }}">
+      {% if pedir_confirmacion %}
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" id="acepto" required>
+          <label class="form-check-label text-danger" for="acepto">Entiendo que se eliminarán {{ "{:,}".format(dif.eliminados|length) }} productos del catálogo</label>
+        </div>
+      {% endif %}
+      <button type="submit" class="btn btn-success"><i class="bi bi-cloud-arrow-up"></i> Confirmar actualización ({{ "{:,}".format(total) }} productos)</button>
+      <a href="{{ url_for('cargar_catalogo.cargar_catalogo') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

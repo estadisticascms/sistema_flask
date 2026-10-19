@@ -1,0 +1,119 @@
+{% extends "layout.html" %}
+{% block title %}Carga Ventas Producto{% endblock %}
+{% block content %}
+<div class="container mt-3">
+  <h5>📥 Cargar Ventas por Producto</h5>
+  <p class="text-muted small mb-3">
+    Se lee el archivo, se valida y se muestra un resumen. Nada se guarda hasta que presione <strong>Confirmar carga</strong>.
+    Las facturas se cargan completas: si una factura ya existe en la base, se omiten todas sus líneas.
+  </p>
+
+  <form action="{{ url_for('cargar_ventas_producto.cargar_ventas_producto') }}" method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Reporte de Ventas por Producto <span class="text-danger">*</span></label>
+        <input type="file" name="archivo_productos" class="form-control" accept=".xls,.xlsx" required>
+        <div class="form-text">ReporteVentasPorProducto…xlsx — una línea por producto vendido.</div>
+      </div>
+      <div class="col-md-6">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Validar archivo</button>
+      </div>
+    </div>
+  </form>
+
+  {% if errores_archivo %}
+    <div class="alert alert-danger">
+      <strong>No se pudo leer el archivo:</strong>
+      <ul class="mb-0">{% for e in errores_archivo %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+
+  {% if validado %}
+    <div class="row g-2 mb-3 text-center">
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Líneas leídas</div><div class="fs-4 fw-bold">{{ total_lineas }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-success"><div class="small text-muted">Facturas nuevas</div><div class="fs-4 fw-bold text-success">{{ nuevas|length }}</div><div class="small text-muted">{{ lineas_nuevas }} líneas</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Ya existen</div><div class="fs-4 fw-bold text-secondary">{{ duplicadas|length }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-danger"><div class="small text-muted">Con error</div><div class="fs-4 fw-bold text-danger">{{ errores|length }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-warning"><div class="small text-muted">Advertencias</div><div class="fs-4 fw-bold text-warning">{{ advertencias|length }}</div></div></div>
+    </div>
+
+    {% if errores %}
+      <div class="alert alert-danger">
+        <strong>❌ Facturas con error (no se cargarán):</strong>
+        <ul class="mb-0 small">{% for e in errores %}<li>{{ e }}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+
+    {% if advertencias %}
+      <div class="alert alert-warning">
+        <strong>⚠️ Advertencias (revise antes de confirmar):</strong>
+        <ul class="mb-0 small">{% for a in advertencias %}<li>{{ a }}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+
+    {% if duplicadas %}
+      <details class="mb-3">
+        <summary class="text-secondary">🔁 {{ duplicadas|length }} facturas ya estaban en la base de datos y se omiten</summary>
+        <div class="table-responsive mt-2">
+          <table class="table table-sm table-striped small">
+            <thead><tr><th>Factura</th><th>Bodega</th><th>Fecha</th><th>Cliente</th><th class="text-end">Líneas</th><th>Motivo</th></tr></thead>
+            <tbody>
+              {% for d in duplicadas %}
+              <tr><td>{{ d.factura }}</td><td>{{ d.bodega }}</td><td>{{ d.fecha }}</td><td>{{ d.cliente }}</td><td class="text-end">{{ d.lineas|length }}</td><td>{{ d.motivo }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+  {% endif %}
+
+  {% if resumen %}
+    <h6 class="mt-2">{% if cargado %}📑 Resumen de lo guardado{% else %}📑 Resumen de lo que se cargará{% endif %}</h6>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped">
+        <thead>
+          <tr><th>Fecha</th><th class="text-end">Facturas</th><th class="text-end">Anuladas</th><th class="text-end">Líneas</th><th class="text-end">Total (sin anuladas)</th></tr>
+        </thead>
+        <tbody>
+          {% for r in resumen %}
+          <tr>
+            <td>{{ r.fecha }}</td><td class="text-end">{{ r.facturas }}</td><td class="text-end">{{ r.anuladas }}</td>
+            <td class="text-end">{{ r.lineas }}</td><td class="text-end">{{ r.total|cordobas }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if validado and token %}
+    <details class="mb-3">
+      <summary>Ver detalle de las {{ nuevas|length }} facturas nuevas</summary>
+      <div class="table-responsive mt-2" style="max-height: 400px;">
+        <table class="table table-sm table-striped small">
+          <thead class="sticky-top bg-white">
+            <tr><th>Factura</th><th>Bodega</th><th>Fecha</th><th>Tipo</th><th>Cliente</th><th class="text-end">Líneas</th><th class="text-end">Total</th><th>Estatus</th></tr>
+          </thead>
+          <tbody>
+            {% for f in nuevas %}
+            <tr{% if f.anulada %} class="text-muted"{% endif %}>
+              <td>{{ f.factura }}</td><td>{{ f.bodega }}</td><td>{{ f.fecha }}</td><td>{{ f.tipo }}</td><td>{{ f.cliente }}</td>
+              <td class="text-end">{{ f.lineas|length }}</td><td class="text-end">{{ f.total|cordobas }}</td><td>{{ f.estatus }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    <form action="{{ url_for('cargar_ventas_producto.confirmar_carga_ventas_producto') }}" method="post" class="mb-4">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn btn-success"><i class="bi bi-cloud-arrow-up"></i> Confirmar carga de {{ nuevas|length }} facturas ({{ lineas_nuevas }} líneas)</button>
+      <a href="{{ url_for('cargar_ventas_producto.cargar_ventas_producto') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+  {% elif validado %}
+    <div class="alert alert-secondary">No hay facturas nuevas para cargar.</div>
+  {% endif %}
+</div>
+{% endblock %}

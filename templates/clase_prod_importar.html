@@ -1,0 +1,83 @@
+{% extends "layout.html" %}
+{% block title %}Importar Clasificación{% endblock %}
+{% block content %}
+<div class="container mt-3">
+  <h5>📥 Importar Clasificación de Productos desde Excel</h5>
+  <p class="text-muted small mb-3">
+    Lee la hoja <strong>Productos</strong> (columnas Codigo, Segmento, Familia, Subfamilia y Grupo_equiv) y actualiza la clasificación de esos códigos.
+    Los códigos que no vienen en el Excel no se tocan. Nada se guarda hasta que presione <strong>Confirmar importación</strong>.
+  </p>
+
+  <form method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3"
+        onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Leyendo archivo…';">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold">Excel de clasificación <span class="text-danger">*</span></label>
+        <input type="file" name="archivo" class="form-control" accept=".xlsx" required>
+        <div class="form-text">Ej. CATALOGO_ORDENADO_OCT2026.xlsx</div>
+      </div>
+      <div class="col-md-6 d-flex gap-2">
+        <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> Validar archivo</button>
+        <a href="{{ url_for('clase_prod.clase_prod') }}" class="btn btn-outline-secondary">Volver</a>
+      </div>
+    </div>
+  </form>
+
+  {% if errores_archivo %}
+    <div class="alert alert-danger"><strong>No se pudo leer el archivo:</strong>
+      <ul class="mb-0">{% for e in errores_archivo %}<li>{{ e }}</li>{% endfor %}</ul></div>
+  {% endif %}
+
+  {% if validado %}
+    <div class="row g-2 mb-3 text-center">
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Productos en Excel</div><div class="fs-4 fw-bold">{{ "{:,}".format(total) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-success"><div class="small text-muted">Nuevos</div><div class="fs-4 fw-bold text-success">{{ "{:,}".format(nuevos|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-primary"><div class="small text-muted">Cambian</div><div class="fs-4 fw-bold text-primary">{{ "{:,}".format(modificados|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Sin cambios</div><div class="fs-4 fw-bold text-secondary">{{ "{:,}".format(sin_cambio) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-danger"><div class="small text-muted">Con error</div><div class="fs-4 fw-bold text-danger">{{ errores|length }}</div></div></div>
+    </div>
+
+    {% if errores %}
+      <div class="alert alert-danger"><strong>❌ Filas con error (no se importan):</strong>
+        <ul class="mb-0 small">{% for e in errores[:300] %}<li>{{ e }}</li>{% endfor %}</ul></div>
+    {% endif %}
+    {% if advertencias %}
+      <div class="alert alert-warning"><strong>⚠️ Advertencias:</strong>
+        <ul class="mb-0 small">{% for a in advertencias %}<li>{{ a }}</li>{% endfor %}</ul></div>
+    {% endif %}
+
+    {% if modificados %}
+      <div class="alert alert-info small py-2">
+        Si alguien corrigió clasificaciones en la aplicación después de preparar este Excel, esas correcciones se reemplazarán por las del Excel.
+      </div>
+      <p class="small mb-1"><strong>Campos que cambian:</strong>
+        {% for c, n in por_columna %}{{ c }} ({{ "{:,}".format(n) }}){% if not loop.last %} · {% endif %}{% endfor %}</p>
+      <details class="mb-3">
+        <summary>✏️ Ver cambios (primeros 300)</summary>
+        <div class="table-responsive mt-2" style="max-height: 400px;">
+          <table class="table table-sm table-striped small" style="width:100%">
+            <thead class="sticky-top"><tr><th>Código</th><th>Cambios</th></tr></thead>
+            <tbody>
+              {% for m in modificados[:300] %}
+              <tr><td style="text-align:left">{{ m.codigo }}</td>
+                <td style="text-align:left">{% for c, antes, despues in m.cambios %}<div><strong>{{ c }}:</strong> {{ antes or "—" }} → {{ despues or "—" }}</div>{% endfor %}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    {% if token %}
+      <form action="{{ url_for('clase_prod.confirmar_importar') }}" method="post" class="mb-4"
+            onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Importando…';">
+        <input type="hidden" name="token" value="{{ token }}">
+        <button class="btn btn-success"><i class="bi bi-cloud-arrow-up"></i> Confirmar importación ({{ "{:,}".format(nuevos|length + modificados|length) }} productos)</button>
+        <a href="{{ url_for('clase_prod.clase_prod') }}" class="btn btn-outline-secondary">Cancelar</a>
+      </form>
+    {% else %}
+      <div class="alert alert-secondary">No hay cambios para importar.</div>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

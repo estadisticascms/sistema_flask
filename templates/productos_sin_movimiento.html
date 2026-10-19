@@ -1,0 +1,192 @@
+{% extends "layout.html" %}
+{% block title %}Productos sin Movimiento{% endblock %}
+{% macro num(v, d=0) %}{% set r = v|round(2) %}{{ ("{:,.%df}"|format(d)).format(r) if d else ("{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r)) }}{% endmacro %}
+{% macro hace(m) %}{% if m < 1 %}hace {{ (m * 30.44)|round(0)|int }} días{% elif m < 24 %}hace {{ m|round(0)|int }} mes{{ 'es' if m|round(0)|int != 1 }}{% else %}hace {{ (m / 12)|round(1) }} años{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .sm h4 { color: var(--credito); }
+  .sm .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .sm .form-control-sm, .sm .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-sm { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1650px; }
+  .tabla-sm thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-sm td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: middle; }
+  .tabla-sm tbody tr:hover td { background: #faf9f6; }
+  .tabla-sm .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .prod .desc { font-weight: 600; }
+  .prod .meta, .tabla-sm .meta { font-size: .72rem; color: var(--ink-3); }
+  .precio .mg { font-size: .7rem; font-weight: 600; }
+  .mg.bajo { color: #b42318; } .mg.medio { color: #854d0e; } .mg.alto { color: var(--credito); }
+  /* Antigüedad: icono + texto (no solo color) */
+  .edad { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .72rem; white-space: nowrap; }
+  .edad.e1 { background: #fef7e0; color: #854d0e; }
+  .edad.e2 { background: #fff1e8; color: #9a3412; }
+  .edad.e3, .edad.e4 { background: #fde8e8; color: #b42318; }
+  .grupo { border-left: 4px solid var(--grid); padding-left: .6rem; }
+  .grupo.e1 { border-color: #eab308; } .grupo.e2 { border-color: var(--contado); } .grupo.e3 { border-color: #b42318; } .grupo.e4 { border-color: #6b1d16; }
+  .info-txt { max-width: 230px; font-size: .72rem; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .falta { display: inline-flex; align-items: center; gap: 3px; font-size: .7rem; font-weight: 700; color: #b42318; background: #fde8e8; padding: 0 6px; border-radius: 8px; white-space: nowrap; }
+  .comparar .barra { height: 8px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+  .comparar .barra span { display: block; height: 100%; border-radius: 4px; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .sm .btn:focus-visible, .sm a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .sm .page-link { color: var(--credito); }
+  .sm .page-item.active .page-link { background: var(--credito); border-color: var(--credito); color: #fff; }
+</style>
+
+{% set params = {'meses': f.meses, 'marca': f.marca, 'q': f.q, 'orden': f.orden, 'tc': f.tc, 'info': f.info} %}
+<div class="dash sm container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-moon-stars" aria-hidden="true"></i> Productos sin movimiento</h4>
+      <div class="text-muted small">Productos con existencia que no se venden desde hace {{ f.meses }} meses o más
+        (última venta antes del {{ periodo.corte.strftime('%d/%m/%Y') }}; datos hasta el {{ periodo.fin.strftime('%d/%m/%Y') }}).</div>
+    </div>
+    {% if r.productos %}
+    <a class="btn btn-verde btn-sm" href="{{ url_for('productos_sin_movimiento.descargar_excel', **params) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel ({{ "{:,}".format(r.productos) }})</a>
+    {% endif %}
+  </div>
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="meses">Sin ventas desde hace</label>
+        <select id="meses" name="meses" class="form-select form-select-sm">
+          {% for m in opciones_meses %}<option value="{{ m }}" {% if m == f.meses %}selected{% endif %}>{{ m }} meses o más</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="marca">Marca</label>
+        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="info">Información</label>
+        <select id="info" name="info" class="form-select form-select-sm">
+          {% for k, v in info.items() %}<option value="{{ k }}" {% if k == f.info %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, nº parte o descripción"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="orden">Ordenar por</label>
+        <select id="orden" name="orden" class="form-select form-select-sm">
+          {% for k, v in ordenes.items() %}<option value="{{ k }}" {% if k == f.orden %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="tc">Tipo de cambio</label>
+        <input type="number" id="tc" name="tc" step="0.0001" min="1" value="{{ f.tc }}" class="form-control form-control-sm" title="Para convertir los precios del catálogo (U$) a córdobas"></div>
+      <div class="col-6 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button></div>
+    </div>
+  </form>
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Productos sin movimiento</div><div class="valor">{{ "{:,}".format(r.productos) }}</div>
+      <div class="sub">{{ num(r.unidades) }} unidades en existencia</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Valor en inventario</div><div class="valor">C$ {{ "{:,.2f}".format(r.valor) }}</div>
+      <div class="sub">existencia × costo promedio</div></div></div>
+    <div class="col-lg-6"><div class="card kpi"><div class="etiqueta mb-1">Tiempo sin vender</div>
+      <div class="row g-2">
+        {% for g in r.grupos %}
+        <div class="col-6 col-md"><div class="grupo e{{ loop.index + 4 - r.grupos|length }}">
+          <div class="fw-bold">{{ "{:,}".format(g.productos) }}</div>
+          <div class="sub">{{ g.etiqueta }}</div>
+          <div class="meta small text-muted">C$ {{ "{:,.0f}".format(g.valor) }}</div></div></div>
+        {% endfor %}
+      </div></div></div>
+  </div>
+
+  {# ---------- ¿Falta información? ---------- #}
+  {% set cv = periodo.con_venta %}
+  {% set pct_sm = (r.faltan / r.productos * 100) if r.productos else 0 %}
+  {% set pct_cv = (cv.faltan / cv.productos * 100) if cv.productos else 0 %}
+  <div class="card kpi comparar mb-3">
+    <div class="row g-3 align-items-center">
+      <div class="col-lg-4">
+        <div class="etiqueta">¿Les falta información?</div>
+        <div class="sub">Aplicación o equivalencia vacía en el catálogo.
+          {% if f.info %}<br><em>Con el filtro de información activo la comparación no aplica.</em>
+          {% elif cv.productos and pct_sm > pct_cv + 5 %}<br><strong style="color: #9a3412">A los productos sin movimiento les falta información con más frecuencia.</strong>
+          {% elif cv.productos %}<br>La falta de información es parecida en ambos grupos.{% endif %}</div>
+      </div>
+      <div class="col-lg-8">
+        <div class="d-flex justify-content-between small"><span><strong>Sin movimiento</strong> · {{ "{:,}".format(r.faltan) }} de {{ "{:,}".format(r.productos) }}
+          <span class="text-muted">(falta aplicación {{ "{:,}".format(r.falta_aplicacion) }} · falta equivalencia {{ "{:,}".format(r.falta_equivalencias) }})</span></span>
+          <strong>{{ "{:.1f}".format(pct_sm) }}%</strong></div>
+        <div class="barra mb-2" role="img" aria-label="{{ '{:.1f}'.format(pct_sm) }}% sin información"><span style="width: {{ pct_sm }}%; background: var(--contado)"></span></div>
+        <div class="d-flex justify-content-between small"><span><strong>Con ventas en los últimos {{ f.meses }} meses</strong> · {{ "{:,}".format(cv.faltan) }} de {{ "{:,}".format(cv.productos) }}</span>
+          <strong>{{ "{:.1f}".format(pct_cv) }}%</strong></div>
+        <div class="barra" role="img" aria-label="{{ '{:.1f}'.format(pct_cv) }}% sin información"><span style="width: {{ pct_cv }}%; background: var(--credito)"></span></div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-sm">
+      <caption class="visually-hidden">Productos con existencia sin ventas recientes</caption>
+      <thead><tr>
+        <th scope="col">#</th><th scope="col">Producto</th><th scope="col">Marca</th>
+        <th scope="col">Aplicación</th><th scope="col">Equivalencias</th>
+        <th scope="col" class="num">Existencia</th>
+        <th scope="col" class="num">Costo prom. C$</th><th scope="col" class="num">Último costo C$</th>
+        <th scope="col" class="num">Valor C$</th>
+        {% for p in precios %}<th scope="col" class="num" title="Precio de venta en C$ (U$ × TC) y margen sobre la venta">{{ p }}<div class="meta">C$ · margen</div></th>{% endfor %}
+        <th scope="col">Último ingreso</th><th scope="col">Última venta</th>
+      </tr></thead>
+      <tbody>
+        {% for x in filas %}
+        <tr>
+          <td class="meta">{{ desde + loop.index }}</td>
+          <td class="prod"><div class="desc">{{ x.nombre }}</div>
+            <div class="meta"><strong>{{ x.numero_parte }}</strong> · {{ x.codigo }}{% if x.familia %} · {{ x.familia }}{% endif %}</div></td>
+          <td>{{ x.marca or '—' }}</td>
+          <td>{% if x.aplicacion %}<div class="info-txt" title="{{ x.aplicacion }}">{{ x.aplicacion }}</div>{% else %}<span class="falta"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> Falta</span>{% endif %}</td>
+          <td>{% if x.equivalencias %}<div class="info-txt" title="{{ x.equivalencias }}">{{ x.equivalencias }}</div>{% else %}<span class="falta"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> Falta</span>{% endif %}</td>
+          <td class="num fw-semibold">{{ num(x.existencia) }}{% if x.nhe %}<div class="meta" title="En bodegas NHE (mercadería faltante)">NHE {{ num(x.nhe) }}</div>{% endif %}</td>
+          <td class="num">{{ "{:,.2f}".format(x.costo_promedio) }}</td>
+          <td class="num">{{ "{:,.2f}".format(x.ultimo_costo) }}</td>
+          <td class="num fw-semibold">{{ "{:,.2f}".format(x.valor) }}</td>
+          {% for p in x.precios %}
+          <td class="num precio">{% if p.cs > 0 %}{{ "{:,.2f}".format(p.cs) }}
+            {% set m = p.margen %}<div class="mg {{ 'bajo' if m < 0.15 else ('medio' if m < 0.3 else 'alto') }}">{{ "{:.1f}".format(m * 100) }}%</div>
+            {% else %}<span class="text-muted">—</span>{% endif %}</td>
+          {% endfor %}
+          <td class="small">{% if x.ultimo_ingreso %}{{ x.ultimo_ingreso.strftime('%d/%m/%Y') }}
+            <div class="meta">{{ num(x.cantidad_ingreso) }} unid. · {{ hace(x.meses_ingreso) }}</div>
+            {% else %}<span class="text-muted">sin compras desde 2021</span>{% endif %}</td>
+          <td class="small">
+            {% if x.ultima_venta %}{% set m = x.meses_sin_venta %}
+              <span class="edad {{ 'e1' if m < 12 else ('e2' if m < 24 else 'e3') }}"><i class="bi bi-clock-history" aria-hidden="true"></i> {{ hace(m) }}</span>
+              <div class="meta">{{ x.ultima_venta.strftime('%d/%m/%Y') }}</div>
+            {% else %}<span class="edad e4"><i class="bi bi-slash-circle" aria-hidden="true"></i> Sin venta</span><div class="meta">desde 2021</div>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="15" class="text-center text-muted py-4"><i class="bi bi-check2-circle d-block fs-3 mb-1" aria-hidden="true" style="color: var(--credito)"></i>
+          No hay productos con existencia sin ventas en {{ f.meses }} meses con estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2 mb-4">
+    <div class="small text-muted">
+      {% if r.productos %}Mostrando {{ "{:,}".format(desde + 1) }}–{{ "{:,}".format(desde + filas|length) }} de {{ "{:,}".format(r.productos) }}. {% endif %}
+      Margen = (precio − último costo) ÷ precio. Precios del catálogo en U$ × TC {{ f.tc }}. El Excel incluye todos los productos.
+    </div>
+    {% if paginas > 1 %}
+    <nav aria-label="Páginas"><ul class="pagination pagination-sm mb-0">
+      {% set ini = [1, pagina - 2]|max %}{% set fin_p = [paginas, pagina + 2]|min %}
+      <li class="page-item {{ 'disabled' if pagina == 1 }}"><a class="page-link" href="{{ url_for('productos_sin_movimiento.reporte', pagina=pagina - 1, **params) }}" aria-label="Anterior">&laquo;</a></li>
+      {% if ini > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('productos_sin_movimiento.reporte', pagina=1, **params) }}">1</a></li>{% if ini > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
+      {% for n in range(ini, fin_p + 1) %}
+      <li class="page-item {{ 'active' if n == pagina }}"><a class="page-link" href="{{ url_for('productos_sin_movimiento.reporte', pagina=n, **params) }}" {% if n == pagina %}aria-current="page"{% endif %}>{{ n }}</a></li>
+      {% endfor %}
+      {% if fin_p < paginas %}{% if fin_p < paginas - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ url_for('productos_sin_movimiento.reporte', pagina=paginas, **params) }}">{{ paginas }}</a></li>{% endif %}
+      <li class="page-item {{ 'disabled' if pagina == paginas }}"><a class="page-link" href="{{ url_for('productos_sin_movimiento.reporte', pagina=pagina + 1, **params) }}" aria-label="Siguiente">&raquo;</a></li>
+    </ul></nav>
+    {% endif %}
+  </div>
+</div>
+<datalist id="dl-marcas">{% for m in marcas %}<option value="{{ m }}">{% endfor %}</datalist>
+{% endblock %}

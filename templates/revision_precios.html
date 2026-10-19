@@ -1,0 +1,183 @@
+{% extends "layout.html" %}
+{% block title %}Revisión de Precios{% endblock %}
+{% macro num(v, d=0) %}{% set r = v|round(2) %}{{ ("{:,.%df}"|format(d)).format(r) if d else ("{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r)) }}{% endmacro %}
+{% macro pct(m) %}{{ "{:.1f}".format(m * 100) }}%{% endmacro %}
+{% macro hace(m) %}{% if m < 1 %}hace {{ (m * 30.44)|round(0)|int }} días{% elif m < 24 %}hace {{ m|round(0)|int }} mes{{ 'es' if m|round(0)|int != 1 }}{% else %}hace {{ (m / 12)|round(1) }} años{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .rp h4 { color: var(--credito); }
+  .rp .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .rp .form-control-sm, .rp .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-rp { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1400px; }
+  .tabla-rp thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-rp td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: middle; }
+  .tabla-rp tbody tr:hover td { background: #faf9f6; }
+  .tabla-rp .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-rp .ref { background: #fff7f2; }
+  .tabla-rp thead th.ref { background: #ffe9dc; color: #9a3412; }
+  .prod .desc { font-weight: 600; }
+  .meta { font-size: .72rem; color: var(--ink-3); }
+  .mg { font-size: .7rem; font-weight: 600; }
+  .mg.neg, .mg.bajo { color: #b42318; } .mg.medio { color: #854d0e; } .mg.alto { color: var(--credito); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .74rem; white-space: nowrap; }
+  .chip.rojo { background: #fde8e8; color: #b42318; }
+  .chip.ambar { background: #fef7e0; color: #854d0e; }
+  .chip.verde { background: #e3f3f1; color: var(--credito); }
+  .chip.gris { background: #eeede8; color: #52514e; }
+  .tabs-rp .nav-link { color: var(--ink-2); font-weight: 600; }
+  .tabs-rp .nav-link.active { color: var(--credito); border-bottom: 3px solid var(--contado); }
+  .tabs-rp .badge { background: var(--grid); color: var(--ink); }
+  .tabs-rp .nav-link.active .badge { background: var(--contado); color: #fff; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .rp .btn:focus-visible, .rp a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .rp .page-link { color: var(--credito); }
+  .rp .page-item.active .page-link { background: var(--credito); border-color: var(--credito); color: #fff; }
+</style>
+
+{% set base = {'margen_bajo': f.margen_bajo, 'margen_alto': f.margen_alto, 'precio': f.precio, 'meses': f.meses, 'tc': f.tc, 'marca': f.marca, 'q': f.q} %}
+{% set params = dict(base, vista=f.vista) %}
+{% set ref = precios[f.precio - 1] %}
+<div class="dash rp container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-percent" aria-hidden="true"></i> Revisión de precios</h4>
+      <div class="text-muted small">Productos con existencia. Margen sobre la venta con {{ ref }} y el último costo:
+        (precio − costo) ÷ precio. Precios del catálogo en U$ × TC {{ f.tc }}.</div>
+    </div>
+    <a class="btn btn-verde btn-sm" href="{{ url_for('revision_precios.descargar_excel', **params) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel (2 hojas)</a>
+  </div>
+
+  {# ---------- Criterios ---------- #}
+  <form method="get" class="card card-body py-2 mb-3">
+    <input type="hidden" name="vista" value="{{ f.vista }}">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-1"><label class="form-label" for="margen_bajo">Margen bajo ≤</label>
+        <div class="input-group input-group-sm"><input type="number" id="margen_bajo" name="margen_bajo" step="1" value="{{ f.margen_bajo|round(1) }}" class="form-control"><span class="input-group-text">%</span></div></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="margen_alto">Margen alto &gt;</label>
+        <div class="input-group input-group-sm"><input type="number" id="margen_alto" name="margen_alto" step="1" value="{{ f.margen_alto|round(1) }}" class="form-control"><span class="input-group-text">%</span></div></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="meses">Sin ventas desde hace</label>
+        <select id="meses" name="meses" class="form-select form-select-sm">
+          {% for m in opciones_meses %}<option value="{{ m }}" {% if m == f.meses %}selected{% endif %}>{{ m }} meses o más</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="precio">Precio de ref.</label>
+        <select id="precio" name="precio" class="form-select form-select-sm" title="Precio 1 es el más facturado">
+          {% for p in precios %}<option value="{{ loop.index }}" {% if loop.index == f.precio %}selected{% endif %}>{{ p }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="marca">Marca</label>
+        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, nº parte o descripción"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="tc">Tipo de cambio</label>
+        <input type="number" id="tc" name="tc" step="0.0001" min="1" value="{{ f.tc }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button></div>
+    </div>
+  </form>
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: #b42318"></div>
+      <div class="etiqueta">Margen ≤ {{ f.margen_bajo|round(1) }}%</div><div class="valor">{{ "{:,}".format(d.bajo|length) }}</div>
+      <div class="sub">{{ "{:,}".format(bajo_con_venta) }} se vendieron en los últimos {{ f.meses }} meses</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Margen negativo</div><div class="valor" style="color: #b42318">{{ "{:,}".format(negativos) }}</div>
+      <div class="sub">el precio no cubre el costo</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Sin movimiento y margen &gt; {{ f.margen_alto|round(1) }}%</div><div class="valor">{{ "{:,}".format(d.alto|length) }}</div>
+      <div class="sub">candidatos a rebajar precio</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Inventario detenido</div><div class="valor">C$ {{ "{:,.0f}".format(valor_alto) }}</div>
+      <div class="sub">de esos productos, a costo promedio</div></div></div>
+    <div class="col-12 col-lg"><div class="card kpi"><div class="etiqueta">Sin costo o sin {{ ref }}</div><div class="valor text-muted">{{ "{:,}".format(d.sin_datos) }}</div>
+      <div class="sub">no se puede calcular el margen</div></div></div>
+  </div>
+
+  <ul class="nav tabs-rp border-bottom mb-2">
+    {% for k, v in vistas.items() %}
+    <li class="nav-item"><a class="nav-link {{ 'active' if k == f.vista }}" {% if k == f.vista %}aria-current="page"{% endif %}
+       href="{{ url_for('revision_precios.reporte', vista=k, **base) }}">
+      <i class="bi {{ 'bi-arrow-down-circle' if k == 'bajo' else 'bi-moon-stars' }}" aria-hidden="true"></i> {{ v }}
+      <span class="badge rounded-pill ms-1">{{ "{:,}".format(d[k]|length) }}</span></a></li>
+    {% endfor %}
+  </ul>
+  <div class="small text-muted mb-2">
+    {% if f.vista == 'bajo' %}Ordenado del margen más bajo al más alto. <strong>{{ ref }} mínimo</strong> = precio para llegar a {{ f.margen_bajo|round(1) }}% de margen con el último costo.
+    {% else %}Sin ventas desde el {{ d.corte.strftime('%d/%m/%Y') }} o antes. Ordenado del margen más alto al más bajo: son los que tienen más espacio para rebajar.{% endif %}
+    {% if dudosos %}<span class="chip gris ms-1"><i class="bi bi-question-circle" aria-hidden="true"></i> {{ "{:,}".format(dudosos) }} con margen fuera de −100% a 95%</span>: posible error de costo o precio en el catálogo; van al final.{% endif %}
+  </div>
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 68vh">
+    <table class="tabla-rp">
+      <caption class="visually-hidden">{{ vistas[f.vista] }}</caption>
+      <thead><tr>
+        <th scope="col">#</th><th scope="col">Producto</th><th scope="col">Marca</th>
+        <th scope="col" class="num">Existencia</th><th scope="col" class="num">Último costo C$</th>
+        {% for p in precios %}<th scope="col" class="num {{ 'ref' if loop.index == f.precio }}">{{ p }}<div class="meta">C$ · margen</div></th>{% endfor %}
+        {% if f.vista == 'bajo' %}<th scope="col" class="num">{{ ref }} mínimo<div class="meta">C$ / U$ para {{ f.margen_bajo|round(1) }}%</div></th>{% endif %}
+        {% if f.vista == 'bajo' %}<th scope="col" class="num" title="Ventas reales de los últimos {{ f.meses }} meses">Vendido {{ f.meses }}m<div class="meta">unid. · precio prom.</div></th>
+        <th scope="col" class="num" title="(venta neta − costo) ÷ venta neta de lo facturado en el período">Margen real</th>{% endif %}
+        {% if f.vista == 'alto' %}<th scope="col" class="num">Valor C$</th>{% endif %}
+        <th scope="col" title="Última compra (orden de compra): fecha, cantidad y costo unitario">Último ingreso</th>
+        <th scope="col">Última venta</th>
+      </tr></thead>
+      <tbody>
+        {% for x in filas %}
+        <tr>
+          <td class="meta">{{ desde + loop.index }}</td>
+          <td class="prod"><div class="desc">{{ x.nombre }}</div>
+            <div class="meta"><strong>{{ x.numero_parte }}</strong> · {{ x.codigo }}{% if x.familia %} · {{ x.familia }}{% endif %}</div>
+            {% if x.dudoso %}<span class="chip gris mt-1"><i class="bi bi-question-circle" aria-hidden="true"></i> Revisar costo/precio</span>{% endif %}</td>
+          <td>{{ x.marca or '—' }}</td>
+          <td class="num">{{ num(x.existencia) }}</td>
+          <td class="num">{{ "{:,.2f}".format(x.costo) }}{% if not x.ultimo_costo %}<div class="meta">costo prom.</div>{% endif %}</td>
+          {% for p in x.precios %}
+          <td class="num {{ 'ref' if loop.index == f.precio }}">{% if p.cs > 0 %}{{ "{:,.2f}".format(p.cs) }}
+            {% if p.margen is not none %}{% set m = p.margen %}
+            {% if loop.index == f.precio %}<div><span class="chip {{ 'rojo' if m <= f.margen_bajo / 100 else ('verde' if m > f.margen_alto / 100 else 'ambar') }}">{{ pct(m) }}</span></div>
+            {% else %}<div class="mg {{ 'neg' if m < 0 else ('bajo' if m < 0.15 else ('medio' if m < 0.3 else 'alto')) }}">{{ pct(m) }}</div>{% endif %}
+            {% endif %}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          {% endfor %}
+          {% if f.vista == 'bajo' %}
+          <td class="num fw-semibold">{% if x.precio_minimo %}{{ "{:,.2f}".format(x.precio_minimo) }}
+            {% if x.factor != 1 %}<div class="meta">U$ {{ "{:,.4f}".format(x.precio_minimo / x.factor) }}</div>{% endif %}{% else %}—{% endif %}</td>
+          {% endif %}
+          {% if f.vista == 'bajo' %}<td class="num">{% if x.unidades > 0 %}{{ num(x.unidades) }}<div class="meta">C$ {{ "{:,.2f}".format(x.precio_real) }}</div>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="num">{% if x.margen_real is not none %}{% set m = x.margen_real %}<span class="mg {{ 'neg' if m < 0 else ('bajo' if m < 0.15 else ('medio' if m < 0.3 else 'alto')) }}">{{ pct(m) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>{% endif %}
+          {% if f.vista == 'alto' %}<td class="num fw-semibold">{{ "{:,.2f}".format(x.valor) }}</td>{% endif %}
+          <td class="small">{% if x.ultimo_ingreso %}{{ x.ultimo_ingreso.strftime('%d/%m/%Y') }}
+            <div class="meta">{{ num(x.cantidad_ingreso) }} unid.{% if x.costo_ingreso %} · C$ {{ "{:,.2f}".format(x.costo_ingreso) }}{% endif %}</div>
+            <div class="meta">{{ hace(x.meses_ingreso) }}</div>
+            {% else %}<span class="text-muted">sin compras desde 2021</span>{% endif %}</td>
+          <td class="small">{% if x.ultima_venta %}{{ x.ultima_venta.strftime('%d/%m/%Y') }}<div class="meta">{{ hace(x.meses_sin_venta) }}</div>
+            {% else %}<span class="chip rojo"><i class="bi bi-slash-circle" aria-hidden="true"></i> Sin venta</span><div class="meta">desde 2021</div>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="15" class="text-center text-muted py-4"><i class="bi bi-check2-circle d-block fs-3 mb-1" aria-hidden="true" style="color: var(--credito)"></i>
+          No hay productos en esta lista con estos criterios.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2 mb-4">
+    <div class="small text-muted">{% if total %}Mostrando {{ "{:,}".format(desde + 1) }}–{{ "{:,}".format(desde + filas|length) }} de {{ "{:,}".format(total) }}. {% endif %}
+      Margen real = lo facturado en los últimos {{ f.meses }} meses (con descuentos, sin IVA) contra su costo. El Excel incluye las dos listas completas.</div>
+    {% if paginas > 1 %}
+    <nav aria-label="Páginas"><ul class="pagination pagination-sm mb-0">
+      {% set ini = [1, pagina - 2]|max %}{% set fin_p = [paginas, pagina + 2]|min %}
+      <li class="page-item {{ 'disabled' if pagina == 1 }}"><a class="page-link" href="{{ url_for('revision_precios.reporte', pagina=pagina - 1, **params) }}" aria-label="Anterior">&laquo;</a></li>
+      {% if ini > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('revision_precios.reporte', pagina=1, **params) }}">1</a></li>{% if ini > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}{% endif %}
+      {% for n in range(ini, fin_p + 1) %}
+      <li class="page-item {{ 'active' if n == pagina }}"><a class="page-link" href="{{ url_for('revision_precios.reporte', pagina=n, **params) }}" {% if n == pagina %}aria-current="page"{% endif %}>{{ n }}</a></li>
+      {% endfor %}
+      {% if fin_p < paginas %}{% if fin_p < paginas - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}<li class="page-item"><a class="page-link" href="{{ url_for('revision_precios.reporte', pagina=paginas, **params) }}">{{ paginas }}</a></li>{% endif %}
+      <li class="page-item {{ 'disabled' if pagina == paginas }}"><a class="page-link" href="{{ url_for('revision_precios.reporte', pagina=pagina + 1, **params) }}" aria-label="Siguiente">&raquo;</a></li>
+    </ul></nav>
+    {% endif %}
+  </div>
+</div>
+<datalist id="dl-marcas">{% for m in marcas %}<option value="{{ m }}">{% endfor %}</datalist>
+{% endblock %}
