@@ -1,50 +1,156 @@
 {% extends "layout.html" %}
-{% block title %}Gestión de Accesos{% endblock %}
-
+{% block title %}Accesos{% endblock %}
 {% block content %}
-<div class="container mt-4">
-  <h3><i class="bi bi-shield-lock me-2"></i> Gestión de Accesos</h3>
+<style>
+  .ac h4 { color: #027266; }
+  .ac .lista-usuarios .list-group-item { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+  .ac .lista-usuarios .list-group-item.active { background: #027266; border-color: #027266; }
+  .ac .lista-usuarios .n { font-size: .72rem; border-radius: 10px; padding: 0 7px; background: #eceae4; color: #52514e; }
+  .ac .lista-usuarios .active .n { background: rgba(255,255,255,.2); color: #fff; }
+  .ac .grupo { border: 1px solid #e3e1db; border-radius: 10px; margin-bottom: .75rem; background: #fff; }
+  .ac .grupo-cab { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .5rem .8rem; border-bottom: 1px solid #eceae4;
+                   border-left: 5px solid #027266; border-radius: 10px 10px 0 0; background: #faf9f6; }
+  .ac .grupo.naranja .grupo-cab { border-left-color: #FE6412; } .ac .grupo.gris .grupo-cab { border-left-color: #8a8984; }
+  .ac .grupo-cab .t { font-weight: 700; }
+  .ac .grupo-cab .c { font-size: .75rem; color: #6b6a66; }
+  .ac .permiso { display: flex; align-items: flex-start; gap: .6rem; padding: .45rem .8rem; border-bottom: 1px solid #f1efea; }
+  .ac .permiso:last-child { border-bottom: 0; }
+  .ac .permiso.form-switch { padding-left: .8rem; }
+  .ac .permiso .form-check-input { width: 2.4em; height: 1.25em; margin: .15rem 0 0; float: none; flex-shrink: 0; cursor: pointer; }
+  .ac .permiso .form-check-input:checked { background-color: #027266; border-color: #027266; }
+  .ac .permiso .nombre { font-weight: 600; font-size: .88rem; }
+  .ac .permiso .desc { font-size: .74rem; color: #6b6a66; }
+  .ac .permiso code { font-size: .68rem; color: #8a8984; }
+  .ac .permiso.bloqueado { background: #fff8f3; }
+  .ac .subgrupo { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #8a8984; padding: .45rem .8rem .1rem; }
+  .ac .guardar { position: sticky; bottom: 0; z-index: 5; background: #1f1f1d; color: #fff; border-radius: 10px 10px 0 0; padding: .55rem 1rem; }
+  .ac .btn:focus-visible, .ac a:focus-visible, .ac .form-check-input:focus-visible { outline: 3px solid #FE6412; outline-offset: 2px; box-shadow: none; }
+</style>
+<div class="ac container-fluid px-3 mt-3 mb-4" style="max-width: 1300px">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-shield-check" aria-hidden="true"></i> Accesos</h4>
+      <div class="text-muted small">Elija un usuario y active las pantallas que puede abrir. Las pantallas están agrupadas como en el menú.</div>
+    </div>
+    <a href="{{ url_for('usuarios.listar_usuarios') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-person-gear" aria-hidden="true"></i> Usuarios</a>
+  </div>
 
-  <!-- Formulario -->
-  <form method="POST" class="row g-3 mt-3">
-    <div class="col-md-4">
-      <input type="text" name="usuario" class="form-control" placeholder="Usuario" required>
+  <div class="row g-3">
+    {# ---------- Usuarios ---------- #}
+    <div class="col-lg-3">
+      <div class="list-group lista-usuarios mb-3" role="navigation" aria-label="Usuarios">
+        {% for u in usuarios %}
+        <a class="list-group-item list-group-item-action {{ 'active' if actual and u.usuario == actual.usuario }}" href="{{ url_for('accesos.gestionar_accesos', usuario=u.usuario) }}"
+           {% if actual and u.usuario == actual.usuario %}aria-current="page"{% endif %}>
+          <span><i class="bi {{ 'bi-person-fill-gear' if u.rol == 'admin' else 'bi-person' }}" aria-hidden="true"></i> {{ u.usuario }}</span>
+          <span class="n" title="Pantallas habilitadas">{{ u.habilitadas }}/{{ total }}</span></a>
+        {% endfor %}
+      </div>
+      <a href="{{ url_for('usuarios.registro') }}" class="btn btn-sm w-100 mb-3" style="background: #FE6412; color: #fff"><i class="bi bi-person-plus" aria-hidden="true"></i> Nuevo usuario</a>
+      {% if actual %}
+      <form method="post" action="{{ url_for('accesos.copiar_accesos') }}" class="card card-body py-2 mb-3"
+            onsubmit="return confirm('Los permisos de {{ actual.usuario }} se reemplazarán por los del usuario elegido. ¿Continuar?');">
+        <input type="hidden" name="destino" value="{{ actual.usuario }}">
+        <label class="small fw-semibold mb-1" for="origen">Copiar permisos de otro usuario</label>
+        <div class="input-group input-group-sm">
+          <select id="origen" name="origen" class="form-select">{% for u in usuarios if u.usuario != actual.usuario %}<option>{{ u.usuario }}</option>{% endfor %}</select>
+          <button class="btn btn-outline-secondary">Copiar</button>
+        </div>
+      </form>
+      {% endif %}
+      {% if huerfanos %}
+      <form method="post" action="{{ url_for('accesos.limpiar_huerfanos') }}" class="card card-body py-2 small"
+            onsubmit="return confirm('¿Borrar los permisos de usuarios que ya no existen?');">
+        <div><i class="bi bi-exclamation-triangle" style="color: #FE6412" aria-hidden="true"></i> Hay permisos de usuarios que ya no existen: <strong>{{ huerfanos|join(', ') }}</strong>.</div>
+        <button class="btn btn-sm btn-outline-danger mt-1">Borrarlos</button>
+      </form>
+      {% endif %}
     </div>
-    <div class="col-md-4">
-      <input type="text" name="vista" class="form-control" placeholder="Nombre de la vista (ej: resumen)" required>
-    </div>
-    <div class="col-md-2 form-check d-flex align-items-center">
-      <input type="checkbox" name="permitido" class="form-check-input" id="permitido">
-      <label class="form-check-label ms-2" for="permitido">Permitido</label>
-    </div>
-    <div class="col-md-2">
-      <button type="submit" class="btn btn-success w-100">
-        <i class="bi bi-plus-circle me-2"></i> Guardar
-      </button>
-    </div>
-  </form>
 
-  <!-- Tabla -->
-  <table class="table table-striped table-hover mt-4">
-    <thead class="table-dark">
-      <tr>
-        <th>Usuario</th>
-        <th>Vista</th>
-        <th>Permitido</th>
-        <th>Fecha</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for acceso in accesos %}
-      <tr>
-        <td>{{ acceso.usuario }}</td>
-        <td>{{ acceso.vista }}</td>
-        <td>{{ '✅' if acceso.permitido else '❌' }}</td>
-        <td>{{ acceso.creado }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    {# ---------- Permisos del usuario ---------- #}
+    <div class="col-lg-9">
+      {% if actual %}
+      <form method="post" id="form-permisos">
+        <input type="hidden" name="usuario" value="{{ actual.usuario }}">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+          <div class="fw-semibold">Permisos de <span style="color: #027266">{{ actual.usuario }}</span>
+            <span class="text-muted small">· {{ 'Administrador' if actual.rol == 'admin' else 'Usuario' }}</span></div>
+          <div class="d-flex flex-wrap gap-2">
+            <input type="search" id="buscar" class="form-control form-control-sm" style="width: 220px" placeholder="Buscar pantalla…" aria-label="Buscar pantalla">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-todo="1">Marcar todo</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-todo="0">Quitar todo</button>
+          </div>
+        </div>
+        <div class="row g-3">
+          {% for g in grupos %}
+          <div class="col-md-6">
+            <section class="grupo {{ g.color }}" aria-labelledby="g-{{ g.id }}">
+              <div class="grupo-cab">
+                <span class="t" id="g-{{ g.id }}"><i class="bi {{ g.icono }}" aria-hidden="true"></i> {{ g.titulo }}</span>
+                <span class="d-flex align-items-center gap-2"><span class="c contador"></span>
+                  <button type="button" class="btn btn-link btn-sm p-0 todo-grupo" aria-label="Marcar o quitar todo {{ g.titulo }}">todo / nada</button></span>
+              </div>
+              {% for i in g['items'] %}
+              {% set bloqueado = propio and i.vista in propios %}
+              {% if i.subgrupo and (loop.first or g['items'][loop.index0 - 1].subgrupo != i.subgrupo) %}<div class="subgrupo">{{ i.subgrupo }}</div>{% endif %}
+              <label class="permiso form-switch {{ 'bloqueado' if bloqueado }}" data-texto="{{ (i.nombre ~ ' ' ~ i.descripcion ~ ' ' ~ i.vista)|lower }}">
+                <input class="form-check-input" type="checkbox" role="switch" name="vista" value="{{ i.vista }}"
+                       {% if permisos.get(i.vista) or bloqueado %}checked{% endif %} {% if bloqueado %}onclick="return false" title="No puede quitarse a sí mismo este permiso"{% endif %}>
+                <span><span class="nombre"><i class="bi {{ i.icono }}" aria-hidden="true"></i> {{ i.nombre }}</span>
+                  {% if bloqueado %}<span class="badge text-bg-light border ms-1">siempre</span>{% endif %}
+                  <div class="desc">{{ i.descripcion }} <code>{{ i.vista }}</code></div></span>
+              </label>
+              {% endfor %}
+            </section>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="guardar d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
+          <span><strong id="n-marcadas">0</strong> de {{ total }} pantallas habilitadas <span id="cambios" class="ms-2 small" style="color: #FE6412" hidden>· hay cambios sin guardar</span></span>
+          <button class="btn btn-sm" style="background: #FE6412; color: #fff"><i class="bi bi-check2-circle" aria-hidden="true"></i> Guardar permisos</button>
+        </div>
+      </form>
+      {% else %}
+      <div class="card card-body text-muted">No hay usuarios. <a href="{{ url_for('usuarios.registro') }}">Cree el primero</a>.</div>
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endblock %}
 
+{% block scripts %}
+<script>
+(() => {
+  const form = document.getElementById('form-permisos');
+  if (!form) return;
+  const casillas = [...form.querySelectorAll('input[name=vista]')];
+  const inicial = casillas.map(c => c.checked).join();
+  const contar = () => {
+    document.getElementById('n-marcadas').textContent = casillas.filter(c => c.checked).length;
+    form.querySelectorAll('.grupo').forEach(g => {
+      const cs = [...g.querySelectorAll('input[name=vista]')];
+      g.querySelector('.contador').textContent = `${cs.filter(c => c.checked).length}/${cs.length}`;
+    });
+    document.getElementById('cambios').hidden = casillas.map(c => c.checked).join() === inicial;
+  };
+  const libres = (lista) => lista.filter(c => !c.closest('.bloqueado') && !c.closest('.permiso').hidden);
+  casillas.forEach(c => c.addEventListener('change', contar));
+  form.querySelectorAll('[data-todo]').forEach(b => b.addEventListener('click', () => {
+    libres(casillas).forEach(c => c.checked = b.dataset.todo === '1'); contar();
+  }));
+  form.querySelectorAll('.todo-grupo').forEach(b => b.addEventListener('click', () => {
+    const cs = libres([...b.closest('.grupo').querySelectorAll('input[name=vista]')]);
+    const marcar = cs.some(c => !c.checked);
+    cs.forEach(c => c.checked = marcar); contar();
+  }));
+  document.getElementById('buscar').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    form.querySelectorAll('.permiso').forEach(p => p.hidden = q && !p.dataset.texto.includes(q));
+    form.querySelectorAll('.grupo').forEach(g => g.closest('.col-md-6').hidden = q && ![...g.querySelectorAll('.permiso')].some(p => !p.hidden));
+  });
+  window.addEventListener('beforeunload', e => { if (!document.getElementById('cambios').hidden) e.preventDefault(); });
+  form.addEventListener('submit', () => { document.getElementById('cambios').hidden = true; });
+  contar();
+})();
+</script>
+{% endblock %}

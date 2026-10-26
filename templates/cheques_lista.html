@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+{% block title %}Cheques{% endblock %}
+{% block content %}
+<style>
+  .chl h4 { color: #027266; }
+  .chl .form-label { font-size: .78rem; color: #52514e; margin-bottom: 2px; }
+  .estado { font-size: .72rem; font-weight: 700; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+  .estado.Emitido { background: #fef7e0; color: #854d0e; } .estado.Impreso { background: #e3f3f1; color: #027266; } .estado.Anulado { background: #fde8e8; color: #b42318; }
+  .tabla-ch.table { font-size: .82rem; width: 100%; margin: 0; }   /* styles.css deja las tablas al 80% y sin saltos */
+  .tabla-ch td { text-align: left; } .tabla-ch td.text-end { text-align: right; } .tabla-ch td.concepto-ch { white-space: normal; min-width: 220px; } .tabla-ch th { white-space: nowrap; font-weight: 600; color: #52514e; background: #f6f5f1; }
+  .tabla-ch tr.anulado td { color: #8a8984; text-decoration: line-through; }
+  .chl .btn:focus-visible, .chl a:focus-visible { outline: 3px solid #FE6412; outline-offset: 2px; }
+</style>
+<div class="chl container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <h4 class="mb-0"><i class="bi bi-journal-check" aria-hidden="true"></i> Cheques</h4>
+    <div class="d-flex flex-wrap gap-2">
+      <a href="{{ url_for('cheques.bancos_vista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-bank" aria-hidden="true"></i> Bancos y consecutivos</a>
+      <a href="{{ url_for('cheques.cuentas_vista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-diagram-3" aria-hidden="true"></i> Cuentas contables</a>
+      <a href="{{ url_for('cheques.nuevo') }}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nuevo cheque</a>
+    </div>
+  </div>
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label><input type="date" id="desde" name="desde" value="{{ f.desde }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label><input type="date" id="hasta" name="hasta" value="{{ f.hasta }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-3"><label class="form-label" for="banco">Banco</label>
+        <select id="banco" name="banco" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for b in bancos %}<option value="{{ b.id }}" {% if f.banco == b.id|string %}selected{% endif %}>{{ b.nombre }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="estado">Estado</label>
+        <select id="estado" name="estado" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for e in ['Emitido', 'Impreso', 'Anulado'] %}<option {% if f.estado == e %}selected{% endif %}>{{ e }}</option>{% endfor %}</select></div>
+      <div class="col-8 col-lg-3"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Beneficiario, concepto o número"></div>
+      <div class="col-4 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+  </form>
+
+  <div class="d-flex flex-wrap gap-3 small mb-2"><span><strong>{{ cheques|length }}</strong> cheques</span>
+    {% for mon, t in totales.items() %}<span>Total {{ mon }} <strong>{{ "{:,.2f}".format(t) }}</strong> (sin anulados)</span>{% endfor %}</div>
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm table-hover mb-0 tabla-ch">
+      <thead><tr><th>Fecha</th><th>Banco</th><th>Cheque</th><th>Beneficiario</th><th>Concepto</th><th class="text-end">Monto</th><th>Estado</th><th></th></tr></thead>
+      <tbody>
+        {% for ch in cheques %}
+        <tr class="{{ 'anulado' if ch.estado == 'Anulado' }}">
+          <td class="text-nowrap">{{ ch.fecha.strftime('%d/%m/%Y') }}</td><td>{{ ch.banco_nombre }}</td>
+          <td class="fw-bold">{{ ch.numero }}{% if ch.numero_manual %} <span class="badge text-bg-light border" title="Número digitado manualmente">manual</span>{% endif %}</td>
+          <td>{{ ch.beneficiario }}</td><td class="small concepto-ch">{{ ch.concepto or '' }}</td>
+          <td class="text-end fw-semibold text-nowrap">{{ ch.moneda }} {{ "{:,.2f}".format(ch.monto) }}</td>
+          <td><span class="estado {{ ch.estado }}">{{ ch.estado }}</span></td>
+          <td class="text-nowrap">
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cheques.imprimir', id_=ch.id) }}" aria-label="Ver e imprimir cheque {{ ch.numero }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
+            {% if ch.estado == 'Emitido' %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cheques.editar', id_=ch.id) }}" aria-label="Editar cheque {{ ch.numero }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">No hay cheques en este período. <a href="{{ url_for('cheques.nuevo') }}">Emitir uno</a></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

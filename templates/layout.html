@@ -14,6 +14,34 @@
 
     <!-- Iconos -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <style>
+      /* Menú por área: en áreas con muchas opciones el desplegable va en dos columnas */
+      @media (min-width: 992px) {
+        .navbar .dropdown-menu.dos-columnas { columns: 2; column-gap: 0; min-width: 560px; }
+        .navbar .dropdown-menu.dos-columnas .bloque { break-inside: avoid; }
+      }
+      .navbar .dropdown-menu .dropdown-header { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #8a8984; padding-top: .55rem; }
+      .navbar .dropdown-menu .dropdown-header.area { font-size: .8rem; text-transform: none; letter-spacing: 0; color: #027266; }
+      .navbar .dropdown-item { font-size: .88rem; }
+      /* Buscador de pantallas */
+      .buscador { position: relative; }
+      .buscador input { width: 230px; background: #2b2b29; border: 1px solid #44443f; color: #fff; padding-right: 3.2rem; }
+      .buscador input::placeholder { color: #a8a6a0; }
+      .buscador input:focus { background: #fff; color: #1f1f1d; border-color: #FE6412; box-shadow: 0 0 0 3px rgba(254,100,18,.3); }
+      .buscador .atajo { position: absolute; right: .45rem; top: 50%; transform: translateY(-50%); font-size: .68rem; color: #a8a6a0;
+                         border: 1px solid #55554f; border-radius: 4px; padding: 0 4px; pointer-events: none; }
+      .buscador input:focus + .atajo { display: none; }
+      .buscador .resultados { position: absolute; z-index: 1080; top: calc(100% + 4px); right: 0; width: min(440px, 92vw); max-height: 70vh; overflow-y: auto;
+                              background: #fff; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: .3rem; }
+      .buscador .resultados a { display: flex; gap: .6rem; align-items: flex-start; padding: .45rem .6rem; border-radius: 8px; color: #1f1f1d; text-decoration: none; }
+      .buscador .resultados a .bi { color: #027266; font-size: 1.05rem; margin-top: .1rem; }
+      .buscador .resultados a.activo, .buscador .resultados a:hover { background: #eef7f6; }
+      .buscador .resultados .t { font-weight: 600; font-size: .88rem; }
+      .buscador .resultados .d { font-size: .74rem; color: #6b6a66; }
+      .buscador .resultados .a { font-size: .66rem; font-weight: 700; color: #FE6412; text-transform: uppercase; margin-left: auto; white-space: nowrap; }
+      .buscador .resultados .vacio { padding: .6rem; font-size: .85rem; color: #6b6a66; }
+      @media (max-width: 991.98px) { .buscador input { width: 100%; } .buscador .resultados { left: 0; right: auto; } }
+    </style>
 </head>
 <body class="container-fluid px-1 py-1">
 
@@ -50,22 +78,37 @@
                     {% for s in menu_secciones %}
                     {% set urls = s['items'] | map(attribute=1) | list %}
                     <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {{ 'active' if request.path in urls }}" href="#" id="menu-{{ s.id }}"
+                        <a class="nav-link dropdown-toggle {{ 'active' if request.path in urls and not s.acceso_rapido }}" href="#" id="menu-{{ s.id }}"
                            role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="bi {{ s.icono }} me-1" aria-hidden="true"></i> {{ s.menu }}
                         </a>
-                        <ul class="dropdown-menu shadow-sm" aria-labelledby="menu-{{ s.id }}">
-                            <li><h6 class="dropdown-header">{{ s.titulo }}</h6></li>
-                            {% for titulo, url, icono, desc in s['items'] %}
-                            <li><a class="dropdown-item {{ 'active' if request.path == url }}" href="{{ url }}"
+                        <div class="dropdown-menu shadow-sm {{ 'dos-columnas' if s['items']|length > 9 }}" aria-labelledby="menu-{{ s.id }}">
+                            <h6 class="dropdown-header area">{{ s.titulo }}</h6>
+                            {% for grupo in s.grupos %}
+                            <div class="bloque">
+                                {% if s.grupos|length > 1 %}<h6 class="dropdown-header">{{ grupo.titulo }}</h6>{% endif %}
+                                {% for titulo, url, icono, desc in grupo['items'] %}
+                                <a class="dropdown-item {{ 'active' if request.path == url }}" href="{{ url }}" title="{{ desc }}"
                                    {% if request.path == url %}aria-current="page"{% endif %}>
-                                <i class="bi {{ icono }} me-2 icono-{{ s.color }}" aria-hidden="true"></i>{{ titulo }}
-                            </a></li>
+                                    <i class="bi {{ icono }} me-2 icono-{{ s.color }}" aria-hidden="true"></i>{{ titulo }}
+                                </a>
+                                {% endfor %}
+                            </div>
                             {% endfor %}
-                        </ul>
+                        </div>
                     </li>
                     {% endfor %}
                 </ul>
+
+                {% if menu_buscar %}
+                <!-- Buscador de pantallas (Ctrl+K) -->
+                <div class="buscador my-2 my-lg-0 me-lg-2" role="search">
+                    <input type="search" id="buscar-pantalla" class="form-control form-control-sm" placeholder="Buscar pantalla…" autocomplete="off"
+                           aria-label="Buscar pantalla o reporte" aria-controls="buscar-resultados" aria-expanded="false">
+                    <span class="atajo d-none d-lg-inline" aria-hidden="true">Ctrl K</span>
+                    <div class="resultados" id="buscar-resultados" role="listbox" hidden></div>
+                </div>
+                {% endif %}
 
                 <!-- Usuario logueado y cierre de sesión -->
                 <ul class="navbar-nav ms-auto">
@@ -96,6 +139,55 @@
 
     <!-- Chart.js global -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    {% if menu_buscar %}
+    <script>
+    (() => {
+      // Buscador de pantallas: por nombre, descripción, área o palabras clave (sin importar tildes)
+      const PANTALLAS = {{ menu_buscar | tojson }};
+      const caja = document.getElementById('buscar-pantalla'), lista = document.getElementById('buscar-resultados');
+      if (!caja) return;
+      const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const esc = (t) => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+      PANTALLAS.forEach(p => { p.n = norm(p.t); p.b = norm(`${p.t} ${p.d} ${p.a} ${p.k}`); });
+      let actual = 0, vistos = [];
+      function mostrar() {
+        const palabras = norm(caja.value).split(/\s+/).filter(Boolean);
+        if (!palabras.length) { lista.hidden = true; caja.setAttribute('aria-expanded', 'false'); return; }
+        vistos = PANTALLAS.filter(p => palabras.every(w => p.b.includes(w)))
+                          .sort((a, b) => (b.n.startsWith(palabras[0]) - a.n.startsWith(palabras[0])) || (b.n.includes(palabras[0]) - a.n.includes(palabras[0])))
+                          .slice(0, 12);
+        actual = 0;
+        lista.innerHTML = vistos.length ? vistos.map((p, i) => `<a href="${p.u}" role="option" class="${i === 0 ? 'activo' : ''}">
+            <i class="bi ${p.i}" aria-hidden="true"></i><span><span class="t">${esc(p.t)}</span><div class="d">${esc(p.d)}</div></span><span class="a">${esc(p.a)}</span></a>`).join('')
+          : '<div class="vacio">No hay pantallas con esas palabras.</div>';
+        lista.hidden = false; caja.setAttribute('aria-expanded', 'true');
+      }
+      function marcar(i) {
+        const enlaces = lista.querySelectorAll('a'); if (!enlaces.length) return;
+        actual = (i + enlaces.length) % enlaces.length;
+        enlaces.forEach((a, k) => a.classList.toggle('activo', k === actual)); enlaces[actual].scrollIntoView({ block: 'nearest' });
+      }
+      caja.addEventListener('input', mostrar);
+      caja.addEventListener('focus', () => caja.value && mostrar());
+      caja.addEventListener('keydown', e => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); marcar(actual + 1); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); marcar(actual - 1); }
+        else if (e.key === 'Enter' && vistos[actual]) { e.preventDefault(); location.href = vistos[actual].u; }
+        else if (e.key === 'Escape') { caja.value = ''; mostrar(); caja.blur(); }
+      });
+      document.addEventListener('click', e => { if (!e.target.closest('.buscador')) lista.hidden = true; });
+      document.addEventListener('keydown', e => {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          const menu = document.getElementById('navbarNav');
+          if (menu && !menu.classList.contains('show') && getComputedStyle(caja).display !== 'none' && caja.offsetParent === null) bootstrap.Collapse.getOrCreateInstance(menu).show();
+          caja.focus(); caja.select();
+        }
+      });
+    })();
+    </script>
+    {% endif %}
 
     <!-- Bloque para scripts específicos de cada vista -->
     {% block scripts %}{% endblock %}

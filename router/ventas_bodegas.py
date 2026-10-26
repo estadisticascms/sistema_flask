@@ -195,10 +195,79 @@ def obtener_ventas_bodega(f):
     }
 
 
+def resumen_dia_bodega(dia):
+    """Vista compacta para WhatsApp (grupo de operaciones): la misma lógica del reporte (cantidad vendida, productos
+    distintos y facturas, contado / crédito) para el día, junto al acumulado del mes (del 1 al día elegido)."""
+    inicio = dia.replace(day=1)
+    base = {"marca": "", "vendedor": "", "tipo": ""}
+    hoy = obtener_ventas_bodega({**base, "fecha_inicio": dia, "fecha_fin": dia, "detalle": "dia"})
+    mes = obtener_ventas_bodega({**base, "fecha_inicio": inicio, "fecha_fin": dia, "detalle": "mes"})
+    del_mes = {x["bodega"]: x for x in mes["principales"]}
+    if mes["otras"]:
+        del_mes["Otras bodegas"] = mes["otras"]
+    filas = []
+    for x in hoy["principales"] + ([hoy["otras"]] if hoy["otras"] else []):
+        clave = "Otras bodegas" if x.get("nombres") else x["bodega"]
+        filas.append({"bodega": clave, "hoy": x, "mes": del_mes.pop(clave, None), "nombres": x.get("nombres", [])})
+    for clave, x in del_mes.items():   # vendieron en el mes pero no hoy
+        filas.append({"bodega": clave, "hoy": None, "mes": x, "nombres": x.get("nombres", [])})
+    cero = {"cantidad": 0.0, "productos": 0, "facturas": 0}
+    for f in filas:
+        f["dia"] = f["hoy"]["total"]["cantidad"] if f["hoy"] else 0.0
+        f["unidades_mes"] = f["mes"]["total"]["cantidad"] if f["mes"] else 0.0
+        for t in ("CONTADO", "CREDITO", "total"):
+            f.setdefault("h", {})[t] = f["hoy"][t] if f["hoy"] else cero
+            f.setdefault("m", {})[t] = f["mes"][t] if f["mes"] else cero
+    filas = [f for f in filas if f["dia"] or f["unidades_mes"]]
+    filas.sort(key=lambda f: (-f["dia"], -f["unidades_mes"]))
+    pos = 0
+    for f in filas:
+        pos += f["dia"] > 0
+        f["pos_dia"] = pos if f["dia"] > 0 else None
+    for orden, f in enumerate(sorted(filas, key=lambda f: -f["unidades_mes"]), start=1):
+        f["pos_mes"] = orden
+
+    # Top productos del día por unidades (sumando todas las bodegas) y la bodega donde más salió
+    productos = {}
+    for bloque in hoy["bloques"]:
+        for p in bloque["productos"]:
+            x = productos.setdefault(p["codigo"], {"codigo": p["codigo"], "descripcion": p["descripcion"], "numero_parte": p["numero_parte"],
+                                                   "marca": p["marca"], "unidades": 0.0, "bodegas": {}})
+            x["unidades"] += p["total"]
+            x["bodegas"][bloque["bodega"]] = x["bodegas"].get(bloque["bodega"], 0.0) + p["total"]
+    top = sorted(productos.values(), key=lambda p: -p["unidades"])[:5]
+    for p in top:
+        p["bodega"] = max(p["bodegas"].items(), key=lambda kv: kv[1])[0]
+        p["varias"] = len(p["bodegas"]) > 1
+    con_venta = [f for f in filas if f["dia"] > 0]
+    return {"filas": filas, "inicio": inicio, "dia_total": hoy["total_general"], "mes_total": mes["total_general"],
+            "mejor_dia": con_venta[0] if con_venta else None,
+            "mejor_mes": max(filas, key=lambda f: f["unidades_mes"]) if filas else None,
+            "productos": top, "total_productos": hoy["productos_distintos"]}
+
+
 @ventas_bodega_bp.route("/ventas_bodega", methods=["GET", "POST"])
 @requiere_acceso("ventas_bodega")
 def reporte_ventas_bodega():
     f = leer_filtros(request.values)  # acepta enlaces viejos con POST
+    # Vista compacta (por defecto): el día por bodega + acumulado del mes, para compartir por WhatsApp
+    if request.values.get("vista") != "detalle":
+        from router.ventas_vendedor import dias_vecinos
+        dia = fecha_param(request.values.get("dia"), f["fecha_fin"])
+        anterior, siguiente = dias_vecinos(dia)
+        r = resumen_dia_bodega(dia)
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:   # días con venta en el mes (para el promedio diario)
+            cursor.execute("SELECT COUNT(DISTINCT Fecha) FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s", (r["inicio"], dia))
+            r["dias_mes"] = int(cursor.fetchone()[0] or 0)
+        finally:
+            cursor.close()
+            conn.close()
+        unidades_dia, unidades_mes = r["dia_total"]["total"]["cantidad"], r["mes_total"]["total"]["cantidad"]
+        r["promedio"] = unidades_mes / r["dias_mes"] if r["dias_mes"] else None
+        r["vs_promedio"] = (unidades_dia / r["promedio"] - 1) * 100 if r["promedio"] and unidades_dia else None
+        return render_template("ventas_bodega_dia.html", dia=dia, anterior=anterior, siguiente=siguiente, r=r)
     datos = obtener_ventas_bodega(f)
     # El gráfico va en el orden fijo de las bodegas (como el reporte original); la tabla, por cantidad
     por_nombre = {b["bodega"]: b for b in datos["principales"]}

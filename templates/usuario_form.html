@@ -1,0 +1,49 @@
+{% extends "layout.html" %}
+{% block title %}{{ 'Nuevo usuario' if nuevo else 'Editar usuario' }}{% endblock %}
+{% block content %}
+<style>
+  .uf h4 { color: #027266; }
+  .uf .form-label { font-weight: 600; font-size: .85rem; color: #52514e; margin-bottom: 2px; }
+  .uf .btn:focus-visible, .uf .form-control:focus-visible, .uf .form-select:focus-visible { outline: 3px solid #FE6412; outline-offset: 1px; }
+</style>
+<div class="uf container mt-3 mb-4" style="max-width: 640px">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi {{ 'bi-person-plus' if nuevo else 'bi-person-gear' }}" aria-hidden="true"></i> {{ 'Nuevo usuario' if nuevo else 'Editar ' ~ user.usuario }}</h4>
+    <a href="{{ url_for('usuarios.listar_usuarios') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left" aria-hidden="true"></i> Usuarios</a>
+  </div>
+  <form method="post" class="card card-body" id="form-usuario" autocomplete="off">
+    <div class="mb-3"><label class="form-label" for="usuario">Usuario</label>
+      <input id="usuario" name="usuario" class="form-control" maxlength="100" required value="{{ user.usuario }}" autocomplete="off">
+      {% if not nuevo %}<div class="form-text">Si cambia el nombre, los permisos pasan al nuevo nombre.</div>{% endif %}</div>
+    <div class="mb-3"><label class="form-label" for="rol">Rol</label>
+      <select id="rol" name="rol" class="form-select">{% for k, v in roles.items() %}<option value="{{ k }}" {% if user.rol == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+      <div class="form-text">El rol es informativo; lo que cada usuario puede abrir se define en Accesos.</div></div>
+    <div class="row g-2 mb-3">
+      <div class="col-sm-6"><label class="form-label" for="password">{{ 'Contraseña' if nuevo else 'Nueva contraseña' }}</label>
+        <input type="password" id="password" name="password" class="form-control" minlength="6" {% if nuevo %}required{% endif %} autocomplete="new-password"></div>
+      <div class="col-sm-6"><label class="form-label" for="confirm_password">Confirmar contraseña</label>
+        <input type="password" id="confirm_password" name="confirm_password" class="form-control" {% if nuevo %}required{% endif %} autocomplete="new-password"></div>
+      <div class="col-12 form-text">{{ 'Mínimo 6 caracteres.' if nuevo else 'Déjela vacía para no cambiarla. Mínimo 6 caracteres.' }}</div>
+    </div>
+    {% if nuevo %}
+    <div class="mb-3"><label class="form-label" for="copiar_de">Permisos iniciales</label>
+      <select id="copiar_de" name="copiar_de" class="form-select">
+        <option value="">Solo Ventas perdidas (los demás se habilitan después)</option>
+        {% for e in existentes %}<option value="{{ e }}" {% if copiar_de == e %}selected{% endif %}>Copiar los permisos de {{ e }}</option>{% endfor %}
+      </select></div>
+    {% endif %}
+    <div class="d-flex gap-2">
+      <button class="btn text-white" style="background: #027266"><i class="bi bi-check2-circle" aria-hidden="true"></i> {{ 'Crear usuario' if nuevo else 'Guardar cambios' }}</button>
+      <a href="{{ url_for('usuarios.listar_usuarios') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+<script>
+  document.getElementById('form-usuario').addEventListener('submit', e => {
+    const p = document.getElementById('password'), c = document.getElementById('confirm_password');
+    c.setCustomValidity(p.value && p.value !== c.value ? 'Las contraseñas no coinciden' : '');
+    if (!c.checkValidity()) { e.preventDefault(); c.reportValidity(); }
+  });
+  document.getElementById('confirm_password').addEventListener('input', e => e.target.setCustomValidity(''));
+</script>
+{% endblock %}

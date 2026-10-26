@@ -1,0 +1,129 @@
+{% extends "layout.html" %}
+{% block title %}Revisión de Factura de Ingreso{% endblock %}
+{% macro num(v) %}{% if v is none %}—{% else %}{% set r = v|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .ri h4 { color: var(--credito); }
+  .tabla-ri { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1350px; }
+  .tabla-ri thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-ri td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); vertical-align: top; }
+  .tabla-ri tbody tr:hover td { background: #faf9f6; }
+  .tabla-ri .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-ri .meta { font-size: .72rem; color: var(--ink-3); }
+  .tabla-ri .cod { font-weight: 700; color: var(--credito); }
+  .estado { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .7rem; white-space: nowrap; }
+  .estado.encontrado { background: #e3f3f1; color: var(--credito); } .estado.posible { background: #fef7e0; color: #854d0e; }
+  .estado.duplicado { background: #fde8e8; color: #b42318; } .estado.nuevo { background: #fff1e8; color: #9a3412; }
+  .nuevo-txt { font-weight: 800; color: #9a3412; letter-spacing: .02em; }
+  .var.sube { color: #b42318; font-weight: 700; } .var.baja { color: var(--credito); font-weight: 700; }
+  .notas { font-size: .72rem; margin: 0; padding-left: 1rem; color: #9a3412; max-width: 300px; }
+  .otros { font-size: .7rem; color: var(--ink-2); }
+  .chip-estado { text-decoration: none; border: 1px solid var(--grid); border-radius: 10px; padding: .3rem .55rem; display: block; color: var(--ink); height: 100%; }
+  .chip-estado:hover, .chip-estado.activo { border-color: var(--credito); background: #f3f9f8; }
+  .chip-estado .n { font-size: 1.1rem; font-weight: 700; }
+  .zona { border: 2px dashed #b9dcd7; border-radius: 12px; background: #f7fbfa; padding: 1.2rem; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .ri .btn:focus-visible, .ri a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+<div class="dash ri container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Revisión de factura de ingreso</h4>
+      <div class="text-muted small">Suba la factura del proveedor en Excel: cada línea se busca en el catálogo por número de parte y se devuelve
+        el código, la descripción Comersa y el código SAC (arancel), si está duplicado o es producto nuevo, y la comparación contra el último FOB.</div>
+    </div>
+    {% if datos %}<a class="btn btn-verde btn-sm" href="{{ url_for('revision_ingreso.excel', t=token) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar revisión en Excel</a>{% endif %}
+  </div>
+
+  <form method="post" enctype="multipart/form-data" class="zona mb-3">
+    <div class="row g-2 align-items-center">
+      <div class="col-lg-5"><label class="form-label small fw-semibold mb-1" for="archivo">Factura del proveedor (.xlsx)</label>
+        <input type="file" id="archivo" name="archivo" accept=".xlsx,.xlsm" class="form-control" required></div>
+      <div class="col-lg-2 d-grid align-self-end"><button class="btn btn-verde"><i class="bi bi-search" aria-hidden="true"></i> Revisar</button></div>
+      <div class="col-lg-5 small text-muted">Columnas del archivo: <strong>PROVEEDOR · FACTURA · ITEM · Nº PARTE · MARCA · ORIGEN · U/M · CANT · P.UNIT · TOTAL</strong>.
+        La revisión devuelve el código (COM), la descripción Comersa y el arancel (código SAC), marca duplicados y productos nuevos, y compara el P.UNIT con el último FOB.</div>
+    </div>
+  </form>
+
+  {% if datos %}
+  {% set e = r.estados %}
+  <div class="small text-muted mb-2">Archivo <strong>{{ datos.archivo }}</strong> · revisado {{ datos.fecha.replace('T', ' ') }}
+    {% if r.proveedores %} · {{ r.proveedores|join(', ') }}{% endif %}{% if r.facturas %} · factura {{ r.facturas|join(', ') }}{% endif %}</div>
+  {% if datos.lectura %}
+  {% set cols = datos.lectura.columnas %}
+  <div class="small mb-2"><i class="bi bi-table" aria-hidden="true"></i> Leído de la hoja <strong>{{ datos.lectura.hoja }}</strong>, encabezados en la fila {{ datos.lectura.fila }}:
+    {% for campo, etiqueta in [('proveedor', 'Proveedor'), ('factura', 'Factura'), ('item', 'Ítem'), ('parte', 'Nº parte'), ('marca', 'Marca'), ('origen', 'Origen'),
+                               ('um', 'U/M'), ('cantidad', 'Cant.'), ('precio', 'P.UNIT'), ('total', 'Total')] %}
+      <span class="badge rounded-pill {{ 'text-bg-light border' if campo in cols else 'text-bg-danger' }}" title="{{ ('Columna del archivo: ' ~ cols[campo]) if campo in cols else 'No se encontró esta columna' }}">
+        {{ etiqueta }}{% if campo not in cols %}: falta{% endif %}</span>
+    {% endfor %}
+    · Marcas en el archivo: <strong>{{ r.marcas|join(', ') or 'ninguna' }}</strong></div>
+  {% if 'marca' not in cols %}<div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+    No se encontró la columna <strong>MARCA</strong>: los números de parte se buscaron por proveedor y en todas las marcas. Revise que el encabezado diga MARCA.</div>{% endif %}
+  {% endif %}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg-2"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Líneas</div><div class="valor">{{ r.lineas }}</div><div class="sub">Total factura U$ {{ "{:,.2f}".format(r.total) }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">FOB contra la última compra</div>
+      <div class="valor">{% if r.variacion_total is not none %}<span class="var {{ 'sube' if r.variacion_total > 0 else 'baja' }}">{{ "%+.1f"|format(r.variacion_total) }}%</span>{% else %}—{% endif %}</div>
+      <div class="sub">{{ r.con_fob }} líneas con FOB anterior · U$ {{ "{:+,.2f}".format(r.diferencia_total) }}</div>
+      <div class="sub">{{ r.subieron }} subieron y {{ r.bajaron }} bajaron más de {{ alerta|int }}%</div>
+      {% if r.extremos %}<div class="sub text-danger">{{ r.extremos }} línea(s) con diferencia extrema fuera del total (revisar unidad de medida)</div>{% endif %}</div></div>
+    <div class="col-12 col-lg-7"><div class="card kpi"><div class="etiqueta mb-1">Resultado (clic para filtrar)</div>
+      <div class="row g-2">
+        {% for k, etiqueta, n in [('encontrado', 'Encontrado', e.encontrado), ('posible', 'Posible (confirmar)', e.posible), ('duplicado', 'Duplicado en catálogo', e.duplicado),
+                                   ('nuevo', 'Producto nuevo', e.nuevo), ('repetido', 'Repetido en factura', r.repetidos), ('fob', 'FOB cambió >' ~ alerta|int ~ '%', r.subieron + r.bajaron)] %}
+        <div class="col-4 col-md-2"><a class="chip-estado {{ 'activo' if filtro == k }}" href="{{ url_for('revision_ingreso.vista', t=token, estado=('' if filtro == k else k)) }}">
+          <span class="estado {{ k if k in estados else 'posible' }}" style="white-space: normal">{{ etiqueta }}</span><div class="n">{{ n }}</div></a></div>
+        {% endfor %}
+      </div></div></div>
+  </div>
+
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-ri">
+      <thead><tr>
+        <th>Ítem</th><th>Nº parte</th><th>Marca</th><th>Código</th><th>Descripción Comersa</th><th>Arancel (SAC)</th>
+        <th class="num">Cant.</th><th class="num">P.UNIT U$</th><th class="num">FOB anterior</th><th class="num">Var.</th>
+        <th class="num">Existencia</th><th>Resultado</th><th>Observaciones</th>
+      </tr></thead>
+      <tbody>
+        {% for x in lineas %}
+        <tr>
+          <td class="num">{{ x.item or x.fila }}</td>
+          <td class="fw-semibold text-nowrap">{{ x.parte }}{% if x.parte_catalogo and x.parte_catalogo != x.parte %}<div class="meta">catálogo: {{ x.parte_catalogo }}</div>{% endif %}</td>
+          <td>{{ x.marca }}{% if x.marca_catalogo and x.marca_catalogo|upper != x.marca %}<div class="meta">catálogo: {{ x.marca_catalogo }}</div>{% endif %}
+            <div class="meta">{{ x.origen }}{% if x.um %} · {{ x.um }}{% endif %}</div></td>
+          <td class="text-nowrap">{% if x.codigo %}<span class="cod">{{ x.codigo }}</span>{% else %}—{% endif %}{% if x.com and x.com != x.codigo %}<div class="meta">plantilla: {{ x.com }}</div>{% endif %}</td>
+          <td style="max-width: 300px">{% if x.estado == 'nuevo' %}<span class="nuevo-txt">PRODUCTO NUEVO</span>{% if x.descripcion %}<div class="meta">{{ x.descripcion }}</div>{% endif %}{% else %}{{ x.nombre }}{% endif %}
+            {% if x.otros %}<div class="otros mt-1"><i class="bi bi-files" aria-hidden="true"></i> Mismo nº parte:
+              {% for o in x.otros %}<span class="text-nowrap">{{ o.codigo }} ({{ o.marca or 's/m' }}, exist. {{ num(o.existencia) }})</span>{{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}</td>
+          <td class="text-nowrap">{{ x.sac or x.arancel or '—' }}{% if x.sac_distinto %}<div class="meta text-danger">plantilla: {{ x.arancel }}</div>{% endif %}</td>
+          <td class="num">{{ num(x.cantidad) }}</td>
+          <td class="num fw-semibold">{{ "{:,.2f}".format(x.precio) if x.precio is not none else '—' }}</td>
+          <td class="num">{{ "{:,.4f}".format(x.fob_anterior).rstrip('0').rstrip('.') if x.fob_anterior is not none else '—' }}
+            {% if x.fecha_compra %}<div class="meta">{{ x.fecha_compra[8:10] }}/{{ x.fecha_compra[5:7] }}/{{ x.fecha_compra[:4] }}</div>{% endif %}
+            {% if x.proveedor_anterior %}<div class="meta {{ '' if x.proveedor_igual else 'text-danger' }}">{{ x.proveedor_anterior }}</div>{% endif %}</td>
+          <td class="num">{% if x.variacion_fob is not none %}<span class="var {{ 'sube' if x.variacion_fob > alerta else ('baja' if x.variacion_fob < -alerta else '') }}">{{ "%+.1f"|format(x.variacion_fob) }}%</span>{% else %}—{% endif %}</td>
+          <td class="num">{{ num(x.existencia) }}</td>
+          <td><span class="estado {{ x.estado }}">{{ estados[x.estado] }}</span>{% if x.repetido %}<div class="mt-1"><span class="estado duplicado">Repetido en factura</span></div>{% endif %}</td>
+          <td>{% if x.notas %}<ul class="notas">{% for n in x.notas %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="13" class="text-center text-muted py-4">No hay líneas con este filtro.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small text-muted mt-2 mb-0"><i class="bi bi-info-circle" aria-hidden="true"></i>
+    <strong>Posible</strong>: coincide quitando guiones o símbolos, o el número aparece en las equivalencias de otro producto; confirme antes de usar el código.
+    <strong>Duplicado</strong>: hay varios códigos con ese número de parte y marca; se muestra el primero y los demás en "Mismo nº parte".
+    La variación compara el P.UNIT contra el último precio FOB registrado en el catálogo.</p>
+  {% endif %}
+</div>
+{% endblock %}

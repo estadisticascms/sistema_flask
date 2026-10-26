@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheque {{ c.numero }} · {{ c.banco_nombre }}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+<style>
+  @page { size: letter; margin: 10mm 12mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #e9e8e4; font-family: Arial, Helvetica, sans-serif; color: #000; }
+  .barra { position: sticky; top: 0; z-index: 5; background: #1f1f1d; color: #fff; padding: .6rem 1rem; display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+  .barra a, .barra button { color: #fff; background: #027266; border: 0; border-radius: 6px; padding: .45rem .9rem; text-decoration: none; font-size: .9rem; cursor: pointer; }
+  .barra .naranja { background: #FE6412; } .barra .gris { background: #52514e; }
+  .barra .estado { margin-left: auto; font-size: .85rem; }
+  .barra form { display: flex; gap: .4rem; }
+  .barra input { border-radius: 6px; border: 0; padding: .35rem .5rem; min-width: 220px; }
+  .hoja { width: 8.5in; min-height: 11in; margin: 1rem auto; background: #fff; padding: 10mm 12mm; position: relative; box-shadow: 0 2px 12px rgba(0,0,0,.15); }
+  .encabezado { text-align: center; line-height: 1.25; font-size: 11pt; }
+  .encabezado .empresa { font-weight: 700; font-size: 13pt; }
+  .numero { position: absolute; right: 14mm; top: 24mm; font-size: 9pt; font-weight: 700; }
+  /* Área del cheque: se mueve con el ajuste del banco para calzar con el formulario preimpreso */
+  .cheque { height: 64mm; margin-top: 8mm; position: relative; transform: translate({{ c.ajuste_x_mm }}mm, {{ c.ajuste_y_mm }}mm); font-size: 8.5pt;
+            font-family: 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif; font-stretch: condensed; }   /* letra compacta, mismo tamaño en todo el cheque */
+  .cheque .fecha { position: absolute; top: 13mm; right: 15mm; letter-spacing: normal; }
+  .cheque .fecha span { display: inline-block; min-width: 14mm; text-align: center; }
+  .cheque .fecha .ciudad { min-width: 0; position: relative; left: -3mm; }   /* solo la ciudad, sin mover día/mes/año */
+  .cheque .benef { position: absolute; top: 23mm; left: 47mm; }
+  .cheque .monto { position: absolute; top: 23mm; right: 22mm; font-weight: 700; font-size: 11pt; }
+  .cheque .letras { position: absolute; top: 32mm; left: 47mm; right: 10mm; }
+  .anulado { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) rotate(-18deg); font-size: 64pt; font-weight: 900; color: rgba(180, 35, 24, .28);
+             border: 6px solid rgba(180, 35, 24, .28); padding: 0 .3em; pointer-events: none; }
+  .concepto { border: 1px solid #000; min-height: 18mm; margin-top: 30mm; padding: 2mm 3mm; font-size: 10pt; }
+  table { border-collapse: collapse; width: 100%; font-size: 9pt; }
+  .tasa { margin-top: 6mm; width: auto; }
+  .tasa td { border: 1px solid #000; padding: 1mm 3mm; }
+  .tasa td:nth-child(odd) { background: #ddd; }
+  .partida { margin-top: 0; }
+  .partida th, .partida td { border: 1px solid #000; padding: 1mm 2mm; }
+  .partida th { background: #ddd; font-weight: 400; text-align: left; }
+  .partida .n { text-align: right; white-space: nowrap; }
+  .partida .totales td { border: 0; }
+  .partida .totales .n { border: 1px solid #000; }
+  .firmas { margin-top: 10mm; }
+  .firmas th { background: #bbb; border: 1px solid #000; font-weight: 400; padding: 1mm; }
+  .firmas td { border: 1px solid #000; height: 13mm; }
+  .recibi th { background: #bbb; border: 1px solid #000; font-weight: 400; padding: 1mm; }
+  .recibi td { border: 1px solid #000; height: 11mm; }
+  .recibi .etq { background: #ddd; width: 22mm; text-align: center; }
+  .pie { position: absolute; bottom: 8mm; left: 12mm; font-size: 9pt; }
+  @media print {
+    body { background: #fff; }
+    .barra { display: none; }
+    .hoja { margin: 0; box-shadow: none; width: auto; min-height: auto; padding: 0; }
+    .numero { right: 2mm; top: 14mm; }
+    .pie { position: fixed; bottom: 0; left: 0; }
+    /* Solo cheque: se imprimen únicamente fecha, beneficiario, monto y letras, en la misma posición */
+    body.solo-cheque .hoja * { visibility: hidden; }
+    body.solo-cheque .cheque .fecha, body.solo-cheque .cheque .fecha *, body.solo-cheque .cheque .benef,
+    body.solo-cheque .cheque .monto, body.solo-cheque .cheque .letras { visibility: visible; }
+  }
+</style>
+</head>
+<body>
+<div class="barra" role="toolbar" aria-label="Acciones del cheque">
+  <a href="{{ url_for('cheques.lista') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Cheques</a>
+  {% if c.estado != 'Anulado' %}
+    <button type="button" class="naranja imprimir" data-modo="cheque" title="Imprime solo fecha, beneficiario, monto y letras, para el cheque colocado en la hoja"><i class="bi bi-credit-card-2-front" aria-hidden="true"></i> Imprimir solo cheque</button>
+    <button type="button" class="naranja imprimir" data-modo="completo" title="Imprime el formato completo: encabezado, cheque, concepto, partida y firmas"><i class="bi bi-printer" aria-hidden="true"></i> {{ 'Reimprimir completo' if c.veces_impreso else 'Imprimir completo' }}</button>
+    {% if c.estado == 'Emitido' %}<a href="{{ url_for('cheques.editar', id_=c.id) }}" class="gris"><i class="bi bi-pencil" aria-hidden="true"></i> Editar</a>{% endif %}
+    <form method="post" action="{{ url_for('cheques.anular', id_=c.id) }}" onsubmit="return confirm('¿Anular el cheque No. {{ c.numero }}? No se puede deshacer.');">
+      <input name="motivo" placeholder="Motivo de anulación" required aria-label="Motivo de anulación">
+      <button class="gris"><i class="bi bi-x-octagon" aria-hidden="true"></i> Anular</button>
+    </form>
+  {% endif %}
+  <a href="{{ url_for('cheques.nuevo') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nuevo cheque</a>
+  <span class="estado">{{ c.estado }}{% if c.veces_impreso %} · impreso {{ c.veces_impreso }} vez{{ 'es' if c.veces_impreso > 1 }}{% endif %}
+    {% if c.estado == 'Anulado' %} · {{ c.motivo_anulacion }}{% endif %}</span>
+</div>
+
+<div class="hoja">
+  {% if c.estado == 'Anulado' %}<div class="anulado">ANULADO</div>{% endif %}
+  <div class="encabezado">
+    <div class="empresa">{{ empresa.nombre }}</div>
+    <div>{{ empresa.direccion }}</div>
+    <div>{{ empresa.telefono }}</div>
+    <div>{{ empresa.ruc }}</div>
+  </div>
+  <div class="numero">CHEQUE &nbsp; {{ c.numero }}</div>
+
+  <div class="cheque">
+    <div class="fecha"><span class="ciudad">{{ empresa.ciudad }}</span> <span>{{ '%02d'|format(c.fecha.day) }}</span><span>{{ mes }}</span><span>{{ c.fecha.strftime('%y') }}</span> .</div>
+    <div class="benef">**{{ c.beneficiario }}{{ '*' * [3, 52 - c.beneficiario|length]|max }}</div>
+    <div class="monto">{{ "{:,.2f}".format(c.monto) }}****</div>
+    <div class="letras">**{{ c.monto_letras }}*****</div>
+  </div>
+
+  <div class="concepto">{{ c.concepto or '' }}</div>
+
+  <table class="tasa"><tr><td>Tasa</td><td>{{ c.tasa_cambio or '' }}</td>
+    {% if c.moneda == 'U$' %}<td>Equivalente</td><td>U$ {{ "{:,.2f}".format(c.monto) }} × {{ c.tasa_cambio }} = C$ {{ "{:,.2f}".format(total_haber_banco) }}</td>{% endif %}</tr></table>
+  <table class="partida">
+    <thead>
+      <tr><th colspan="4"></th><th colspan="2" style="text-align: center">Córdoba</th></tr>
+      <tr><th style="width: 12mm">Cta</th><th style="width: 12mm">Scta</th><th style="width: 12mm">Sacta</th><th>Descripción</th><th class="n" style="width: 28mm">Débito</th><th class="n" style="width: 28mm">Crédito</th></tr>
+    </thead>
+    <tbody>
+      {% for p in c.partidas %}
+      <tr><td>{{ p.cta }}</td><td>{{ p.scta }}</td><td>{{ p.sscta }}</td><td>{{ p.descripcion }}{% if p.referencia %} · {{ p.referencia }}{% endif %}</td>
+        <td class="n">{{ "{:,.2f}".format(p.debe) }}</td><td class="n">{{ "{:,.2f}".format(p.haber) }}</td></tr>
+      {% endfor %}
+      <tr class="totales"><td colspan="3"></td><td style="text-align: right; padding-right: 3mm"><span style="border: 1px solid #000; padding: 0 4mm">Totales</span></td>
+        <td class="n">{{ "{:,.2f}".format(total_debe) }}</td><td class="n">{{ "{:,.2f}".format(total_haber) }}</td></tr>
+    </tbody>
+  </table>
+
+  <table class="firmas">
+    <tr><th>Elaborado Por:</th><th>Revisado Por:</th><th>Autorizado Por:</th></tr>
+    <tr><td style="text-align: center; vertical-align: bottom; font-size: 8pt">{{ c.creado_por or '' }}</td><td></td><td></td></tr>
+  </table>
+  <table class="recibi" style="margin-top: 3mm">
+    <tr><td class="etq" rowspan="2">Recibí conforme:</td><th>Nombre</th><th>Cédula</th><th>Firma</th></tr>
+    <tr><td></td><td></td><td></td></tr>
+  </table>
+
+  <div class="pie">{{ ahora.strftime('%d/%m/%Y') }} &nbsp;&nbsp; {{ ahora.strftime('%I:%M:%S %p').lower() }}</div>
+</div>
+
+<script>
+  // Dos modos: "cheque" (solo los datos del cheque, para imprimir sobre el cheque colocado en la hoja) y "completo" (todo el formato)
+  document.querySelectorAll('.imprimir').forEach(btn => btn.addEventListener('click', async () => {
+    try { await fetch("{{ url_for('cheques.marcar_impreso', id_=c.id) }}", { method: 'POST' }); } catch {}
+    document.body.classList.toggle('solo-cheque', btn.dataset.modo === 'cheque');
+    window.print();
+    document.body.classList.remove('solo-cheque');
+    setTimeout(() => location.reload(), 600);
+  }));
+</script>
+</body>
+</html>

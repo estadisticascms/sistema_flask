@@ -1,0 +1,93 @@
+{% extends "layout.html" %}
+{% block title %}Cuentas Contables · Cheques{% endblock %}
+{% block content %}
+<style>
+  .chc h4 { color: #027266; }
+  .chc .form-label { font-size: .78rem; color: #52514e; margin-bottom: 2px; font-weight: 600; }
+  .chc table.table { font-size: .82rem; width: 100%; margin: 0; } .chc td { text-align: left; white-space: normal; } .chc th { background: #f6f5f1; color: #52514e; font-weight: 600; white-space: nowrap; }
+  .chc tr.inactiva td { color: #8a8984; }
+  .rep { font-size: .7rem; font-weight: 700; color: #9a3412; background: #fff1e8; border-radius: 8px; padding: 0 6px; }
+</style>
+<div class="chc container mt-3 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <h4 class="mb-0"><i class="bi bi-diagram-3" aria-hidden="true"></i> Cuentas contables</h4>
+    <a href="{{ url_for('cheques.lista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left" aria-hidden="true"></i> Cheques</a>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <form method="get" class="d-flex gap-2 mb-2" role="search">
+        <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Buscar por código o nombre" aria-label="Buscar cuenta">
+        <button class="btn btn-primary btn-sm">Buscar</button>
+      </form>
+      <div class="small text-muted mb-1">{{ "{:,}".format(total) }} cuentas · Cta / Scta / Sscta es como se imprime en el cheque.</div>
+      <div class="table-responsive border rounded-3 bg-white" style="max-height: 65vh">
+        <table class="table table-sm table-hover mb-0">
+          <thead class="sticky-top"><tr><th>Código</th><th>Cta-Scta-Sscta</th><th>Nombre</th><th></th></tr></thead>
+          <tbody>
+            {% for c in cuentas %}
+            <tr class="{{ 'inactiva' if not c.activa }}">
+              <td class="fw-semibold text-nowrap">{{ c.codigo }}{% if c.codigo in repetidos %} <span class="rep" title="Hay otra cuenta con el mismo código">repetido</span>{% endif %}</td>
+              <td class="text-nowrap">{{ c.cta }}-{{ c.scta }}-{{ c.sscta }}</td>
+              <td>{{ c.nombre|replace(':', ' › ') }}{% if not c.activa %} <em>(inactiva)</em>{% endif %}<div class="small text-muted">{{ c.tipo or '' }}</div></td>
+              <td><button type="button" class="btn btn-sm btn-outline-secondary editar" aria-label="Editar {{ c.codigo }}"
+                    data-cuenta='{{ {"id": c.id, "codigo": c.codigo, "nombre": c.nombre, "cta": c.cta, "scta": c.scta, "sscta": c.sscta, "tipo": c.tipo, "activa": c.activa}|tojson|forceescape }}'><i class="bi bi-pencil" aria-hidden="true"></i></button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">Sin resultados.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if total > por_pagina %}
+      <nav class="mt-2" aria-label="Páginas"><ul class="pagination pagination-sm">
+        {% for p in range(1, (total + por_pagina - 1) // por_pagina + 1) %}{% if p <= 3 or (p - pagina)|abs <= 2 or p > (total // por_pagina) - 1 %}
+        <li class="page-item {{ 'active' if p == pagina }}"><a class="page-link" href="{{ url_for('cheques.cuentas_vista', q=q, pagina=p) }}">{{ p }}</a></li>{% endif %}{% endfor %}
+      </ul></nav>
+      {% endif %}
+    </div>
+
+    <div class="col-lg-4">
+      <form method="post" class="card card-body mb-3" id="form-cuenta">
+        <h6 id="titulo-form" style="color: #027266">Agregar cuenta</h6>
+        <input type="hidden" name="id" id="c-id"><input type="hidden" name="volver_q" value="{{ q }}">
+        <label class="form-label" for="c-codigo">Código</label><input id="c-codigo" name="codigo" class="form-control mb-2" maxlength="20" required placeholder="Ej. 6020185">
+        <label class="form-label" for="c-nombre">Nombre (niveles separados por :)</label>
+        <textarea id="c-nombre" name="nombre" class="form-control mb-2 text-uppercase" rows="2" maxlength="255" required placeholder="GASTOS DE ADMINISTRACION:GASTOS VARIOS:..."></textarea>
+        <div class="row g-2 mb-2">
+          <div class="col-4"><label class="form-label" for="c-cta">Cta</label><input id="c-cta" name="cta" class="form-control" maxlength="8" placeholder="auto"></div>
+          <div class="col-4"><label class="form-label" for="c-scta">Scta</label><input id="c-scta" name="scta" class="form-control" maxlength="4" placeholder="auto"></div>
+          <div class="col-4"><label class="form-label" for="c-sscta">Sscta</label><input id="c-sscta" name="sscta" class="form-control" maxlength="8" placeholder="auto"></div>
+        </div>
+        <label class="form-label" for="c-tipo">Tipo</label><input id="c-tipo" name="tipo" class="form-control mb-2" list="dl-tipos" maxlength="80">
+        <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="activa" id="c-activa" value="1" checked><label class="form-check-label" for="c-activa">Activa</label></div>
+        <div class="d-flex gap-2"><button class="btn btn-success"><i class="bi bi-check2" aria-hidden="true"></i> Guardar</button>
+          <button type="button" class="btn btn-outline-secondary" id="c-limpiar">Nueva</button></div>
+      </form>
+      <form method="post" action="{{ url_for('cheques.importar_cuentas') }}" enctype="multipart/form-data" class="card card-body">
+        <h6 style="color: #027266">Importar catálogo (CSV)</h6>
+        <p class="small text-muted mb-2">Formato separado por ; (Número de cuenta;Nombre de la cuenta;Tipo…). Solo agrega las que no existen.</p>
+        <input type="file" name="archivo" accept=".csv" class="form-control form-control-sm mb-2" required aria-label="Archivo CSV">
+        <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-upload" aria-hidden="true"></i> Importar</button>
+      </form>
+    </div>
+  </div>
+</div>
+<datalist id="dl-tipos">{% for t in tipos %}<option value="{{ t }}">{% endfor %}</datalist>
+<script>
+(() => {
+  const ids = { id: 'c-id', codigo: 'c-codigo', nombre: 'c-nombre', cta: 'c-cta', scta: 'c-scta', sscta: 'c-sscta', tipo: 'c-tipo' };
+  document.querySelectorAll('.editar').forEach(b => b.addEventListener('click', () => {
+    const c = JSON.parse(b.dataset.cuenta);
+    Object.entries(ids).forEach(([k, id]) => document.getElementById(id).value = c[k] ?? '');
+    document.getElementById('c-activa').checked = !!c.activa;
+    document.getElementById('titulo-form').textContent = 'Editar ' + c.codigo;
+    document.getElementById('c-codigo').focus();
+  }));
+  document.getElementById('c-limpiar').addEventListener('click', () => {
+    Object.values(ids).forEach(id => document.getElementById(id).value = '');
+    document.getElementById('c-activa').checked = true; document.getElementById('titulo-form').textContent = 'Agregar cuenta';
+  });
+})();
+</script>
+{% endblock %}

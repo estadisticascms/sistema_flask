@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+{% block title %}Bancos · Cheques{% endblock %}
+{% block content %}
+<style>
+  .chb h4 { color: #027266; }
+  .chb .form-label { font-size: .78rem; color: #52514e; margin-bottom: 2px; font-weight: 600; }
+  .chb table.table { font-size: .84rem; width: 100%; margin: 0; } .chb td { text-align: left; } .chb td.text-end { text-align: right; } .chb th { background: #f6f5f1; color: #52514e; font-weight: 600; white-space: nowrap; }
+  .chb tr.inactivo td { color: #8a8984; }
+  .falta { color: #b42318; font-weight: 700; font-size: .78rem; }
+</style>
+<div class="chb container mt-3 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <h4 class="mb-0"><i class="bi bi-bank" aria-hidden="true"></i> Bancos y consecutivos de cheques</h4>
+    <a href="{{ url_for('cheques.lista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left" aria-hidden="true"></i> Cheques</a>
+  </div>
+  <p class="small text-muted">Cada cuenta lleva su propio número de cheque. <strong>Próximo cheque</strong> es el número que se asignará al siguiente cheque automático;
+    después de cada uso avanza solo. La <strong>cuenta contable</strong> va al crédito de cada cheque. El <strong>ajuste de impresión</strong> (mm) mueve el área del cheque para calzar con el papel del banco.</p>
+
+  <div class="table-responsive border rounded-3 bg-white mb-4">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>Cuenta</th><th>Moneda</th><th>Cuenta contable</th><th class="text-end">Próximo cheque</th><th class="text-end">Emitidos</th><th>Ajuste (x, y)</th><th>Estado</th><th></th></tr></thead>
+      <tbody>
+        {% for b in bancos %}
+        <tr class="{{ 'inactivo' if not b.activo }}">
+          <td><strong>{{ b.nombre }}</strong><div class="small text-muted">{{ b.banco }} · cta {{ b.numero_cuenta }}</div></td>
+          <td>{{ b.moneda }}</td>
+          <td class="small">{{ b.cuenta_codigo or '' }} {{ descripcion_cuenta(b.cuenta_nombre).split(',')[-1] if b.cuenta_nombre else '' }}</td>
+          <td class="text-end fw-bold">{% if b.proximo_cheque %}{{ b.proximo_cheque }}{% else %}<span class="falta">sin configurar</span>{% endif %}</td>
+          <td class="text-end">{{ uso[b.id].n if b.id in uso else 0 }}{% if b.id in uso %}<div class="small text-muted">último {{ uso[b.id].ultimo }}</div>{% endif %}</td>
+          <td class="small">{{ b.ajuste_x_mm }}, {{ b.ajuste_y_mm }} mm</td>
+          <td>{{ 'Activo' if b.activo else 'Inactivo' }}</td>
+          <td><button type="button" class="btn btn-sm btn-outline-secondary editar" data-banco='{{ {"id": b.id, "nombre": b.nombre, "banco": b.banco, "numero_cuenta": b.numero_cuenta, "moneda": b.moneda, "cuenta_id": b.cuenta_id, "proximo_cheque": b.proximo_cheque, "ajuste_x_mm": b.ajuste_x_mm|string, "ajuste_y_mm": b.ajuste_y_mm|string, "activo": b.activo}|tojson|forceescape }}'
+                aria-label="Editar {{ b.nombre }}"><i class="bi bi-pencil" aria-hidden="true"></i></button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" class="card card-body" id="form-banco">
+    <h6 id="titulo-form" style="color: #027266">Agregar cuenta bancaria</h6>
+    <input type="hidden" name="id" id="b-id">
+    <div class="row g-2">
+      <div class="col-md-4"><label class="form-label" for="b-nombre">Nombre (como aparece en la lista)</label><input id="b-nombre" name="nombre" class="form-control text-uppercase" maxlength="100" required placeholder="BAC CÓRDOBAS 355-05225-9"></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="b-banco">Banco</label><input id="b-banco" name="banco" class="form-control text-uppercase" maxlength="40" required placeholder="BAC"></div>
+      <div class="col-6 col-md-3"><label class="form-label" for="b-cuenta">Número de cuenta</label><input id="b-cuenta" name="numero_cuenta" class="form-control" maxlength="40" required></div>
+      <div class="col-6 col-md-1"><label class="form-label" for="b-moneda">Moneda</label>
+        <select id="b-moneda" name="moneda" class="form-select">{% for m in monedas %}<option>{{ m }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="b-proximo">Próximo cheque</label><input id="b-proximo" name="proximo_cheque" class="form-control text-end" inputmode="numeric" placeholder="Ej. 1897"></div>
+      <div class="col-md-6"><label class="form-label" for="b-cc">Cuenta contable del banco</label>
+        <select id="b-cc" name="cuenta_id" class="form-select" required><option value="">Seleccione…</option>
+          {% for c in cuentas_banco %}<option value="{{ c.id }}">{{ c.codigo }} · {{ descripcion_cuenta(c.nombre) }}</option>{% endfor %}</select>
+        <div class="form-text">Si no aparece, agréguela en <a href="{{ url_for('cheques.cuentas_vista') }}">Cuentas contables</a> (código 1010…).</div></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="b-x">Ajuste horizontal (mm)</label><input id="b-x" name="ajuste_x_mm" class="form-control text-end" inputmode="decimal" value="0"></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="b-y">Ajuste vertical (mm)</label><input id="b-y" name="ajuste_y_mm" class="form-control text-end" inputmode="decimal" value="0"></div>
+      <div class="col-md-2 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="activo" id="b-activo" value="1" checked><label class="form-check-label" for="b-activo">Activo</label></div></div>
+      <div class="col-12 d-flex gap-2"><button class="btn btn-success"><i class="bi bi-check2" aria-hidden="true"></i> Guardar</button>
+        <button type="button" class="btn btn-outline-secondary" id="b-limpiar">Nuevo</button></div>
+    </div>
+  </form>
+</div>
+<script>
+(() => {
+  const campos = { id: 'b-id', nombre: 'b-nombre', banco: 'b-banco', numero_cuenta: 'b-cuenta', moneda: 'b-moneda', cuenta_id: 'b-cc',
+                   proximo_cheque: 'b-proximo', ajuste_x_mm: 'b-x', ajuste_y_mm: 'b-y' };
+  document.querySelectorAll('.editar').forEach(btn => btn.addEventListener('click', () => {
+    const b = JSON.parse(btn.dataset.banco);
+    Object.entries(campos).forEach(([k, id]) => document.getElementById(id).value = b[k] ?? '');
+    document.getElementById('b-activo').checked = !!b.activo;
+    document.getElementById('titulo-form').textContent = 'Editar ' + b.nombre;
+    document.getElementById('form-banco').scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('b-nombre').focus();
+  }));
+  document.getElementById('b-limpiar').addEventListener('click', () => {
+    Object.values(campos).forEach(id => document.getElementById(id).value = '');
+    document.getElementById('b-x').value = 0; document.getElementById('b-y').value = 0; document.getElementById('b-moneda').value = 'C$';
+    document.getElementById('b-activo').checked = true; document.getElementById('titulo-form').textContent = 'Agregar cuenta bancaria';
+  });
+})();
+</script>
+{% endblock %}

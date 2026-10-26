@@ -1,0 +1,222 @@
+{% extends "layout.html" %}
+{% block title %}Seguimiento de Ingresos{% endblock %}
+{% macro num(v) %}{% set r = v|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .si h4 { color: var(--credito); }
+  .si .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .si .form-control-sm, .si .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-si { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1250px; }
+  .tabla-si thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-si td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: middle; }
+  .tabla-si tbody tr { cursor: pointer; }
+  .tabla-si tbody tr:hover td { background: #f3f9f8; }
+  .tabla-si .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-si .meta { font-size: .72rem; color: var(--ink-3); }
+  .tabla-si .desc { font-weight: 600; }
+  .avance { min-width: 120px; }
+  .avance .barra { height: 7px; background: var(--grid); border-radius: 4px; overflow: hidden; margin-top: 3px; }
+  .avance .barra span { display: block; height: 100%; background: var(--credito); border-radius: 4px; }
+  .estado { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .72rem; white-space: nowrap; }
+  .estado.sin_vender { background: #fde8e8; color: #b42318; }
+  .estado.parcial { background: #fef7e0; color: #854d0e; }
+  .estado.vendido { background: #e3f3f1; color: var(--credito); }
+  .chip-estado { text-decoration: none; border: 1px solid var(--grid); border-radius: 10px; padding: .35rem .6rem; display: block; color: var(--ink); }
+  .chip-estado:hover, .chip-estado.activo { border-color: var(--credito); background: #f3f9f8; }
+  .chip-estado .n { font-size: 1.15rem; font-weight: 700; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .si .btn:focus-visible, .si a:focus-visible, .tabla-si tbody tr:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .si .page-link { color: var(--credito); }
+  .si .page-item.active .page-link { background: var(--credito); border-color: var(--credito); color: #fff; }
+  #modal-ingreso .modal-title { font-size: 1.05rem; color: var(--credito); font-weight: 700; }
+  #modal-ingreso .resumen-mov { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .5rem; }
+  #modal-ingreso .resumen-mov div { background: #f6f5f1; border-radius: 8px; padding: .4rem .6rem; }
+  #modal-ingreso .resumen-mov .e { font-size: .7rem; color: var(--ink-3); text-transform: uppercase; }
+  #modal-ingreso .resumen-mov .v { font-weight: 700; font-size: 1rem; }
+  #modal-ingreso table.table { font-size: .8rem; width: 100%; margin: 0; }   /* styles.css deja las tablas al 80% */
+  #modal-ingreso table.table td { text-align: left; } #modal-ingreso table.table .text-end { text-align: right; }
+  #modal-ingreso table.table th { text-align: left; }
+</style>
+
+{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'marca': f.marca, 'proveedor': f.proveedor, 'q': f.q, 'estado': f.estado, 'orden': f.orden} %}
+<div class="dash si container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Seguimiento de ingresos de mercadería</h4>
+      <div class="text-muted small">De lo que ingresó por orden de compra del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}: cuánto ya se vendió y a quién.
+        Haga clic en una fila para ver clientes y vendedores.</div>
+    </div>
+    {% if r.lineas %}
+    <a class="btn btn-verde btn-sm" href="{{ url_for('seguimiento_ingresos.descargar_excel', **params) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel ({{ "{:,}".format(r.lineas) }})</a>
+    {% endif %}
+  </div>
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-1"><label class="form-label" for="desde">Ingreso desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="marca">Marca</label>
+        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="proveedor">Proveedor</label>
+        <input id="proveedor" name="proveedor" list="dl-proveedores" value="{{ f.proveedor }}" class="form-control form-control-sm" placeholder="Todos" autocomplete="off"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, nº parte, descripción o documento"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="estado">Estado</label>
+        <select id="estado" name="estado" class="form-select form-select-sm">
+          {% for k, v in estados.items() %}<option value="{{ k }}" {% if k == f.estado %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="orden">Ordenar por</label>
+        <select id="orden" name="orden" class="form-select form-select-sm">
+          {% for k, v in ordenes.items() %}<option value="{{ k }}" {% if k == f.orden %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button></div>
+    </div>
+  </form>
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Ingresado</div><div class="valor">C$ {{ "{:,.2f}".format(r.costo) }}</div>
+      <div class="sub">{{ num(r.unidades) }} unidades · {{ r.productos }} productos · {{ r.documentos }} documentos</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Ya vendido</div><div class="valor">{{ (r.avance_costo * 100)|round(1) }}% del costo</div>
+      <div class="sub">{{ num(r.vendidas) }} unidades ({{ (r.avance * 100)|round(1) }}%) · {{ r.clientes }} clientes</div></div></div>
+    <div class="col-12 col-lg-6"><div class="card kpi"><div class="etiqueta mb-1">Líneas de ingreso por estado</div>
+      <div class="row g-2">
+        {% for k, etiqueta in [('sin_vender', 'Sin vender'), ('parcial', 'Vendido en parte'), ('vendido', 'Vendido todo')] %}
+        <div class="col-4"><a class="chip-estado {{ 'activo' if f.estado == k }}" href="{{ url_for('seguimiento_ingresos.reporte', **dict(params, estado=('' if f.estado == k else k))) }}"
+             aria-pressed="{{ 'true' if f.estado == k else 'false' }}">
+          <span class="estado {{ k }}">{{ etiqueta }}</span><div class="n">{{ r.estados[k] }}</div></a></div>
+        {% endfor %}
+      </div>
+      <div class="sub mt-1">Costo aún sin vender: <strong>C$ {{ "{:,.2f}".format(r.costo - r.costo_vendido) }}</strong></div></div></div>
+  </div>
+  <p class="small text-muted mb-2"><i class="bi bi-info-circle" aria-hidden="true"></i>
+    Las ventas se asignan por PEPS: primero se vende la existencia que ya había antes del ingreso y después cada ingreso en orden de fecha.
+    El proveedor viene del ingreso o, si no lo trae, del último proveedor registrado en el catálogo.</p>
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-si">
+      <thead><tr>
+        <th>Ingreso</th><th>Proveedor</th><th>Producto</th><th class="num">Ingresado</th><th>Vendido</th><th class="num">Sin vender</th>
+        <th class="num">Costo sin vender C$</th><th class="num">Clientes</th><th>Última venta</th><th class="num">Existencia</th><th>Estado</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for x in filas %}
+        <tr tabindex="0" data-codigo="{{ x.codigo }}" data-documento="{{ x.documento }}" data-fecha="{{ x.fecha.isoformat() }}"
+            aria-label="Ver a quién se vendió {{ x.codigo }} del ingreso {{ x.documento }}">
+          <td class="text-nowrap">{{ x.fecha.strftime('%d/%m/%Y') }}<div class="meta">Doc. {{ x.documento }}{% if x.referencia and x.referencia != x.documento|string %} · {{ x.referencia }}{% endif %}</div></td>
+          <td style="max-width: 200px">{{ x.proveedor or '—' }}{% if x.proveedor_origen == 'catálogo' %}<div class="meta">según catálogo</div>{% endif %}</td>
+          <td style="max-width: 300px"><span class="desc">{{ x.nombre }}</span>
+            <div class="meta">{{ x.codigo }}{% if x.parte %} · {{ x.parte }}{% endif %} · {{ x.marca or 'sin marca' }}</div></td>
+          <td class="num fw-semibold">{{ num(x.cantidad) }}<div class="meta">C$ {{ "{:,.2f}".format(x.costo_unit) }} c/u</div></td>
+          <td class="avance"><span class="fw-semibold">{{ num(x.vendido) }}</span> <span class="meta">({{ (x.avance * 100)|round(0)|int }}%)</span>
+            <div class="barra" role="img" aria-label="{{ (x.avance * 100)|round(0)|int }}% vendido"><span style="width: {{ (x.avance * 100)|round(1) }}%"></span></div></td>
+          <td class="num">{{ num(x.pendiente) }}</td>
+          <td class="num">{{ "{:,.2f}".format(x.valor_pendiente) }}</td>
+          <td class="num">{{ x.clientes or '' }}</td>
+          <td class="text-nowrap">{{ x.ultima_venta.strftime('%d/%m/%Y') if x.ultima_venta else '—' }}
+            {% if x.dias_venta is not none %}<div class="meta">se vendió en {{ x.dias_venta }} día{{ 's' if x.dias_venta != 1 }}</div>{% endif %}</td>
+          <td class="num">{{ num(x.existencia) }}</td>
+          <td><span class="estado {{ x.estado }}">{{ estados[x.estado] }}</span></td>
+          <td><button type="button" class="btn btn-sm btn-outline-secondary ver" tabindex="-1" aria-hidden="true"><i class="bi bi-people"></i></button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12" class="text-center text-muted py-4">No hay ingresos por orden de compra con estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if paginas > 1 %}
+  <nav class="mt-2" aria-label="Páginas"><ul class="pagination pagination-sm flex-wrap">
+    {% for p in range(1, paginas + 1) %}
+    <li class="page-item {{ 'active' if p == pagina }}"><a class="page-link" href="{{ url_for('seguimiento_ingresos.reporte', **dict(params, pagina=p)) }}">{{ p }}</a></li>
+    {% endfor %}
+  </ul></nav>
+  {% endif %}
+</div>
+
+<datalist id="dl-marcas">{% for m in marcas %}<option value="{{ m }}">{% endfor %}</datalist>
+<datalist id="dl-proveedores">{% for p in proveedores %}<option value="{{ p }}">{% endfor %}</datalist>
+
+<div class="modal fade" id="modal-ingreso" tabindex="-1" aria-labelledby="modal-ingreso-titulo" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div><h5 class="modal-title mb-0" id="modal-ingreso-titulo">Ventas del ingreso</h5>
+          <div class="small text-muted" id="modal-ingreso-sub"></div></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modal-ingreso-cuerpo"></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const modal = document.getElementById('modal-ingreso');
+  const URL = "{{ url_for('seguimiento_ingresos.detalle') }}";
+  const DESDE = "{{ f.desde.isoformat() }}", HASTA = "{{ f.hasta.isoformat() }}";
+  const cuerpo = document.getElementById('modal-ingreso-cuerpo');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const dinero = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let ventana = null;
+
+  async function abrir(tr) {
+    ventana = ventana || new bootstrap.Modal(modal);
+    document.getElementById('modal-ingreso-titulo').textContent = 'Ventas del ingreso';
+    document.getElementById('modal-ingreso-sub').textContent = '';
+    cuerpo.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando ventas…</div>';
+    ventana.show();
+    try {
+      const q = new URLSearchParams({ codigo: tr.dataset.codigo, documento: tr.dataset.documento, fecha: tr.dataset.fecha, desde: DESDE, hasta: HASTA });
+      const r = await fetch(`${URL}?${q}`);
+      const d = await r.json();
+      if (!r.ok) { cuerpo.innerHTML = `<p class="text-danger mb-0">${esc(d.error || 'No se pudo cargar el detalle.')}</p>`; return; }
+      document.getElementById('modal-ingreso-titulo').textContent = d.producto;
+      document.getElementById('modal-ingreso-sub').textContent = `Ingreso ${d.fecha} · Doc. ${d.documento}${d.referencia ? ' · ' + d.referencia : ''} · ${d.proveedor} · ${d.marca || 'sin marca'}`;
+      const vendedores = {};
+      d.ventas.forEach(v => { vendedores[v.vendedor] = (vendedores[v.vendedor] || 0) + v.cantidad; });
+      const monto = d.ventas.reduce((a, v) => a + (v.monto || 0), 0);
+      const resumen = `<div class="resumen-mov mb-3">
+          <div><div class="e">Ingresado</div><div class="v">${num(d.cantidad)}</div></div>
+          <div><div class="e">Vendido</div><div class="v">${num(d.vendido)}</div></div>
+          <div><div class="e">Sin vender</div><div class="v">${num(d.pendiente)}</div></div>
+          <div><div class="e">Venta C$ (sin IVA)</div><div class="v">${dinero(monto)}</div></div>
+          <div><div class="e">Existencia hoy</div><div class="v">${num(d.existencia)}</div></div>
+        </div>
+        ${d.previo > 0 ? `<p class="small text-muted mb-2"><i class="bi bi-info-circle" aria-hidden="true"></i> Antes de este producto ingresar había ${num(d.previo)} unidades en existencia; esas se asignan primero (PEPS).</p>` : ''}`;
+      if (!d.ventas.length) { cuerpo.innerHTML = resumen + '<p class="text-muted mb-0">Todavía no se ha vendido nada de este ingreso.</p>'; return; }
+      const porVendedor = Object.entries(vendedores).sort((a, b) => b[1] - a[1])
+        .map(([v, c]) => `<span class="badge rounded-pill text-bg-light border me-1 mb-1">${esc(v)}: <strong>${num(c)}</strong></span>`).join('');
+      cuerpo.innerHTML = resumen + `<div class="mb-2 small"><strong>Por vendedor:</strong> ${porVendedor}</div>
+        <div class="table-responsive"><table class="table table-sm table-striped mb-0">
+          <thead><tr><th>Fecha</th><th>Factura</th><th>Cliente</th><th>Vendedor</th><th class="text-end">Cant.</th><th class="text-end">Monto C$</th></tr></thead>
+          <tbody>${d.ventas.map(v => `<tr><td class="text-nowrap">${esc(v.fecha)}</td><td>${esc(v.factura)}</td><td>${esc(v.cliente)}</td>
+            <td>${esc(v.vendedor)}</td><td class="text-end fw-bold">${num(v.cantidad)}</td>
+            <td class="text-end">${v.monto === null ? '—' : dinero(v.monto)}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+    } catch {
+      cuerpo.innerHTML = '<p class="text-danger mb-0">No se pudo cargar el detalle. Intente de nuevo.</p>';
+    }
+  }
+  document.querySelectorAll('.tabla-si tbody tr[data-codigo]').forEach(tr => {
+    tr.addEventListener('click', () => abrir(tr));
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(tr); } });
+  });
+})();
+</script>
+{% endblock %}

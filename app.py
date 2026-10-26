@@ -37,8 +37,20 @@ from router.sugerido_compras import sugerido_bp
 from router.top_clientes import top_clientes_bp
 from router.productos_incompletos import productos_incompletos_bp
 from router.productos_sin_movimiento import productos_sin_movimiento_bp
+from router.seguimiento_ingresos import seguimiento_ingresos_bp
+from router.estrategia_productos import estrategia_bp
+from router.revision_precios_venta import revision_precios_venta_bp
+from router.revision_ingreso import revision_ingreso_bp
 from router.revision_precios import revision_precios_bp
 from router.cargar_clientes import cargar_clientes_bp
+from router.top_clientes_marca import top_clientes_marca_bp
+from router.ventas_departamento import ventas_departamento_bp
+from router.ventas_departamento_mes import ventas_depto_mes_bp
+from router.cargar_recuperacion import cargar_recuperacion_bp
+from router.analisis_cartera import analisis_cartera_bp
+from router.cheques import cheques_bp
+from router.cargar_armados import cargar_armados_bp
+from router.reporte_armados import reporte_armados_bp
 from router.menu import contexto_menu
 
 app = Flask(__name__)
@@ -93,8 +105,20 @@ app.register_blueprint(sugerido_bp)
 app.register_blueprint(top_clientes_bp)
 app.register_blueprint(productos_incompletos_bp)
 app.register_blueprint(productos_sin_movimiento_bp)
+app.register_blueprint(seguimiento_ingresos_bp)
+app.register_blueprint(estrategia_bp)
+app.register_blueprint(revision_precios_venta_bp)
+app.register_blueprint(revision_ingreso_bp)
 app.register_blueprint(revision_precios_bp)
 app.register_blueprint(cargar_clientes_bp)
+app.register_blueprint(top_clientes_marca_bp)
+app.register_blueprint(ventas_departamento_bp)
+app.register_blueprint(ventas_depto_mes_bp)
+app.register_blueprint(cargar_recuperacion_bp)
+app.register_blueprint(analisis_cartera_bp)
+app.register_blueprint(cheques_bp)
+app.register_blueprint(cargar_armados_bp)
+app.register_blueprint(reporte_armados_bp)
 app.context_processor(contexto_menu)  # menú único para inicio y barra superior
 
 # -----------------------------
@@ -675,6 +699,13 @@ def rep_vend_totales():
     fecha_inicio = min(fecha_param("fecha_inicio", fecha_fin.replace(day=1)), fecha_fin)
     vendedor = (request.args.get("vendedor") or "").strip() or None
 
+    # Vista compacta (por defecto): venta del día + acumulado del mes, pensada para compartir por WhatsApp
+    if request.args.get("vista") != "detalle":
+        dia = fecha_param("dia", fecha_fin if request.args.get("fecha_fin") else ultima)
+        anterior, siguiente = vv.dias_vecinos(dia)
+        return render_template("RepVendDia.html", dia=dia, ultima_fecha=ultima, vendedor=vendedor,
+                               anterior=anterior, siguiente=siguiente, r=vv.resumen_dia(dia, obtener_reporte_ventas))
+
     datos = obtener_reporte_ventas(fecha_inicio.isoformat(), fecha_fin.isoformat())
     vendedores = vv.ranking_vendedores(datos)
     seleccionado = next((v for v in vendedores if v["vendedor"] == vendedor), None)
@@ -832,82 +863,8 @@ def reporte_ventas_dia():
 
 
 # -----------------------------
-# Reporte de zonas
+# Reporte de zonas: ahora es "Ventas por departamento" mensual (router/ventas_departamento_mes.py, misma URL /reporteZona)
 # -----------------------------
-
-@app.route("/reporteZona", methods=["GET"])
-@requiere_acceso("reporteZona")
-def reporte():
-    tipo = request.args.get("tipo", "detalle")
-    vendedor = request.args.get("vendedor")
-    fecha_inicio = request.args.get("fecha_inicio")
-    fecha_fin = request.args.get("fecha_fin")
-    filtro = request.args.get("filtro", "").strip()
-    orden = request.args.get("orden", "zona_total")
-    print("Filtro recibido:", vendedor)
-
-    if not fecha_inicio:
-        fecha_inicio = "2025-01-01"
-    if not fecha_fin:
-        fecha_fin = "2026-12-31"
-
-    start_year = datetime.strptime(fecha_inicio, "%Y-%m-%d").year
-    end_year = datetime.strptime(fecha_fin, "%Y-%m-%d").year
-    years = list(range(start_year, end_year + 1))
-
-    cursor = get_cursor()
-
-    if tipo == "totales":
-        query = build_query_totales(years, order_by=orden)
-    elif tipo == "resumen":
-        query = build_query_resumen(years, order_by=orden)
-    elif tipo == "zonas_marcas":
-        query = build_query_zonas_marcas(years, order_by=orden)
-    elif tipo == "zonas_totales":
-        query = build_query_zonas_totales(years, order_by=orden)
-    else:
-        query = build_query_detalle(years, order_by=orden)
-
-    # ✅ Siempre pasar los 3 parámetros
-    cursor.execute(query, (vendedor, fecha_inicio, fecha_fin))
-
-    rows = cursor.fetchall()
-    data = [dict(row) for row in rows]
-
-    if filtro:
-        filtro_lower = filtro.lower()
-        data = [
-            row for row in data
-            if filtro_lower in str(row.get("Cliente", "")).lower()
-            or filtro_lower in str(row.get("Marca", "")).lower()
-            or filtro_lower in str(row.get("nombre_zona", "")).lower()
-            or filtro_lower in str(row.get("Dto_Munic", "")).lower()
-        ]
-
-    if tipo in ["zonas_marcas", "zonas_totales"]:
-        return render_template("reporte_zonas.html",
-                               data=data,
-                               years=years,
-                               tipo=tipo,
-                               vendedor=vendedor,
-                               fecha_inicio=fecha_inicio,
-                               fecha_fin=fecha_fin,
-                               filtro=filtro,
-                               orden=orden)
-
-    else:
-        estructura = agrupar_por_zona(data)
-        return render_template("ventas_vendedor_zona.html",
-                               zonas=estructura,
-                               years=years,
-                               vendedor=vendedor,
-                               fecha_inicio=fecha_inicio,
-                               fecha_fin=fecha_fin,
-                               tipo=tipo,
-                               filtro=filtro,
-                               orden=orden)
-    
-
 
 @app.route("/exportar", methods=["GET"])
 def exportar():

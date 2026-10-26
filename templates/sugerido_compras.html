@@ -53,6 +53,9 @@
   .tabla-eq th { color: var(--ink-3); font-weight: 600; text-align: left; padding: .15rem .4rem; border-bottom: 1px solid var(--grid); }
   .tabla-eq td { padding: .2rem .4rem; border-bottom: 1px solid #e3eeec; background: transparent !important; vertical-align: middle; }
   .tabla-eq .misma { color: var(--ink-3); }
+  .meta.compra { color: var(--ink-2); }
+  .fob-menor { color: #9a3412; font-weight: 700; }
+  .fob-barato { color: var(--contado); }
   .vacio-grande { text-align: center; padding: 2.5rem 1rem; color: var(--ink-3); }
   .vacio-grande i { font-size: 2.2rem; color: var(--credito); }
 </style>
@@ -99,6 +102,20 @@
         <label class="form-label" for="q">Buscar</label>
         <input type="search" id="q" name="q" value="{{ p.q }}" class="form-control form-control-sm" placeholder="Código, nombre o nº parte">
       </div>
+      <div class="col-8 col-lg-4">
+        <label class="form-label" for="proveedor">Proveedor de la última compra</label>
+        <select id="proveedor" name="proveedor" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for pr, n in proveedores %}<option value="{{ pr }}" {% if pr == p.proveedor %}selected{% endif %}>{{ pr }} ({{ "{:,}".format(n) }})</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-4 col-lg-2">
+        <label class="form-label" for="agrupar">Agrupar por</label>
+        <select id="agrupar" name="agrupar" class="form-select form-select-sm">
+          <option value="marca" {% if p.agrupar == 'marca' %}selected{% endif %}>Marca</option>
+          <option value="proveedor" {% if p.agrupar == 'proveedor' %}selected{% endif %}>Proveedor</option>
+        </select>
+      </div>
     </div>
     <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
       <div id="chips-marcas" class="d-flex flex-wrap gap-1" aria-label="Marcas seleccionadas">
@@ -144,10 +161,11 @@
       <div class="sub" id="kpi-lineas">—</div></div></div>
     <div class="col-6 col-lg"><div class="card kpi">
       <div class="franja" style="background: var(--credito)"></div>
-      <div class="etiqueta">Costo estimado</div><div class="valor" id="kpi-costo">—</div>
-      <div class="sub">según último costo</div></div></div>
+      <div class="etiqueta">Total FOB del pedido</div><div class="valor" id="kpi-costo">—</div>
+      <div class="sub" id="kpi-sin-fob">pedido × último precio FOB</div></div></div>
     <div class="col-6 col-lg"><div class="card kpi">
       <div class="etiqueta">Con equivalente disponible</div><div class="valor">{{ "{:,}".format(con_equivalente) }}</div>
+      {% if con_fob_menor %}<div class="sub" style="color: #9a3412">{{ con_fob_menor }} con equivalente de FOB más bajo</div>{% endif %}
       <div class="sub">revise antes de pedir</div></div></div>
     <div class="col-6 col-lg"><div class="card kpi">
       <div class="franja" style="background: var(--contado)"></div>
@@ -180,20 +198,25 @@
           <th scope="col">Últimos 3 ingresos</th>
           <th scope="col">Última venta</th>
           <th scope="col" class="num">Pedido</th>
-          <th scope="col" class="num">Últ. costo</th>
-          <th scope="col" class="num">Costo pedido</th>
+          <th scope="col" class="num" title="Último precio FOB (moneda base, US$) del catálogo">Precio FOB</th>
+          <th scope="col" class="num">Total FOB</th>
         </tr>
       </thead>
       <tbody>
-        {% set ns = namespace(marca=None) %}
+        {% set ns = namespace(grupo=None) %}
         {% for f in filas %}
-          {% if f.marca != ns.marca %}{% set ns.marca = f.marca %}
-            <tr class="marca-grupo"><td colspan="13"><i class="bi bi-bookmark-fill" aria-hidden="true"></i> {{ f.marca or 'Sin marca' }}</td></tr>
+          {% set g = f.proveedor if p.agrupar == 'proveedor' else f.marca %}
+          {% if loop.first or g != ns.grupo %}{% set ns.grupo = g %}
+            <tr class="marca-grupo"><td colspan="13"><i class="bi {{ 'bi-truck' if p.agrupar == 'proveedor' else 'bi-bookmark-fill' }}" aria-hidden="true"></i>
+              {{ g or ('Sin proveedor registrado' if p.agrupar == 'proveedor' else 'Sin marca') }}</td></tr>
           {% endif %}
-          <tr data-codigo="{{ f.codigo }}" data-sugerido="{{ f.sugerido }}" data-costo="{{ f.costo }}">
+          <tr data-codigo="{{ f.codigo }}" data-sugerido="{{ f.sugerido }}" data-costo="{{ f.fob or 0 }}">
             <td class="prod">
               <div class="desc">{{ f.nombre }}</div>
-              <div class="meta">{{ f.codigo }}{% if f.numero_parte %} · Nº {{ f.numero_parte }}{% endif %}{% if f.segmento %} · {{ f.segmento }}{% endif %}{% if f.familia %} · {{ f.familia }}{% if f.subfamilia %} / {{ f.subfamilia }}{% endif %}{% endif %}</div>
+              <div class="meta">{{ f.codigo }}{% if f.numero_parte %} · Nº {{ f.numero_parte }}{% endif %}{% if p.agrupar == 'proveedor' and f.marca %} · {{ f.marca }}{% endif %}{% if f.segmento %} · {{ f.segmento }}{% endif %}{% if f.familia %} · {{ f.familia }}{% if f.subfamilia %} / {{ f.subfamilia }}{% endif %}{% endif %}</div>
+              {% if f.proveedor or f.fob %}<div class="meta compra"><i class="bi bi-truck" aria-hidden="true"></i>
+                {% if f.proveedor and p.agrupar != 'proveedor' %}{{ f.proveedor }} · {% endif %}{% if f.fob %}FOB <strong>{{ "{:,.2f}".format(f.fob) }}</strong>{% endif %}
+                {% if f.fecha_compra %} · compra {{ f.fecha_compra.strftime('%d/%m/%y') }}{% endif %}{% if f.fecha_recepcion %} · recibido {{ f.fecha_recepcion.strftime('%d/%m/%y') }}{% endif %}</div>{% endif %}
             </td>
             <td class="num">{{ "{:,.0f}".format(f.existencia) }}</td>
             <td class="num">{% if f.nhe %}<span class="nhe">{{ "{:,.0f}".format(f.nhe) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
@@ -215,6 +238,7 @@
                   {{ f.equivalentes|length }} equiv.{% if f.eq_marcas %} · {{ f.eq_marcas }} marca{{ 's' if f.eq_marcas != 1 }}{% endif %}<br>
                   {% if f.eq_disponible > 0 %}<span class="disp">{{ "{:,.0f}".format(f.eq_disponible) }} disponibles</span>
                   {% else %}<span class="sin">sin existencia</span>{% endif %}
+                  {% if f.eq_fob_min %}<br><span class="fob-menor" title="{{ f.eq_fob_min.codigo }} · {{ f.eq_fob_min.proveedor or '' }}">FOB menor: {{ f.eq_fob_min.marca }} {{ "{:,.2f}".format(f.eq_fob_min.fob) }}{% if f.eq_fob_dif is not none %} ({{ "{:+.0f}".format(f.eq_fob_dif) }}%){% endif %}</span>{% endif %}
                 </button>
               {% else %}<span class="text-muted">—</span>{% endif %}
             </td>
@@ -230,17 +254,18 @@
               <div class="sistema">sugerido {{ "{:,}".format(f.sugerido) }}{% if f.sugerido > f.sugerido_sin_perdidas %}
                 <span class="perdida" title="Sin ventas perdidas serían {{ f.sugerido_sin_perdidas }}">+{{ f.sugerido - f.sugerido_sin_perdidas }} v. perdidas</span>{% endif %}</div>
             </td>
-            <td class="num">{{ "{:,.2f}".format(f.costo) }}</td>
+            <td class="num">{% if f.fob %}{{ "{:,.2f}".format(f.fob) }}{% else %}<span class="text-muted small" title="El catálogo no tiene precio FOB para este producto">sin FOB</span>{% endif %}</td>
             <td class="num fw-semibold costo-linea">—</td>
           </tr>
           {% if f.equivalentes %}
           <tr class="detalle-eq" id="eq-{{ loop.index }}" hidden>
             <td colspan="13">
               <div class="small fw-semibold mb-1" style="color: var(--credito)">
-                Equivalentes de {{ f.numero_parte or f.codigo }} ({{ f.marca }}) · grupo {{ f.grupo }}</div>
+                Equivalentes de {{ f.numero_parte or f.codigo }} ({{ f.marca }}) · grupo {{ f.grupo }}
+                {% if f.fob %}<span class="fw-normal text-muted"> · su último FOB: {{ "{:,.2f}".format(f.fob) }}{% if f.proveedor %} ({{ f.proveedor }}){% endif %}</span>{% endif %}</div>
               <table class="tabla-eq">
                 <thead><tr><th>Marca</th><th>Código</th><th>Nº parte</th><th>Descripción</th>
-                  <th class="num">Disponible</th><th class="num">Prom. / mes</th></tr></thead>
+                  <th class="num">Disponible</th><th class="num">Prom. / mes</th><th>Proveedor</th><th class="num">Último FOB</th><th>Compra</th></tr></thead>
                 <tbody>
                   {% for e in f.equivalentes %}
                   <tr class="{{ 'misma' if e.marca == f.marca }}">
@@ -248,6 +273,9 @@
                     <td>{{ e.codigo }}</td><td>{{ e.numero_parte or '—' }}</td><td>{{ e.nombre }}</td>
                     <td class="num {{ 'fw-bold' if e.disponible > 0 }}" {% if e.disponible > 0 %}style="color: var(--credito)"{% endif %}>{{ "{:,.0f}".format(e.disponible) }}</td>
                     <td class="num">{{ "{:,.1f}".format(e.promedio) }}</td>
+                    <td class="small">{{ e.proveedor or '—' }}</td>
+                    <td class="num {{ 'fw-bold fob-barato' if f.eq_fob_min and e.codigo == f.eq_fob_min.codigo }}">{{ "{:,.2f}".format(e.fob) if e.fob else '—' }}</td>
+                    <td class="small">{{ e.fecha_compra.strftime('%d/%m/%y') if e.fecha_compra else '—' }}</td>
                   </tr>
                   {% endfor %}
                 </tbody>
@@ -272,6 +300,8 @@
       <input type="hidden" name="meses_historial" value="{{ p.meses_historial }}">
       <input type="hidden" name="dias_reciente" value="{{ p.dias_reciente }}">
       <input type="hidden" name="q" value="{{ p.q }}">
+      <input type="hidden" name="proveedor" value="{{ p.proveedor }}">
+      <input type="hidden" name="agrupar" value="{{ p.agrupar }}">
       <input type="hidden" name="solo_sugerido" value="{{ '1' if p.solo_sugerido else '0' }}">
       <input type="hidden" name="ocultar_cubiertos" value="{{ '1' if p.ocultar_cubiertos else '0' }}">
       <input type="hidden" name="con_perdidas" value="{{ '1' if p.con_perdidas else '0' }}">
@@ -400,22 +430,23 @@
   let cambios = leer();
 
   function recalcular() {
-    let unidades = 0, costo = 0, lineas = 0, editados = 0;
+    let unidades = 0, costo = 0, lineas = 0, editados = 0, sinFob = 0;
     filas.forEach(tr => {
       const inp = tr.querySelector('.pedido');
       const valor = Math.max(0, Math.round(Number(inp.value) || 0));
       const sugerido = Number(tr.dataset.sugerido), c = Number(tr.dataset.costo);
       const editado = valor !== sugerido;
       tr.classList.toggle('editado', editado);
-      tr.querySelector('.costo-linea').textContent = valor ? num(valor * c, 2) : '—';
-      unidades += valor; costo += valor * c; if (valor > 0) lineas++; if (editado) editados++;
+      tr.querySelector('.costo-linea').textContent = valor && c ? num(valor * c, 2) : '—';
+      unidades += valor; costo += valor * c; if (valor > 0) lineas++; if (valor > 0 && !c) sinFob++; if (editado) editados++;
       if (editado) cambios[tr.dataset.codigo] = valor; else delete cambios[tr.dataset.codigo];
     });
     escribir(cambios);
     document.getElementById('kpi-unidades').textContent = num(unidades);
     document.getElementById('kpi-lineas').textContent = `${num(lineas)} producto${lineas === 1 ? '' : 's'} con pedido`;
-    document.getElementById('kpi-costo').textContent = 'C$ ' + num(costo, 2);
-    document.getElementById('barra-total').textContent = `${num(unidades)} unid. · C$ ${num(costo, 2)}`;
+    document.getElementById('kpi-costo').textContent = 'US$ ' + num(costo, 2);
+    document.getElementById('kpi-sin-fob').textContent = sinFob ? `pedido × precio FOB · ${num(sinFob)} producto${sinFob === 1 ? '' : 's'} sin FOB (no suman)` : 'pedido × último precio FOB';
+    document.getElementById('barra-total').textContent = `${num(unidades)} unid. · FOB US$ ${num(costo, 2)}`;
     document.getElementById('barra-cambios').textContent = editados ? `${editados} pedido(s) modificado(s)` : '';
     document.getElementById('btn-restablecer').hidden = editados === 0;
   }

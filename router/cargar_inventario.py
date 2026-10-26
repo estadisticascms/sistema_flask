@@ -49,7 +49,7 @@ COLUMNAS_SQL = list(COLUMNAS_EXCEL) + ["tipo_final"]
 LARGOS = {
     "bodega": 100, "tipo_transaccion": 50, "tipo_documento_origen": 50, "id_documento_origen": 50,
     "referencia": 100, "cliente_proveedor": 150, "id_producto": 50, "producto": 150,
-    "codigo_producto": 50, "numero_parte": 50, "medida": 50, "marca": 50, "uom": 20, "tipo_operacion": 50,
+    "codigo_producto": 50, "numero_parte": 50, "medida": 150, "marca": 150, "uom": 20, "tipo_operacion": 50,
 }
 DECIMALES = {"cantidad": "0.01", "costo_unitario_mn": "0.01", "total_mn": "0.01", "tc": "0.0001",
              "costo_unitario_me": "0.01", "total_me": "0.01"}

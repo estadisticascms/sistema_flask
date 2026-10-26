@@ -1,0 +1,176 @@
+{% extends "layout.html" %}
+{% block title %}Top Clientes por Marca{% endblock %}
+{% macro dinero(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .tcm h4 { color: var(--credito); }
+  .tcm .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .tcm .form-control-sm, .tcm .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .chip-marca { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .3rem .15rem .6rem; border-radius: 999px;
+                background: #e6f2f0; border: 1px solid #b7d9d4; color: var(--ink); font-size: .78rem; }
+  .chip-marca button { border: 0; background: none; width: 22px; height: 22px; border-radius: 50%; color: var(--ink-2); line-height: 1; }
+  .chip-marca button:hover, .chip-marca button:focus-visible { background: #b7d9d4; outline: none; }
+  .rango a { font-size: .78rem; }
+  .tabla-tcm { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-tcm thead th { position: sticky; top: 0; z-index: 3; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                        padding: .45rem; border-bottom: 1px solid var(--grid); white-space: nowrap; text-align: right; }
+  .tabla-tcm thead th.izq { text-align: left; }
+  .tabla-tcm td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  .tabla-tcm .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-tcm .fijo { position: sticky; left: 0; background: #fff; z-index: 2; min-width: 240px; max-width: 320px; }
+  .tabla-tcm thead .fijo { z-index: 4; background: #f6f5f1; }
+  .tabla-tcm tbody tr:hover td { background-color: #faf9f6; }
+  .tabla-tcm tfoot td { font-weight: 700; background: #f6f5f1; border-top: 2px solid var(--grid); }
+  .tabla-tcm tfoot .fijo { background: #f6f5f1; }
+  .pos { display: inline-flex; width: 26px; height: 26px; align-items: center; justify-content: center; border-radius: 50%;
+         background: #eeede8; font-weight: 700; font-size: .75rem; margin-right: .4rem; flex: none; }
+  .pos.podio { background: var(--contado); color: #fff; }
+  .cliente { display: flex; align-items: center; }
+  .cliente .nombre { font-weight: 600; color: var(--ink); }
+  .cliente .vend { font-size: .72rem; color: var(--ink-3); }
+  .total-col { font-weight: 700; color: var(--ink); }
+  .barra-pct { height: 5px; background: var(--grid); border-radius: 3px; margin-top: 3px; min-width: 60px; }
+  .barra-pct span { display: block; height: 100%; background: var(--credito); border-radius: 3px; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .tcm .btn:focus-visible, .tcm a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'marca': f.marcas, 'vendedor': f.vendedor, 'q': f.q, 'top': f.top} %}
+<div class="dash tcm container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-person-badge" aria-hidden="true"></i> Top de clientes por marca</h4>
+      <div class="text-muted small">{{ f.marcas|join(', ') if f.marcas else 'Todas las marcas' }} · del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}
+        · venta neta sin IVA (después de descuentos, sin anuladas)</div>
+    </div>
+    {% if d.clientes %}
+    <a class="btn btn-verde btn-sm" href="{{ url_for('top_clientes_marca.descargar_excel', **params) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+    {% endif %}
+  </div>
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" class="card card-body py-2 mb-3" id="form-filtros">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-lg-3">
+        <label class="form-label" for="marca-in">Marcas <span class="text-muted">(vacío = todas)</span></label>
+        <div class="input-group input-group-sm">
+          <input id="marca-in" list="dl-marcas" class="form-control" placeholder="Escriba una marca y Enter" autocomplete="off">
+          <button type="button" class="btn btn-outline-secondary" id="btn-marca" aria-label="Agregar marca"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="vendedor">Vendedor</label>
+        <select id="vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for v in d.vendedores %}<option {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}
+          {% if f.vendedor and f.vendedor not in d.vendedores %}<option selected>{{ f.vendedor }}</option>{% endif %}</select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="top">Mostrar</label>
+        <select id="top" name="top" class="form-select form-select-sm">
+          {% for t in tamanos %}<option value="{{ t }}" {% if t == f.top %}selected{% endif %}>{{ ('Top ' ~ t) if t else 'Todos' }}</option>{% endfor %}</select></div>
+      <div class="col-8 col-lg-1"><label class="form-label" for="q">Cliente</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Buscar"></div>
+      <div class="col-4 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+      <div id="chips-marcas" class="d-flex flex-wrap gap-1" aria-label="Marcas seleccionadas">
+        {% for m in f.marcas %}<span class="chip-marca">{{ m }}<input type="hidden" name="marca" value="{{ m }}">
+          <button type="button" aria-label="Quitar marca {{ m }}"><i class="bi bi-x" aria-hidden="true"></i></button></span>{% endfor %}
+      </div>
+      <div class="rango ms-lg-auto small text-muted">Períodos:
+        {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('top_clientes_marca.reporte', **dict(params, desde=i.isoformat(), hasta=fin.isoformat())) }}">{{ nombre }}</a>{% endfor %}
+      </div>
+    </div>
+  </form>
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Venta de {{ 'la marca' if f.marcas|length == 1 else ('las marcas' if f.marcas else 'todas las marcas') }}</div>
+      <div class="valor">C$ {{ dinero(d.total_marca) }}</div><div class="sub">todos los clientes del período</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Clientes que compraron</div>
+      <div class="valor">{{ "{:,}".format(d.total_clientes) }}</div><div class="sub">{% if f.vendedor or f.q %}con los filtros aplicados{% else %}en el período{% endif %}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">{{ ('Top ' ~ f.top) if f.top else 'Clientes mostrados' }}</div>
+      <div class="valor">C$ {{ dinero(d.total_top) }}</div>
+      <div class="sub">{{ "{:.1f}".format(d.total_top / d.total_marca * 100 if d.total_marca else 0) }}% de la venta</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Cliente principal</div>
+      {% set c1 = d.clientes[0] if d.clientes else none %}
+      <div class="valor" style="font-size: 1rem; white-space: normal">{{ c1.cliente if c1 else '—' }}</div>
+      <div class="sub">{% if c1 %}C$ {{ dinero(c1.total) }} · {{ "{:.1f}".format(c1.pct) }}%{% endif %}</div></div></div>
+  </div>
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 72vh">
+    <table class="tabla-tcm">
+      <caption class="visually-hidden">Compras por cliente y mes</caption>
+      <thead><tr>
+        <th scope="col" class="fijo izq">Cliente · vendedor</th>
+        {% for m, etiqueta in d.meses %}<th scope="col">{{ etiqueta }}</th>{% endfor %}
+        <th scope="col">Total C$</th><th scope="col">% marca</th><th scope="col">Facturas</th><th scope="col" class="izq">Última compra</th>
+      </tr></thead>
+      <tbody>
+        {% for c in d.clientes %}
+        <tr>
+          <th scope="row" class="fijo fw-normal">
+            <div class="cliente"><span class="pos {{ 'podio' if c.posicion <= 3 }}">{{ c.posicion }}</span>
+              <div><div class="nombre">{{ c.cliente }}</div>
+                <div class="vend"><i class="bi bi-person" aria-hidden="true"></i> {{ c.vendedor or 'sin vendedor' }}
+                  {% if c.otros_vendedores %}<span title="También le vendieron: {{ c.otros_vendedores|join(', ') }}"> · +{{ c.otros_vendedores|length }}</span>{% endif %}</div></div></div>
+          </th>
+          {% for m, etiqueta in d.meses %}{% set v = c.meses.get(m, 0) %}
+          <td class="num" {% if v > 0 and d.maximo_celda %}style="background-color: rgba(2, 114, 102, {{ '%.2f'|format(0.06 + 0.34 * v / d.maximo_celda) }})"{% endif %}>
+            {{ dinero(v) if v else '—' }}</td>
+          {% endfor %}
+          <td class="num total-col">{{ dinero(c.total) }}</td>
+          <td class="num">{{ "{:.1f}".format(c.pct) }}%<div class="barra-pct" aria-hidden="true"><span style="width: {{ [c.pct * 4, 100]|min }}%"></span></div></td>
+          <td class="num">{{ c.facturas }}</td>
+          <td class="small">{{ c.ultima[8:10] ~ '/' ~ c.ultima[5:7] ~ '/' ~ c.ultima[:4] if c.ultima else '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ d.meses|length + 5 }}" class="text-center text-muted py-4">No hay compras con estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if d.clientes %}
+      <tfoot><tr>
+        <td class="fijo">Total {{ ('top ' ~ f.top) if f.top and d.clientes|length == f.top else (d.clientes|length ~ ' clientes') }}</td>
+        {% for m, etiqueta in d.meses %}<td class="num">{{ dinero(d.por_mes[m]) }}</td>{% endfor %}
+        <td class="num">{{ dinero(d.total_top) }}</td><td class="num">{{ "{:.1f}".format(d.total_top / d.total_marca * 100 if d.total_marca else 0) }}%</td><td></td><td></td>
+      </tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+  <div class="small text-muted mt-2">El color de cada mes es más intenso cuanto mayor la compra. El vendedor es quien más le vendió de la marca en el período
+    (+N = otros vendedores). Las devoluciones no se descuentan porque no vienen detalladas por producto.</div>
+</div>
+<datalist id="dl-marcas">{% for m in marcas %}<option value="{{ m }}">{% endfor %}</datalist>
+
+<script>
+(() => {
+  const entrada = document.getElementById('marca-in'), chips = document.getElementById('chips-marcas');
+  const marcas = new Set([...document.querySelectorAll('#dl-marcas option')].map(o => o.value));
+  const quitar = (b) => b.addEventListener('click', () => b.closest('.chip-marca').remove());
+  chips.querySelectorAll('button').forEach(quitar);
+  function agregar() {
+    const v = entrada.value.trim();
+    if (!v) return;
+    const nombre = [...marcas].find(m => m.toUpperCase() === v.toUpperCase()) || v;
+    if ([...chips.querySelectorAll('input')].some(i => i.value === nombre)) { entrada.value = ''; return; }
+    const span = document.createElement('span'); span.className = 'chip-marca';
+    span.append(nombre);
+    const inp = document.createElement('input'); inp.type = 'hidden'; inp.name = 'marca'; inp.value = nombre; span.append(inp);
+    const b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-label', 'Quitar marca ' + nombre);
+    b.innerHTML = '<i class="bi bi-x" aria-hidden="true"></i>'; quitar(b); span.append(b);
+    chips.append(span); entrada.value = ''; entrada.focus();
+  }
+  document.getElementById('btn-marca').addEventListener('click', agregar);
+  entrada.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); agregar(); } });
+  document.getElementById('form-filtros').addEventListener('submit', () => { if (entrada.value.trim()) agregar(); });
+})();
+</script>
+{% endblock %}

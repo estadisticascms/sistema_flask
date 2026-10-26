@@ -1,0 +1,170 @@
+{% extends "layout.html" %}
+{% block title %}Campaña · {{ c.nombre }}{% endblock %}
+{% macro num(v) %}{% set r = v|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .cp h4 { color: var(--credito); }
+  .cp .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .tabla-cp { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1200px; }
+  .tabla-cp thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-cp td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  .tabla-cp .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-cp .meta { font-size: .72rem; color: var(--ink-3); }
+  .btn-prod { background: none; border: 0; padding: 0; text-align: left; font-weight: 600; color: var(--ink); }
+  .btn-prod:hover { color: var(--credito); text-decoration: underline; }
+  .avance .barra { height: 7px; background: var(--grid); border-radius: 4px; overflow: hidden; margin-top: 3px; min-width: 90px; }
+  .avance .barra span { display: block; height: 100%; background: var(--contado); }
+  .delta-pos { color: var(--credito); font-weight: 600; } .delta-neg { color: #b42318; font-weight: 600; }
+  .nota-input { font-size: .75rem; min-width: 160px; }
+  .cp .btn:focus-visible, .btn-prod:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  #modal-ventas table.table { width: 100%; margin: 0; font-size: .8rem; } #modal-ventas table.table td, #modal-ventas table.table th { text-align: left; }
+  #modal-ventas table.table .text-end { text-align: right; }
+</style>
+<div class="dash cp container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-megaphone" aria-hidden="true"></i> {{ c.nombre }}
+        <span class="badge {{ 'text-bg-success' if c.estado == 'Activa' else 'text-bg-secondary' }} align-middle fs-6">{{ c.estado }}</span></h4>
+      <div class="text-muted small">{{ c.estrategia }}{% if c.descuento %} · {{ c.descuento|float|round(1) }}% de descuento{% endif %} ·
+        del {{ c.fecha_inicio.strftime('%d/%m/%Y') }} al {{ tot.corte.strftime('%d/%m/%Y') }} ({{ tot.meses|round(1) }} meses)
+        {% if c.descripcion %}<br>{{ c.descripcion }}{% endif %}</div>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('estrategia_productos.campanas') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Campañas</a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('estrategia_productos.reporte') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar productos</a>
+      <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#editar" aria-expanded="false" aria-controls="editar"><i class="bi bi-pencil" aria-hidden="true"></i> Editar / cerrar</button>
+      {% if filas %}<a class="btn btn-sm" style="background: var(--credito); color: #fff" href="{{ url_for('estrategia_productos.excel_campana', id_=c.id) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>{% endif %}
+    </div>
+  </div>
+
+  <form method="post" class="card card-body mb-3 collapse" id="editar">
+    <input type="hidden" name="accion" value="editar">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3"><label class="form-label" for="nombre">Nombre</label><input id="nombre" name="nombre" value="{{ c.nombre }}" class="form-control form-control-sm" maxlength="120" required></div>
+      <div class="col-md-2"><label class="form-label" for="estrategia">Estrategia</label>
+        <select id="estrategia" name="estrategia" class="form-select form-select-sm">{% for e in estrategias %}<option {% if e == c.estrategia %}selected{% endif %}>{{ e }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-1"><label class="form-label" for="fecha_inicio">Inicio</label><input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ c.fecha_inicio.isoformat() }}" class="form-control form-control-sm" required></div>
+      <div class="col-6 col-md-1"><label class="form-label" for="fecha_fin">Fin</label><input type="date" id="fecha_fin" name="fecha_fin" value="{{ c.fecha_fin.isoformat() if c.fecha_fin else '' }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-1"><label class="form-label" for="descuento">Descuento %</label><input type="number" id="descuento" name="descuento" min="0" max="100" step="0.5" value="{{ c.descuento|float if c.descuento is not none else '' }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-1"><label class="form-label" for="estado">Estado</label>
+        <select id="estado" name="estado" class="form-select form-select-sm"><option {% if c.estado == 'Activa' %}selected{% endif %}>Activa</option><option {% if c.estado == 'Cerrada' %}selected{% endif %}>Cerrada</option></select></div>
+      <div class="col-md-2"><label class="form-label" for="descripcion">Descripción</label><input id="descripcion" name="descripcion" value="{{ c.descripcion or '' }}" class="form-control form-control-sm" maxlength="500"></div>
+      <div class="col-md-1 d-grid"><button class="btn btn-success btn-sm">Guardar</button></div>
+    </div>
+    <div class="mt-2 text-end"><button class="btn btn-link btn-sm text-danger p-0" form="form-eliminar">Eliminar campaña</button></div>
+  </form>
+  <form method="post" id="form-eliminar" onsubmit="return confirm('¿Eliminar la campaña y su lista de productos? Las ventas no se tocan.');"><input type="hidden" name="accion" value="eliminar"></form>
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Vendido desde el inicio</div><div class="valor">C$ {{ "{:,.2f}".format(tot.monto) }}</div>
+      <div class="sub">{{ num(tot.unidades) }} unidades · {{ tot.con_venta }} de {{ tot.productos }} productos con venta</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Ritmo de venta</div>
+      <div class="valor">{% if tot.variacion is not none %}<span class="{{ 'delta-pos' if tot.variacion >= 0 else 'delta-neg' }}">{{ "%+.0f"|format(tot.variacion) }}%</span>{% else %}—{% endif %}</div>
+      <div class="sub">{{ num(tot.ritmo) }} unid./mes ahora vs {{ num(tot.base) }} antes (promedio 12 meses previos)</div></div></div>
+    <div class="col-12 col-lg-6"><div class="card kpi"><div class="etiqueta">Inventario inicial vendido (al costo)</div>
+      <div class="valor">{{ (tot.avance * 100)|round(1) }}%</div>
+      <div class="sub">C$ {{ "{:,.0f}".format(tot.vendido_costo) }} de C$ {{ "{:,.0f}".format(tot.valor_inicial) }} · {{ num(tot.unidades_inicial) }} unidades al inicio</div>
+      <div class="avance"><div class="barra" role="img" aria-label="{{ (tot.avance * 100)|round(1) }}% vendido"><span style="width: {{ (tot.avance * 100)|round(1) }}%"></span></div></div></div></div>
+  </div>
+
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+    <div class="small text-muted">Clic en un producto para ver a quién se vendió y con qué vendedor.</div>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Ordenar">
+      {% for k, v in [('vendido', 'Más vendido'), ('avance', '% vendido'), ('sin_venta', 'Sin venta primero'), ('valor', 'Mayor inventario')] %}
+      <a class="btn {{ 'btn-secondary' if orden == k else 'btn-outline-secondary' }}" href="{{ url_for('estrategia_productos.campana', id_=c.id, orden=k) }}">{{ v }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 68vh">
+    <table class="tabla-cp">
+      <thead><tr><th>Producto</th><th class="num">Existencia inicial</th><th class="num">Existencia hoy</th><th class="num">Precio ref. C$</th>
+        <th class="num">Antes (unid./mes)</th><th>Vendido desde inicio</th><th class="num">Ahora (unid./mes)</th><th class="num">Monto C$</th>
+        <th class="num">Clientes</th><th>Última venta</th><th>Nota</th><th></th></tr></thead>
+      <tbody>
+        {% for x in filas %}
+        <tr>
+          <td style="min-width: 240px; max-width: 320px"><button type="button" class="btn-prod" data-codigo="{{ x.codigo }}" data-nombre="{{ x.nombre }}">{{ x.nombre }}</button>
+            <div class="meta">{{ x.codigo }}{% if x.parte %} · {{ x.parte }}{% endif %} · {{ x.marca }}</div></td>
+          <td class="num">{{ num(x.existencia_inicial) }}</td>
+          <td class="num">{{ num(x.existencia) }}</td>
+          <td class="num">{{ "{:,.2f}".format(x.precio_ref) }}</td>
+          <td class="num">{{ num(x.base) }}{% if x.ultima_venta_previa %}<div class="meta">venta previa {{ x.ultima_venta_previa.strftime('%d/%m/%Y') }}</div>{% else %}<div class="meta">nunca vendido</div>{% endif %}</td>
+          <td class="avance"><strong>{{ num(x.vendido) }}</strong> <span class="meta">({{ (x.avance * 100)|round(0)|int }}% de lo inicial)</span>
+            <div class="barra" role="img" aria-label="{{ (x.avance * 100)|round(0)|int }}% vendido"><span style="width: {{ (x.avance * 100)|round(1) }}%"></span></div></td>
+          <td class="num">{{ num(x.ritmo) }}
+            {% if x.variacion is not none %}<div class="{{ 'delta-pos' if x.variacion >= 0 else 'delta-neg' }}" style="font-size: .72rem">{{ "%+.0f"|format(x.variacion) }}%</div>
+            {% elif x.vendido > 0 %}<div class="delta-pos" style="font-size: .72rem">volvió a venderse</div>{% endif %}</td>
+          <td class="num">{{ "{:,.2f}".format(x.monto) }}</td>
+          <td class="num">{{ x.clientes or '' }}</td>
+          <td class="text-nowrap">{{ x.ultima.strftime('%d/%m/%Y') if x.ultima else '—' }}</td>
+          <td><form method="post" class="d-flex gap-1"><input type="hidden" name="accion" value="nota"><input type="hidden" name="codigo" value="{{ x.codigo }}">
+            <input name="nota" value="{{ x.nota or '' }}" maxlength="255" class="form-control form-control-sm nota-input" aria-label="Nota de {{ x.codigo }}" placeholder="Acción, oferta…">
+            <button class="btn btn-sm btn-outline-secondary" aria-label="Guardar nota"><i class="bi bi-check2" aria-hidden="true"></i></button></form></td>
+          <td><form method="post" onsubmit="return confirm('¿Quitar {{ x.codigo }} de la campaña?');"><input type="hidden" name="accion" value="quitar"><input type="hidden" name="codigo" value="{{ x.codigo }}">
+            <button class="btn btn-sm btn-outline-danger" aria-label="Quitar {{ x.codigo }} de la campaña"><i class="bi bi-x-lg" aria-hidden="true"></i></button></form></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="12" class="text-center text-muted py-4">La campaña no tiene productos. <a href="{{ url_for('estrategia_productos.reporte') }}">Agréguelos desde el reporte de poco movimiento</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="small text-muted mt-1">Vendido = salidas por factura menos devoluciones desde el inicio de la campaña. "Antes" es el promedio mensual de los 12 meses previos a agregar el producto.</div>
+</div>
+
+<div class="modal fade" id="modal-ventas" tabindex="-1" aria-labelledby="modal-ventas-titulo" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div><h5 class="modal-title mb-0" id="modal-ventas-titulo" style="color: var(--credito); font-weight: 700; font-size: 1.05rem">Ventas</h5>
+          <div class="small text-muted">Desde el {{ c.fecha_inicio.strftime('%d/%m/%Y') }}</div></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modal-ventas-cuerpo"></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const modal = document.getElementById('modal-ventas'), cuerpo = document.getElementById('modal-ventas-cuerpo');
+  const URL = "{{ url_for('estrategia_productos.ventas_campana', id_=c.id, codigo='__COD__') }}";
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const dinero = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fecha = (s) => s ? s.split('-').reverse().join('/') : '—';
+  let ventana = null;
+  document.querySelectorAll('.btn-prod').forEach(b => b.addEventListener('click', async () => {
+    ventana = ventana || new bootstrap.Modal(modal);
+    document.getElementById('modal-ventas-titulo').textContent = `${b.dataset.codigo} · ${b.dataset.nombre}`;
+    cuerpo.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando…</div>';
+    ventana.show();
+    try {
+      const d = await (await fetch(URL.replace('__COD__', encodeURIComponent(b.dataset.codigo)))).json();
+      if (!d.ventas || !d.ventas.length) { cuerpo.innerHTML = '<p class="text-muted mb-0">Sin ventas desde el inicio de la campaña.</p>'; return; }
+      const porVend = {};
+      d.ventas.forEach(v => { porVend[v.vendedor] = (porVend[v.vendedor] || 0) + v.cantidad; });
+      const chips = Object.entries(porVend).sort((a, b) => b[1] - a[1])
+        .map(([v, c]) => `<span class="badge rounded-pill text-bg-light border me-1 mb-1">${esc(v)}: <strong>${num(c)}</strong></span>`).join('');
+      const total = d.ventas.reduce((a, v) => a + v.monto, 0), unid = d.ventas.reduce((a, v) => a + v.cantidad, 0);
+      cuerpo.innerHTML = `<div class="mb-2 small"><strong>${num(unid)}</strong> unidades · <strong>C$ ${dinero(total)}</strong> sin IVA ·
+          ${new Set(d.ventas.map(v => v.cliente.toUpperCase())).size} clientes</div>
+        <div class="mb-2 small"><strong>Por vendedor:</strong> ${chips}</div>
+        <div class="table-responsive"><table class="table table-sm table-striped mb-0">
+          <thead><tr><th>Fecha</th><th>Factura</th><th>Cliente</th><th>Vendedor</th><th>Tipo</th><th class="text-end">Cant.</th><th class="text-end">Precio</th><th class="text-end">Monto C$</th></tr></thead>
+          <tbody>${d.ventas.map(v => `<tr><td class="text-nowrap">${fecha(v.fecha)}</td><td>${esc(v.factura)}</td><td>${esc(v.cliente)}</td><td>${esc(v.vendedor)}</td>
+            <td>${esc(v.tipo)}</td><td class="text-end fw-bold">${num(v.cantidad)}</td><td class="text-end">${dinero(v.precio)}</td><td class="text-end">${dinero(v.monto)}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+    } catch { cuerpo.innerHTML = '<p class="text-danger mb-0">No se pudo cargar el detalle.</p>'; }
+  }));
+})();
+</script>
+{% endblock %}

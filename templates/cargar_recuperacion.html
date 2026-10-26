@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+{% block title %}Cargar Recuperación{% endblock %}
+{% block content %}
+<div class="container mt-3 mb-4">
+  <h5><i class="bi bi-cash-stack" aria-hidden="true"></i> Cargar recuperación (comisiones crédito)</h5>
+  <p class="text-muted small mb-3">
+    Suba el reporte <strong>Comisiones Crédito</strong> del sistema. Se guarda cada pago (factura + recibo) con su vendedor y facturador;
+    lo ya cargado no se duplica y, si cambió, se actualiza. Nada se guarda hasta que presione <strong>Confirmar carga</strong>.
+  </p>
+
+  <form action="{{ url_for('cargar_recuperacion.cargar_recuperacion') }}" method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3"
+        onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Validando…';">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label fw-semibold" for="archivo">Comisiones Crédito <span class="text-danger">*</span></label>
+        <input type="file" id="archivo" name="archivo" class="form-control" accept=".xls,.xlsx" required>
+        <div class="form-text">Columnas: FACTURADOR, # FACTURA/ND, # ROC, CLIENTE, FECHA FACTURA, FECHA PAGO, … MONTO PAGADO, REAL ABONADO.</div>
+      </div>
+      <div class="col-md-6"><button type="submit" class="btn btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Validar archivo</button></div>
+    </div>
+  </form>
+
+  {% if errores_archivo %}
+    <div class="alert alert-danger"><strong>No se pudo leer el archivo:</strong>
+      <ul class="mb-0">{% for e in errores_archivo %}<li>{{ e }}</li>{% endfor %}</ul></div>
+  {% endif %}
+
+  {% if validado %}
+    <div class="row g-2 mb-3 text-center">
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Pagos en archivo</div><div class="fs-4 fw-bold">{{ "{:,}".format(total) }}</div>
+        <div class="small text-muted">{{ desde.strftime('%d/%m/%Y') }} al {{ hasta.strftime('%d/%m/%Y') }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-success"><div class="small text-muted">Nuevos</div><div class="fs-4 fw-bold text-success">{{ "{:,}".format(dif.nuevos|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2 border-primary"><div class="small text-muted">Se actualizan</div><div class="fs-4 fw-bold text-primary">{{ "{:,}".format(dif.modificados|length) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Ya cargados sin cambios</div><div class="fs-4 fw-bold text-secondary">{{ "{:,}".format(dif.sin_cambio) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Monto pagado</div><div class="fs-5 fw-bold">C$ {{ "{:,.2f}".format(pagado) }}</div>
+        <div class="small text-muted">real abonado C$ {{ "{:,.2f}".format(abonado) }}</div></div></div>
+    </div>
+
+    <details class="mb-3"><summary class="small">Ver totales por vendedor</summary>
+      <table class="table table-sm small w-auto mt-2">
+        <thead><tr><th>Vendedor</th><th class="text-end">Líneas</th><th class="text-end">Monto pagado</th><th class="text-end">Real abonado</th></tr></thead>
+        <tbody>{% for v in por_vendedor %}<tr><td>{{ v.vendedor }}</td><td class="text-end">{{ v.lineas }}</td>
+          <td class="text-end">{{ "{:,.2f}".format(v.pagado) }}</td><td class="text-end">{{ "{:,.2f}".format(v.abonado) }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </details>
+
+    {% with clave='clave', etiqueta='pagos', url_confirmar=url_for('cargar_recuperacion.confirmar'), url_cancelar=url_for('cargar_recuperacion.cargar_recuperacion'),
+            columnas=[('vendedor', 'Vendedor'), ('facturador', 'Facturador'), ('nfactura', 'Factura'), ('nrecibo', 'ROC'), ('cliente', 'Cliente'),
+                      ('fechafact', 'F. factura'), ('fechapago', 'F. pago'), ('drecuperado', 'Días'), ('total', 'Total'), ('mpagado', 'Pagado'), ('realabono', 'Real abonado')] %}
+      {% include "_previa_carga.html" %}
+    {% endwith %}
+  {% endif %}
+
+  {% if ultimos %}
+    <h6 class="mt-4">📑 Recuperación cargada por mes</h6>
+    <table class="table table-sm table-striped small w-auto">
+      <thead><tr><th>Mes</th><th>Desde</th><th>Hasta</th><th class="text-end">Líneas</th><th class="text-end">Monto pagado</th><th class="text-end">Real abonado</th></tr></thead>
+      <tbody>{% for m in ultimos %}<tr><td>{{ m.mes }}</td><td>{{ m.desde.strftime('%d/%m/%Y') }}</td><td>{{ m.hasta.strftime('%d/%m/%Y') }}</td>
+        <td class="text-end">{{ "{:,}".format(m.lineas) }}</td><td class="text-end">{{ "{:,.2f}".format(m.pagado or 0) }}</td><td class="text-end">{{ "{:,.2f}".format(m.abonado or 0) }}</td></tr>{% endfor %}</tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}

@@ -70,11 +70,12 @@
 
   {# ---------- Filtros ---------- #}
   <form method="get" class="controles card card-body py-2 mb-3">
+    <input type="hidden" name="vista" value="detalle">
     <div class="d-flex flex-wrap align-items-end gap-2">
       <div class="btn-group btn-group-sm" role="group" aria-label="Períodos rápidos">
         {% for nombre, i, fn in rangos %}
           <a class="btn btn-outline-secondary {% if i == f.fecha_inicio and fn == f.fecha_fin %}active{% endif %}"
-             href="{{ url_for('ventas_bodega.reporte_ventas_bodega', fecha_inicio=i, fecha_fin=fn, **base) }}">{{ nombre }}</a>
+             href="{{ url_for('ventas_bodega.reporte_ventas_bodega', vista='detalle', fecha_inicio=i, fecha_fin=fn, **base) }}">{{ nombre }}</a>
         {% endfor %}
       </div>
       <div><label class="form-label" for="fi">Desde</label>
@@ -96,7 +97,8 @@
         </select></div>
       <input type="hidden" name="detalle" value="{{ f.detalle }}">
       <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button>
-      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ventas_bodega.reporte_ventas_bodega') }}" title="Quitar filtros" aria-label="Quitar filtros"><i class="bi bi-x-lg" aria-hidden="true"></i></a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ventas_bodega.reporte_ventas_bodega', vista='detalle') }}" title="Quitar filtros" aria-label="Quitar filtros"><i class="bi bi-x-lg" aria-hidden="true"></i></a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ventas_bodega.reporte_ventas_bodega', dia=f.fecha_fin) }}"><i class="bi bi-phone" aria-hidden="true"></i> Vista del día (WhatsApp)</a>
     </div>
   </form>
 
@@ -192,7 +194,7 @@
           {% set deshabilitado = clave == 'dia' and f.dias > 31 %}
           <a class="btn btn-outline-secondary {% if f.detalle == clave %}active{% endif %} {% if deshabilitado %}disabled{% endif %}"
              {% if deshabilitado %}aria-disabled="true" title="Disponible para rangos de hasta 31 días"{% endif %}
-             href="{{ url_for('ventas_bodega.reporte_ventas_bodega', fecha_inicio=f.fecha_inicio, fecha_fin=f.fecha_fin, marca=f.marca, vendedor=f.vendedor, tipo=f.tipo, detalle=clave) }}">{{ nombre }}</a>
+             href="{{ url_for('ventas_bodega.reporte_ventas_bodega', vista='detalle', fecha_inicio=f.fecha_inicio, fecha_fin=f.fecha_fin, marca=f.marca, vendedor=f.vendedor, tipo=f.tipo, detalle=clave) }}">{{ nombre }}</a>
         {% endfor %}
       </div>
       <input type="search" id="buscar-prod" class="form-control form-control-sm" style="width: 240px"

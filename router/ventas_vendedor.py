@@ -91,3 +91,55 @@ def resumen_grupos(vendedores):
     for g in filas:
         g["pct"] = g["total"] / total * 100 if total else 0
     return filas
+
+
+def resumen_dia(dia, obtener_reporte):
+    """Vista compacta para WhatsApp: venta del día por vendedor junto al acumulado del mes (del 1 al día elegido).
+    obtener_reporte es obtener_reporte_ventas de app.py (misma regla de devoluciones y del cliente Ejército)."""
+    inicio = dia.replace(day=1)
+    del_dia = {v["vendedor"]: v for v in ranking_vendedores(obtener_reporte(dia.isoformat(), dia.isoformat()))}
+    del_mes = {v["vendedor"]: v for v in ranking_vendedores(obtener_reporte(inicio.isoformat(), dia.isoformat()))}
+    filas = []
+    for nombre in set(del_dia) | set(del_mes):
+        d, m = del_dia.get(nombre), del_mes.get(nombre)
+        filas.append({"vendedor": nombre, "grupo": (d or m)["grupo"],
+                      "dia": d["total"] if d else 0.0, "dia_credito": d["credito"] if d else 0.0, "dia_contado": d["contado"] if d else 0.0,
+                      "mes": m["total"] if m else 0.0, "pos_mes": m["posicion"] if m else None, "pct_mes": m["pct"] if m else 0.0})
+    # Orden: lo vendido hoy; los que no vendieron hoy van al final según su acumulado
+    filas.sort(key=lambda f: (-f["dia"], -f["mes"]))
+    pos = 0
+    for f in filas:
+        if f["dia"] > 0:
+            pos += 1
+            f["pos_dia"] = pos
+        else:
+            f["pos_dia"] = None
+    facturas_dia, _ = facturas_periodo(dia, dia)
+    facturas_mes, dias_mes = facturas_periodo(inicio, dia)
+    total_dia = sum(f["dia"] for f in filas)
+    total_mes = sum(f["mes"] for f in filas)
+    promedio = total_mes / dias_mes if dias_mes else None
+    con_venta = [f for f in filas if f["dia"] > 0]
+    lider_mes = max(filas, key=lambda f: f["mes"], default=None)
+    productos = productos_periodo(dia, dia)
+    return {
+        "productos": productos[:5], "total_productos": len(productos), "venta_productos": sum(p["venta"] for p in productos),
+        "filas": filas, "inicio": inicio,
+        "total_dia": total_dia, "credito_dia": sum(f["dia_credito"] for f in filas), "contado_dia": sum(f["dia_contado"] for f in filas),
+        "total_mes": total_mes, "dias_mes": dias_mes, "facturas_dia": facturas_dia, "facturas_mes": facturas_mes,
+        "promedio": promedio, "vs_promedio": (total_dia / promedio - 1) * 100 if promedio and total_dia else None,
+        "mejor_dia": con_venta[0] if con_venta else None, "mejor_mes": lider_mes if lider_mes and lider_mes["mes"] > 0 else None,
+        "vendieron": len(con_venta),
+    }
+
+
+def dias_vecinos(dia):
+    """Día con ventas anterior y siguiente (para las flechas de la vista del día)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT (SELECT MAX(Fecha) FROM ventas_historicas WHERE Fecha < %s), (SELECT MIN(Fecha) FROM ventas_historicas WHERE Fecha > %s)",
+                   (dia, dia))
+    anterior, siguiente = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return anterior, siguiente

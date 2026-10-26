@@ -1,0 +1,225 @@
+{% extends "layout.html" %}
+{% block title %}Ventas del Día por Bodega{% endblock %}
+
+{% set dias_semana = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'] %}
+{% set meses_nombre = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+{% macro c(v) %}C$ {{ "{:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro k(v) %}{% if (v or 0) >= 1000 %}{{ "%.1f"|format(v / 1000) }}k{% else %}{{ "{:,.0f}".format(v or 0) }}{% endif %}{% endmacro %}
+{% macro u(v) %}{% set r = (v or 0)|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  /* Tarjeta para compartir: angosta (se ve completa en el celular) y con letra grande */
+  #reporte { width: 620px; max-width: 100%; margin: 0 auto; background: #fff; border-radius: 14px; overflow: hidden;
+             box-shadow: 0 2px 12px rgba(0,0,0,.08); font-family: 'Segoe UI', Arial, sans-serif; color: #1f1f1d; }
+  #reporte .cab { background: #027266; color: #fff; padding: 14px 18px 12px; display: flex; align-items: center; gap: 12px; border-bottom: 5px solid #FE6412; }
+  #reporte .cab img { height: 38px; background: #1f1f1d; border-radius: 8px; padding: 4px 8px; }
+  #reporte .cab .t { font-size: 1.3rem; font-weight: 800; line-height: 1.1; }
+  #reporte .cab .f { font-size: .95rem; opacity: .9; }
+  #reporte .cuerpo { padding: 14px 18px 10px; }
+  #reporte .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  #reporte .kpi2 { border-radius: 12px; padding: 10px 12px; background: #f6f5f1; }
+  #reporte .kpi2.hoy { background: #e9f4f2; }
+  #reporte .kpi2 .e { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #52514e; }
+  #reporte .kpi2 .v { font-size: 1.7rem; font-weight: 800; line-height: 1.15; color: #027266; white-space: nowrap; }
+  #reporte .kpi2.mes .v { color: #1f1f1d; }
+  #reporte .kpi2 .s { font-size: .82rem; color: #52514e; }
+  #reporte .medidor { height: 7px; border-radius: 4px; overflow: hidden; display: flex; gap: 2px; margin: 6px 0 3px; }
+  #reporte .delta-pos { color: #027266; font-weight: 700; } #reporte .delta-neg { color: #b42318; font-weight: 700; }
+  #reporte .mejor { display: flex; gap: 12px; align-items: center; margin-top: 12px; padding: 10px 14px; border-radius: 12px;
+                    background: linear-gradient(90deg, #fff1e8, #fff8f3); border: 1px solid #ffd2b8; }
+  #reporte .mejor .copa { font-size: 2rem; color: #FE6412; line-height: 1; }
+  #reporte .mejor .e { font-size: .75rem; font-weight: 700; text-transform: uppercase; color: #9a3412; }
+  #reporte .mejor .n { font-size: 1.2rem; font-weight: 800; }
+  #reporte .mejor .m { font-size: .9rem; color: #52514e; }
+  #reporte .lider-mes { font-size: .85rem; color: #52514e; margin-top: 6px; }
+  #reporte table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: .95rem; }
+  #reporte th { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #6b6a66; padding: 4px 6px;
+                border-bottom: 2px solid #e3e1db; text-align: left; }
+  #reporte th.n, #reporte td.n { text-align: right; white-space: nowrap; }
+  #reporte td { padding: 6px 6px; border-bottom: 1px solid #f0eee9; vertical-align: middle; }
+  #reporte td.bod { font-weight: 600; line-height: 1.15; }
+  #reporte td.bod .g { display: block; font-size: .7rem; font-weight: 400; color: #8a8984; }
+  #reporte td.hoy { font-weight: 800; color: #027266; }
+  #reporte tr.sin-venta td { color: #a3a19a; } #reporte tr.sin-venta td.hoy { color: #a3a19a; font-weight: 400; }
+  #reporte .pos { display: inline-flex; width: 26px; height: 26px; border-radius: 50%; align-items: center; justify-content: center;
+                  font-weight: 800; font-size: .85rem; background: #eceae4; color: #52514e; }
+  #reporte .pos.p1 { background: #f5b301; color: #fff; } #reporte .pos.p2 { background: #a8a9ad; color: #fff; } #reporte .pos.p3 { background: #c47a3a; color: #fff; }
+  #reporte .barra-mes { height: 6px; background: #eceae4; border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  #reporte .barra-mes span { display: block; height: 100%; background: #FE6412; border-radius: 3px; }
+  #reporte tr.total td { border-top: 2px solid #027266; border-bottom: 0; font-weight: 800; }
+  #reporte .cc { display: flex; height: 4px; border-radius: 2px; overflow: hidden; gap: 1px; margin: 3px 0 1px auto; width: 110px; }
+  #reporte .cc-txt { font-size: .68rem; font-weight: 600; color: #6b6a66; white-space: nowrap; }
+  #reporte .cc-txt .cr { color: #027266; } #reporte .cc-txt .co { color: #c2410c; }
+  #reporte .uf { font-size: .7rem; color: #6b6a66; font-weight: 400; white-space: nowrap; }
+  #reporte .leyenda { font-size: .7rem; color: #6b6a66; }
+  #reporte .leyenda i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin: 0 3px 0 6px; vertical-align: -1px; }
+  #reporte .prods { margin-top: 14px; }
+  #reporte .prods .tit { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #52514e;
+                         display: flex; justify-content: space-between; border-bottom: 2px solid #e3e1db; padding-bottom: 3px; }
+  #reporte .prod { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0eee9; }
+  #reporte .prod .pos { width: 22px; height: 22px; font-size: .75rem; flex-shrink: 0; }
+  #reporte .prod .d { flex-grow: 1; min-width: 0; line-height: 1.15; }
+  #reporte .prod .d .n1 { font-weight: 600; font-size: .86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #reporte .prod .d .n2 { font-size: .7rem; color: #8a8984; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #reporte .prod .un { font-weight: 800; color: #027266; white-space: nowrap; width: 78px; text-align: right; }
+  #reporte .prod .vt { font-size: .72rem; color: #52514e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+  #reporte .pie { font-size: .72rem; color: #8a8984; padding: 6px 18px 12px; display: flex; justify-content: space-between; gap: 8px; }
+  .controles { max-width: 620px; margin: 0 auto 10px; }
+  .controles .btn:focus-visible, .controles a:focus-visible { outline: 3px solid #FE6412; outline-offset: 2px; box-shadow: none; }
+</style>
+
+<div class="dash container-fluid px-2">
+  {# ---------- Controles (no salen en la imagen) ---------- #}
+  <form method="get" class="controles d-flex flex-wrap align-items-end gap-2">
+    <div><label class="form-label small mb-0" for="dia">Día</label>
+      <div class="input-group input-group-sm">
+        <a class="btn btn-outline-secondary {{ 'disabled' if not anterior }}" href="{{ url_for('ventas_bodega.reporte_ventas_bodega', dia=anterior) if anterior else '#' }}" aria-label="Día anterior con ventas"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+        <input type="date" id="dia" name="dia" value="{{ dia.isoformat() }}" class="form-control" onchange="this.form.submit()">
+        <a class="btn btn-outline-secondary {{ 'disabled' if not siguiente }}" href="{{ url_for('ventas_bodega.reporte_ventas_bodega', dia=siguiente) if siguiente else '#' }}" aria-label="Día siguiente con ventas"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+      </div></div>
+    <div class="ms-auto d-flex flex-wrap gap-2">
+      <button type="button" id="btnImagen" class="btn btn-success btn-sm"><i class="bi bi-image" aria-hidden="true"></i> Descargar imagen</button>
+      <button type="button" id="btnCopiar" class="btn btn-outline-success btn-sm" hidden><i class="bi bi-clipboard" aria-hidden="true"></i> Copiar</button>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ventas_bodega.reporte_ventas_bodega', vista='detalle', fecha_inicio=dia, fecha_fin=dia) }}"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Vista detallada</a>
+    </div>
+    <span id="avisoImagen" class="small w-100 text-end"></span>
+  </form>
+
+  {# ---------- Tarjeta para compartir ---------- #}
+  <div id="reporte">
+    <div class="cab">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Comersa">
+      <div>
+        <div class="t">Ventas del día por bodega</div>
+        <div class="f">{{ dias_semana[dia.weekday()]|capitalize }} {{ dia.day }} de {{ meses_nombre[dia.month - 1] }} de {{ dia.year }}</div>
+      </div>
+    </div>
+
+    <div class="cuerpo">
+      {% if not r.filas %}
+        <div class="alert alert-warning mb-0">No hay ventas por producto cargadas para este mes.</div>
+      {% else %}
+      {% set d = r.dia_total %}{% set m = r.mes_total %}
+      {% set fc = d.total.facturas %}{% set pcf = (d.CREDITO.facturas / fc * 100) if fc else 0 %}
+      <div class="kpis">
+        <div class="kpi2 hoy">
+          <div class="e">Unidades vendidas hoy</div>
+          <div class="v">{{ u(d.total.cantidad) }}</div>
+          {% if d.total.cantidad %}
+          <div class="medidor" role="img" aria-label="Facturas: crédito {{ '%.0f'|format(pcf) }}%, contado {{ '%.0f'|format(100 - pcf) }}%">
+            <span style="width: {{ pcf }}%; background: #027266"></span><span style="width: {{ 100 - pcf }}%; background: #FE6412"></span></div>
+          <div class="s"><strong>{{ d.total.facturas }}</strong> facturas: crédito {{ d.CREDITO.facturas }} · contado {{ d.CONTADO.facturas }}</div>
+          <div class="s">{{ d.total.productos }} productos distintos
+            {% if r.vs_promedio is not none %}· <span class="{{ 'delta-pos' if r.vs_promedio >= 0 else 'delta-neg' }}">{{ "%+.0f"|format(r.vs_promedio) }}%</span> unid. vs prom.{% endif %}</div>
+          {% else %}<div class="s">Sin ventas este día</div>{% endif %}
+        </div>
+        <div class="kpi2 mes">
+          <div class="e">Acumulado de {{ meses_nombre[dia.month - 1] }}</div>
+          <div class="v">{{ u(m.total.cantidad) }} <span style="font-size: .9rem; font-weight: 600">unid.</span></div>
+          <div class="s">Del 1 al {{ dia.day }} · {{ r.dias_mes }} días con venta</div>
+          <div class="s">Promedio {{ u(r.promedio or 0) }} unid. por día</div>
+          <div class="s">{{ "{:,}".format(m.total.facturas) }} facturas · {{ "{:,}".format(m.total.productos) }} productos</div>
+        </div>
+      </div>
+
+      {% if r.mejor_dia %}
+      <div class="mejor">
+        <i class="bi bi-trophy-fill copa" aria-hidden="true"></i>
+        <div class="flex-grow-1">
+          <div class="e">Bodega con más movimiento del día</div>
+          <div class="n">{{ r.mejor_dia.bodega }}</div>
+          <div class="m">{{ u(r.mejor_dia.dia) }} unid. ({{ "%.0f"|format(r.mejor_dia.dia / d.total.cantidad * 100) }}% del día) · {{ r.mejor_dia.h.total.facturas }} facturas · {{ r.mejor_dia.h.total.productos }} productos</div>
+        </div>
+      </div>
+      {% endif %}
+      {% if r.mejor_mes %}<div class="lider-mes"><i class="bi bi-star-fill" style="color: #FE6412" aria-hidden="true"></i>
+        Líder del mes: <strong>{{ r.mejor_mes.bodega }}</strong> con {{ u(r.mejor_mes.unidades_mes) }} unid.
+        ({{ "%.0f"|format(r.mejor_mes.unidades_mes / m.total.cantidad * 100) if m.total.cantidad else 0 }}% del mes)</div>{% endif %}
+
+      {% set max_mes = (r.filas | map(attribute='unidades_mes') | max) or 1 %}
+      <table>
+        <thead><tr><th style="width: 36px">#</th><th>Bodega</th>
+          <th class="n">Hoy <span class="leyenda" style="text-transform: none; font-weight: 400">facturas <i style="background: #027266"></i>Cr<i style="background: #FE6412"></i>Co</span></th>
+          <th class="n" style="width: 160px">Acumulado mes</th></tr></thead>
+        <tbody>
+          {% for f in r.filas %}
+          <tr class="{{ 'sin-venta' if not f.dia }}">
+            <td>{% if f.pos_dia %}<span class="pos {{ 'p' ~ f.pos_dia if f.pos_dia <= 3 }}">{{ f.pos_dia }}</span>{% else %}<span class="pos">–</span>{% endif %}</td>
+            <td class="bod">{{ f.bodega }}
+              <span class="g">{% if f.dia %}{{ f.h.total.productos }} productos{% else %}sin venta hoy{% endif %}{% if f.nombres %} · {{ f.nombres|length }} bodegas{% endif %}</span></td>
+            <td class="n hoy">{% if f.dia %}{{ u(f.dia) }} <span style="font-size: .72rem; font-weight: 600">unid.</span>
+              {% set ft = f.h.total.facturas %}{% set pcv = (f.h.CREDITO.facturas / ft * 100) if ft else 0 %}
+              <div class="cc" role="img" aria-label="Facturas crédito {{ f.h.CREDITO.facturas }}, contado {{ f.h.CONTADO.facturas }}"><span style="width: {{ pcv }}%; background: #027266"></span><span style="width: {{ 100 - pcv }}%; background: #FE6412"></span></div>
+              <div class="cc-txt">{{ ft }} fact.: <span class="cr">Cr {{ f.h.CREDITO.facturas }}</span> · <span class="co">Co {{ f.h.CONTADO.facturas }}</span></div>
+              {% else %}—{% endif %}</td>
+            <td class="n">{{ u(f.unidades_mes) }} <span class="text-muted" style="font-size: .72rem">#{{ f.pos_mes }}</span>
+              <div class="barra-mes"><span style="width: {{ (f.unidades_mes / max_mes * 100)|round(1) }}%"></span></div>
+              <div class="uf">{{ "{:,}".format(f.m.total.facturas) }} fact. · {{ "{:,}".format(f.m.total.productos) }} prod.</div></td>
+          </tr>
+          {% endfor %}
+          <tr class="total"><td></td><td>Total</td>
+            <td class="n" style="color: #027266">{{ u(d.total.cantidad) }}
+              <div class="cc-txt">{{ d.total.facturas }} fact.: <span class="cr">Cr {{ d.CREDITO.facturas }}</span> · <span class="co">Co {{ d.CONTADO.facturas }}</span></div></td>
+            <td class="n">{{ u(m.total.cantidad) }}<div class="uf">{{ "{:,}".format(m.total.facturas) }} fact.</div></td></tr>
+        </tbody>
+      </table>
+
+      {% if r.productos %}
+      <div class="prods">
+        <div class="tit"><span><i class="bi bi-box-seam" aria-hidden="true"></i> Top 5 productos del día (unidades)</span>
+          <span style="text-transform: none; font-weight: 400">{{ r.total_productos }} productos vendidos</span></div>
+        {% for p in r.productos %}
+        <div class="prod">
+          <span class="pos {{ 'p' ~ loop.index if loop.index <= 3 }}">{{ loop.index }}</span>
+          <div class="d"><div class="n1">{{ p.descripcion }}</div>
+            <div class="n2">{{ p.numero_parte or p.codigo }} · {{ p.marca or 'sin marca' }}</div></div>
+          <span class="vt" style="width: 120px">{{ p.bodega }}{% if p.varias %} y otras{% endif %}</span>
+          <span class="un">{{ u(p.unidades) }} unid.</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+    <div class="pie"><span>Cantidades vendidas en facturas no anuladas. Productos = códigos distintos. Cr = crédito, Co = contado. # mes = posición por unidades del mes.</span><span>Grupo Comersa · <span id="fechaImagen"></span></span></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script>
+(function () {
+  const nombre = 'ventas_bodega_{{ dia.isoformat() }}.png';
+  const aviso = document.getElementById('avisoImagen');
+  async function generar() {
+    document.getElementById('fechaImagen').textContent = new Date().toLocaleString('es-NI', { dateStyle: 'short', timeStyle: 'short' });
+    const canvas = await html2canvas(document.getElementById('reporte'), { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    return new Promise((ok) => canvas.toBlob(ok, 'image/png'));
+  }
+  async function conEspera(btn, accion) {
+    const html = btn.innerHTML; btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Generando…'; aviso.textContent = '';
+    try { await accion(); }
+    catch (e) { console.error(e); aviso.className = 'small w-100 text-end text-danger'; aviso.textContent = 'No se pudo generar la imagen'; }
+    finally { btn.disabled = false; btn.innerHTML = html; }
+  }
+  document.getElementById('btnImagen').addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+    const blob = await generar();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }));
+  const btnCopiar = document.getElementById('btnCopiar');
+  if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+    btnCopiar.hidden = false;
+    btnCopiar.addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': generar() })]);
+      aviso.className = 'small w-100 text-end text-success'; aviso.textContent = '✓ Imagen copiada: péguela en WhatsApp con Ctrl+V';
+    }));
+  }
+})();
+</script>
+{% endblock %}

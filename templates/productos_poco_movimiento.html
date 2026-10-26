@@ -1,0 +1,257 @@
+{% extends "layout.html" %}
+{% block title %}Poco Movimiento y Marketing{% endblock %}
+{% macro num(v) %}{% set r = v|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .pm h4 { color: var(--credito); }
+  .pm .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .pm .form-control-sm, .pm .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-pm { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1400px; }
+  .tabla-pm thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-pm td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: top; }
+  .tabla-pm tbody tr:hover td { background: #faf9f6; }
+  .tabla-pm tbody tr.marcada td { background: #f3f9f8; }
+  .tabla-pm .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-pm .meta { font-size: .72rem; color: var(--ink-3); }
+  .btn-prod { background: none; border: 0; padding: 0; text-align: left; font-weight: 600; color: var(--ink); }
+  .btn-prod:hover { color: var(--credito); text-decoration: underline; }
+  .clase { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .7rem; white-space: nowrap; }
+  .clase.sin_venta { background: #fde8e8; color: #b42318; } .clase.muy_lento { background: #fff1e8; color: #9a3412; } .clase.lento { background: #fef7e0; color: #854d0e; }
+  .tag { display: inline-block; font-size: .68rem; font-weight: 600; border-radius: 8px; padding: 0 6px; margin: 1px 2px 1px 0; white-space: nowrap; }
+  .tag.falta { background: #fde8e8; color: #b42318; } .tag.reciente { background: #e8f0fe; color: #1d4ed8; } .tag.camp { background: #e3f3f1; color: var(--credito); }
+  .sug { font-size: .72rem; margin: 0; padding-left: 1rem; max-width: 260px; }
+  .sug li.descuento { color: var(--credito); } .sug li.margen, .sug li.revisar { color: #b42318; } .sug li.ficha { color: #9a3412; }
+  .mg.bajo { color: #b42318; font-weight: 600; } .mg.alto { color: var(--credito); font-weight: 600; }
+  .grupo { border-left: 4px solid var(--grid); padding-left: .6rem; text-decoration: none; color: var(--ink); display: block; border-radius: 2px; }
+  .grupo.sin_venta { border-color: #b42318; } .grupo.muy_lento { border-color: var(--contado); } .grupo.lento { border-color: #eab308; }
+  .grupo.activo { background: #f3f9f8; }
+  .barra-accion { position: sticky; bottom: 0; z-index: 5; background: #1f1f1d; color: #fff; border-radius: 10px 10px 0 0; padding: .6rem 1rem; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .pm .btn:focus-visible, .pm a:focus-visible, .btn-prod:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .pm .page-link { color: var(--credito); }
+  .pm .page-item.active .page-link { background: var(--credito); border-color: var(--credito); color: #fff; }
+  #modal-hist table.table { width: 100%; margin: 0; font-size: .8rem; } #modal-hist table.table td, #modal-hist table.table th { text-align: left; }
+  #modal-hist table.table .text-end { text-align: right; }
+</style>
+
+{% set params = {'cobertura': f.cobertura, 'clase': f.clase, 'orden': f.orden, 'marca': f.marca, 'familia': f.familia, 'q': f.q, 'info': f.info,
+                 'valor_min': f.valor_min|int, 'precio': f.precio, 'tc': f.tc, 'margen_obj': f.margen_obj, 'sin_recientes': '1' if f.sin_recientes else ''} %}
+<div class="dash pm container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-megaphone" aria-hidden="true"></i> Poco movimiento y marketing</h4>
+      <div class="text-muted small">Productos con existencia para {{ f.cobertura }} meses o más al ritmo de venta de los últimos 12 meses (al {{ fin.strftime('%d/%m/%Y') }}),
+        o sin venta en 12 meses. Con revisión de precio y estrategia sugerida. Clic en un producto para ver quién lo ha comprado.</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('estrategia_productos.campanas') }}"><i class="bi bi-graph-up-arrow" aria-hidden="true"></i> Seguimiento de campañas</a>
+      {% if r.productos %}<a class="btn btn-verde btn-sm" href="{{ url_for('estrategia_productos.descargar_excel', **params) }}">
+        <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel ({{ "{:,}".format(r.productos) }})</a>{% endif %}
+    </div>
+  </div>
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="cobertura">Existencia para</label>
+        <select id="cobertura" name="cobertura" class="form-select form-select-sm">
+          {% for m in coberturas %}<option value="{{ m }}" {% if m == f.cobertura %}selected{% endif %}>{{ m }} meses o más</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="clase">Movimiento</label>
+        <select id="clase" name="clase" class="form-select form-select-sm">
+          {% for k, v in clases.items() %}<option value="{{ k }}" {% if k == f.clase %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="marca">Marca</label>
+        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="familia">Segmento / familia</label>
+        <input id="familia" name="familia" list="dl-familias" value="{{ f.familia }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, nº parte, descripción"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="info">Ficha</label>
+        <select id="info" name="info" class="form-select form-select-sm">
+          <option value="">Todas</option><option value="falta" {% if f.info == 'falta' %}selected{% endif %}>Incompleta</option>
+          <option value="completa" {% if f.info == 'completa' %}selected{% endif %}>Completa</option></select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="orden">Ordenar por</label>
+        <select id="orden" name="orden" class="form-select form-select-sm">
+          {% for k, v in ordenes.items() %}<option value="{{ k }}" {% if k == f.orden %}selected{% endif %}>{{ v }}</option>{% endfor %}
+        </select></div>
+      <div class="col-4 col-lg-1"><label class="form-label" for="valor_min">Valor mín. C$</label>
+        <input type="number" id="valor_min" name="valor_min" min="0" step="1000" value="{{ f.valor_min|int }}" class="form-control form-control-sm"></div>
+      <div class="col-4 col-lg-1"><label class="form-label" for="precio">Precio ref.</label>
+        <select id="precio" name="precio" class="form-select form-select-sm">{% for i in range(1, 5) %}<option value="{{ i }}" {% if i == f.precio %}selected{% endif %}>Precio {{ i }}</option>{% endfor %}</select></div>
+      <div class="col-4 col-lg-1"><label class="form-label" for="margen_obj">Margen objetivo %</label>
+        <input type="number" id="margen_obj" name="margen_obj" min="0" max="90" step="1" value="{{ f.margen_obj|int }}" class="form-control form-control-sm"
+               title="El descuento sugerido nunca deja el margen por debajo de este valor"></div>
+      <div class="col-4 col-lg-1"><label class="form-label" for="tc">Tipo de cambio</label>
+        <input type="number" id="tc" name="tc" step="0.0001" min="1" value="{{ f.tc }}" class="form-control form-control-sm"></div>
+      <div class="col-8 col-lg-2"><div class="form-check mt-3"><input class="form-check-input" type="checkbox" id="sin_recientes" name="sin_recientes" value="1" {% if f.sin_recientes %}checked{% endif %}>
+        <label class="form-check-label small" for="sin_recientes">Ocultar ingresados hace menos de 3 meses</label></div></div>
+      <div class="col-4 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button></div>
+    </div>
+  </form>
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Productos con poco movimiento</div><div class="valor">{{ "{:,}".format(r.productos) }}</div>
+      <div class="sub">C$ {{ "{:,.0f}".format(r.valor) }} en inventario · {{ num(r.unidades) }} unidades</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Admiten promoción</div><div class="valor">{{ "{:,}".format(r.con_descuento) }}</div>
+      <div class="sub">descuento de 5% o más sin bajar del {{ f.margen_obj|int }}% de margen · C$ {{ "{:,.0f}".format(r.valor_descuento) }}</div>
+      <div class="sub">{{ "{:,}".format(r.falta_ficha) }} con ficha incompleta · {{ r.en_campana }} ya en campaña</div></div></div>
+    <div class="col-12 col-lg-6"><div class="card kpi"><div class="etiqueta mb-1">Por movimiento (clic para filtrar)</div>
+      <div class="row g-2">
+        {% for k in ['sin_venta', 'muy_lento', 'lento'] %}
+        <div class="col-4"><a class="grupo {{ k }} {{ 'activo' if f.clase == k }}" href="{{ url_for('estrategia_productos.reporte', **dict(params, clase=('' if f.clase == k else k))) }}">
+          <div class="small">{{ clases[k] }}</div><div class="fw-bold">{{ "{:,}".format(r.clases[k].n) }}</div>
+          <div class="meta">C$ {{ "{:,.0f}".format(r.clases[k].valor) }}</div></a></div>
+        {% endfor %}
+      </div></div></div>
+  </div>
+
+  {# ---------- Tabla ---------- #}
+  <form method="post" action="{{ url_for('estrategia_productos.agregar_a_campana') }}" id="form-campana">
+    {% for k, v in params.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <div class="table-responsive border rounded-3 bg-white" style="max-height: 68vh">
+      <table class="tabla-pm">
+        <thead><tr>
+          <th><input type="checkbox" class="form-check-input" id="todos" aria-label="Marcar todos los de esta página"></th>
+          <th>Producto</th><th class="num">Existencia</th><th class="num">Valor C$</th><th class="num">Vendido 12 m</th><th>Movimiento</th>
+          <th>Última venta</th><th class="num">Costo C$</th><th class="num">Precio {{ f.precio }} C$</th><th class="num">Margen</th>
+          <th class="num">Descuento máx.</th><th>Estrategia sugerida</th>
+        </tr></thead>
+        <tbody>
+          {% for x in filas %}
+          <tr>
+            <td><input type="checkbox" class="form-check-input marca" name="codigo" value="{{ x.codigo }}" aria-label="Marcar {{ x.codigo }}"></td>
+            <td style="max-width: 320px">
+              <button type="button" class="btn-prod" data-codigo="{{ x.codigo }}" data-nombre="{{ x.nombre }}">{{ x.nombre }}</button>
+              <div class="meta">{{ x.codigo }}{% if x.parte %} · {{ x.parte }}{% endif %} · {{ x.marca or 'sin marca' }}</div>
+              <div class="meta">{{ x.segmento or 'sin segmento' }}{% if x.familia %} › {{ x.familia }}{% endif %}{% if x.subfamilia %} › {{ x.subfamilia }}{% endif %}</div>
+              {% if not x.aplicacion %}<span class="tag falta">sin aplicación</span>{% endif %}
+              {% if not x.equivalencias %}<span class="tag falta">sin equivalencias</span>{% endif %}
+              {% if x.reciente %}<span class="tag reciente" title="Último ingreso {{ x.ultimo_ingreso.strftime('%d/%m/%Y') }}">ingreso reciente</span>{% endif %}
+              {% if x.campana %}<span class="tag camp"><i class="bi bi-megaphone" aria-hidden="true"></i> {{ x.campana }}</span>{% endif %}
+            </td>
+            <td class="num fw-semibold">{{ num(x.existencia) }}</td>
+            <td class="num">{{ "{:,.0f}".format(x.valor) }}</td>
+            <td class="num">{{ num(x.v12) }}<div class="meta">{{ num(x.v3) }} en 3 m · {{ x.clientes }} cliente{{ 's' if x.clientes != 1 }}</div></td>
+            <td><span class="clase {{ x.clase }}">{{ 'Sin venta 12 m' if x.clase == 'sin_venta' else ('Muy lento' if x.clase == 'muy_lento' else 'Lento') }}</span>
+              {% if x.cobertura is not none %}<div class="meta">existencia para {{ x.cobertura|round(0)|int }} meses</div>{% endif %}</td>
+            <td class="text-nowrap">{{ x.ultima_venta.strftime('%d/%m/%Y') if x.ultima_venta else 'Nunca' }}
+              {% if x.ultimo_ingreso %}<div class="meta">ingreso {{ x.ultimo_ingreso.strftime('%d/%m/%Y') }}</div>{% endif %}</td>
+            <td class="num">{{ "{:,.2f}".format(x.costo) }}</td>
+            <td class="num">{{ "{:,.2f}".format(x.precio) if x.precio else '—' }}{% if x.precio_usd %}<div class="meta">U$ {{ "{:,.2f}".format(x.precio_usd) }}</div>{% endif %}</td>
+            <td class="num">{% if x.margen is none %}—{% elif x.dudoso %}<span class="mg bajo" title="Margen fuera de rango: revise costo o precio">dudoso</span>
+              {% else %}<span class="mg {{ 'bajo' if x.margen * 100 < f.margen_obj else ('alto' if x.margen >= 0.45 else '') }}">{{ (x.margen * 100)|round(1) }}%</span>{% endif %}</td>
+            <td class="num">{% if x.descuento >= 0.01 %}<strong>{{ (x.descuento * 100)|round(0)|int }}%</strong>
+              <div class="meta">a C$ {{ "{:,.2f}".format(x.precio_desc) }}</div>{% else %}—{% endif %}</td>
+            <td><ul class="sug">{% for k, t in x.sugerencias %}<li class="{{ k }}">{{ t }}</li>{% endfor %}</ul></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="12" class="text-center text-muted py-4">No hay productos con estos filtros.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if paginas > 1 %}
+    <nav class="mt-2" aria-label="Páginas"><ul class="pagination pagination-sm flex-wrap">
+      {% for p in range(1, paginas + 1) %}{% if p <= 3 or (p - pagina)|abs <= 2 or p > paginas - 2 %}
+      <li class="page-item {{ 'active' if p == pagina }}"><a class="page-link" href="{{ url_for('estrategia_productos.reporte', **dict(params, pagina=p)) }}">{{ p }}</a></li>
+      {% endif %}{% endfor %}
+    </ul></nav>
+    {% endif %}
+
+    {# Barra para agregar los marcados a una campaña #}
+    <div class="barra-accion mt-2 d-none flex-wrap align-items-end gap-2" id="barra">
+      <div class="fw-semibold me-2"><span id="n-marcados">0</span> producto(s) marcados</div>
+      <div><label class="form-label small mb-0 text-white-50" for="campana_id">Agregar a</label>
+        <select id="campana_id" name="campana_id" class="form-select form-select-sm">
+          <option value="nueva">+ Nueva campaña</option>
+          {% for c in campanas %}<option value="{{ c.id }}">{{ c.nombre }} ({{ c.estrategia }})</option>{% endfor %}
+        </select></div>
+      <div class="nueva"><label class="form-label small mb-0 text-white-50" for="nombre">Nombre de la campaña</label>
+        <input id="nombre" name="nombre" class="form-control form-control-sm" maxlength="120" placeholder="Ej. Promo retenedores noviembre"></div>
+      <div class="nueva"><label class="form-label small mb-0 text-white-50" for="estrategia">Estrategia</label>
+        <select id="estrategia" name="estrategia" class="form-select form-select-sm">{% for e in estrategias %}<option>{{ e }}</option>{% endfor %}</select></div>
+      <div class="nueva"><label class="form-label small mb-0 text-white-50" for="fecha_inicio">Inicio</label>
+        <input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ hoy.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="nueva" style="width: 90px"><label class="form-label small mb-0 text-white-50" for="descuento">Descuento %</label>
+        <input type="number" id="descuento" name="descuento" min="0" max="100" step="0.5" class="form-control form-control-sm"></div>
+      <div class="nueva flex-grow-1"><label class="form-label small mb-0 text-white-50" for="descripcion">Descripción / acciones</label>
+        <input id="descripcion" name="descripcion" class="form-control form-control-sm" maxlength="500" placeholder="Ej. publicación en redes, visita a talleres, combo con…"></div>
+      <button class="btn btn-sm" style="background: var(--contado); color: #fff"><i class="bi bi-megaphone" aria-hidden="true"></i> Agregar a campaña</button>
+    </div>
+  </form>
+</div>
+
+<datalist id="dl-marcas">{% for m in marcas %}<option value="{{ m }}">{% endfor %}</datalist>
+<datalist id="dl-familias">{% for m in familias %}<option value="{{ m }}">{% endfor %}</datalist>
+
+<div class="modal fade" id="modal-hist" tabindex="-1" aria-labelledby="modal-hist-titulo" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-sm-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div><h5 class="modal-title mb-0" id="modal-hist-titulo" style="color: var(--credito); font-weight: 700; font-size: 1.05rem">Historial</h5>
+          <div class="small text-muted">Clientes que lo han comprado (para ofrecérselo) y ventas por año</div></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modal-hist-cuerpo"></div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  // ---- Marcar productos y barra de campaña ----
+  const marcas = [...document.querySelectorAll('.marca')], barra = document.getElementById('barra');
+  const actualizar = () => {
+    const n = marcas.filter(m => m.checked).length;
+    document.getElementById('n-marcados').textContent = n;
+    barra.classList.toggle('d-none', n === 0); barra.classList.toggle('d-flex', n > 0);   // d-flex ganaría a "hidden"
+    marcas.forEach(m => m.closest('tr').classList.toggle('marcada', m.checked));
+  };
+  marcas.forEach(m => m.addEventListener('change', actualizar));
+  document.getElementById('todos').addEventListener('change', e => { marcas.forEach(m => m.checked = e.target.checked); actualizar(); });
+  const sel = document.getElementById('campana_id');
+  const verNueva = () => document.querySelectorAll('.nueva').forEach(d => d.hidden = sel.value !== 'nueva');
+  sel.addEventListener('change', verNueva); verNueva();
+  document.getElementById('form-campana').addEventListener('submit', e => {
+    if (sel.value === 'nueva' && !document.getElementById('nombre').value.trim()) { e.preventDefault(); document.getElementById('nombre').focus(); }
+  });
+
+  // ---- Historial de compradores ----
+  const modal = document.getElementById('modal-hist'), cuerpo = document.getElementById('modal-hist-cuerpo');
+  const URL = "{{ url_for('estrategia_productos.historial', codigo='__COD__') }}";
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  const dinero = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fecha = (s) => s ? s.split('-').reverse().join('/') : '—';
+  let ventana = null;
+  document.querySelectorAll('.btn-prod').forEach(b => b.addEventListener('click', async () => {
+    ventana = ventana || new bootstrap.Modal(modal);
+    document.getElementById('modal-hist-titulo').textContent = `${b.dataset.codigo} · ${b.dataset.nombre}`;
+    cuerpo.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando…</div>';
+    ventana.show();
+    try {
+      const d = await (await fetch(URL.replace('__COD__', encodeURIComponent(b.dataset.codigo)))).json();
+      if (!d.clientes.length) { cuerpo.innerHTML = '<p class="text-muted mb-0">Este producto no tiene ventas registradas.</p>'; return; }
+      const anios = d.anios.map(a => `<span class="badge rounded-pill text-bg-light border me-1 mb-1">${esc(a.anio)}: <strong>${num(a.unidades)}</strong> unid. · C$ ${dinero(a.monto)}</span>`).join('');
+      cuerpo.innerHTML = `<div class="mb-2 small"><strong>Ventas por año:</strong> ${anios}</div>
+        <div class="table-responsive"><table class="table table-sm table-striped mb-0">
+          <thead><tr><th>Cliente</th><th>Último vendedor</th><th class="text-end">Unidades</th><th class="text-end">Monto C$</th><th class="text-end">Facturas</th><th>Última compra</th></tr></thead>
+          <tbody>${d.clientes.map(c => `<tr><td>${esc(c.cliente)}</td><td>${esc(c.vendedor)}</td><td class="text-end fw-bold">${num(c.unidades)}</td>
+            <td class="text-end">${dinero(c.monto)}</td><td class="text-end">${c.facturas}</td><td class="text-nowrap">${fecha(c.ultima)}</td></tr>`).join('')}</tbody>
+        </table></div><div class="small text-muted mt-1">Hasta 60 clientes, los de compra más reciente primero.</div>`;
+    } catch { cuerpo.innerHTML = '<p class="text-danger mb-0">No se pudo cargar el historial.</p>'; }
+  }));
+})();
+</script>
+{% endblock %}

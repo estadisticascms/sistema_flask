@@ -1,0 +1,210 @@
+{% extends "layout.html" %}
+{% block title %}Armado de Mangueras · Gerencia{% endblock %}
+{% set meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] %}
+{% macro cs(v) %}C$ {{ "{:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro u(v) %}{{ "{:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro rango(i, f) %}{% if i.month == f.month and i.year == f.year %}{{ i.day }}–{{ f.day }} {{ meses[f.month - 1] }}{% else %}{{ i.day }} {{ meses[i.month - 1] }} – {{ f.day }} {{ meses[f.month - 1] }}{% endif %} {{ f.year }}{% endmacro %}
+{# Variación contra el período anterior: flecha y color (en puntos para el margen) #}
+{% macro dlt(v, pts=False) %}{% if v is not none %}<span class="{{ 'sube' if v >= 0 else 'baja' }}">{{ '▲' if v >= 0 else '▼' }} {{ "%.1f"|format(v|abs) if pts else "%.0f"|format(v|abs) }}{{ ' pts' if pts else '%' }}</span>{% endif %}{% endmacro %}
+
+{% block content %}
+<style>
+  .controles { width: 794px; max-width: 100%; margin: 12px auto 8px; }
+  .controles .btn:focus-visible, .controles a:focus-visible { outline: 3px solid #FE6412; outline-offset: 2px; box-shadow: none; }
+  /* Hoja A4 vertical (794 × 1123 px a 96 ppp): lo que se ve es lo que sale en el PDF */
+  #hoja { width: 794px; min-height: 1123px; margin: 0 auto 24px; background: #fff; color: #1f1f1d; font-family: 'Segoe UI', Arial, sans-serif;
+          box-shadow: 0 2px 14px rgba(0,0,0,.1); display: flex; flex-direction: column; }
+  #hoja .cab { background: #027266; color: #fff; padding: 16px 28px 14px; border-bottom: 6px solid #FE6412; display: flex; align-items: center; gap: 14px; }
+  #hoja .cab img { height: 40px; background: #1f1f1d; border-radius: 8px; padding: 4px 8px; }
+  #hoja .cab .t { font-size: 1.45rem; font-weight: 800; line-height: 1.1; }
+  #hoja .cab .s { font-size: .92rem; opacity: .92; }
+  #hoja .cuerpo { padding: 16px 28px 8px; flex-grow: 1; }
+  #hoja h3 { font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #027266; margin: 16px 0 6px;
+             padding-bottom: 3px; border-bottom: 2px solid #e3e1db; }
+  #hoja .kpis { display: grid; grid-template-columns: 1.15fr 1fr 1fr 1fr; gap: 10px; }
+  #hoja .kpi { border-radius: 12px; padding: 10px 12px; background: #f6f5f1; }
+  #hoja .kpi.hero { background: #e6f1ef; }
+  #hoja .kpi .e { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #52514e; }
+  #hoja .kpi .v { font-size: 1.55rem; font-weight: 800; line-height: 1.15; white-space: nowrap; }
+  #hoja .kpi.hero .v { font-size: 2.3rem; color: #027266; }
+  #hoja .kpi .s { font-size: .74rem; color: #52514e; line-height: 1.35; }
+  #hoja .sube { color: #027266; font-weight: 700; } #hoja .baja { color: #b42318; font-weight: 700; }
+  #hoja .barra { display: flex; height: 22px; border-radius: 6px; overflow: hidden; gap: 2px; font-size: .72rem; font-weight: 700; color: #fff; }
+  #hoja .barra span { display: flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; }
+  #hoja .ley { font-size: .74rem; color: #52514e; margin-top: 4px; }
+  #hoja .ley i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
+  #hoja .ley i:first-child { margin-left: 0; }
+  #hoja .dos { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  #hoja table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  #hoja th { font-size: .66rem; font-weight: 700; text-transform: uppercase; color: #6b6a66; padding: 3px 4px; border-bottom: 1px solid #e3e1db; text-align: left; }
+  #hoja td { padding: 4px; border-bottom: 1px solid #f0eee9; }
+  #hoja .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  #hoja tr.tot td { font-weight: 800; border-top: 2px solid #027266; border-bottom: 0; }
+  #hoja .med { display: grid; grid-template-columns: 62px 1fr 44px; align-items: center; gap: 8px; font-size: .78rem; margin: 3px 0; }
+  #hoja .med .b { height: 12px; background: #eceae4; border-radius: 3px; overflow: hidden; }
+  #hoja .med .b span { display: block; height: 100%; background: #FE6412; border-radius: 3px; }
+  #hoja ul.puntos { margin: 0; padding-left: 18px; font-size: .84rem; line-height: 1.45; }
+  #hoja ul.puntos li::marker { color: #FE6412; }
+  #hoja .pie { font-size: .66rem; color: #8a8984; padding: 8px 28px 14px; border-top: 1px solid #f0eee9; display: flex; justify-content: space-between; gap: 12px; }
+</style>
+
+<form method="get" class="controles d-flex flex-wrap align-items-end gap-2">
+  <div><label class="form-label small mb-0" for="desde">Desde</label>
+    <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+  <div><label class="form-label small mb-0" for="hasta">Hasta</label>
+    <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+  <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button>
+  <div class="ms-auto d-flex gap-2">
+    <button type="button" id="btnPDF" class="btn btn-success btn-sm" {{ 'disabled' if not d.facturas }}><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Descargar PDF</button>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('reporte_armados.reporte', **params) }}"><i class="bi bi-table" aria-hidden="true"></i> Reporte detallado</a>
+  </div>
+  <span id="avisoPDF" class="small w-100 text-end"></span>
+</form>
+
+{% set t = d.total %}
+<div id="hoja">
+  <div class="cab">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="Comersa">
+    <div>
+      <div class="t">Armado de mangueras</div>
+      <div class="s">Resumen para gerencia · {{ rango(f.desde, f.hasta) }}{% if c %} · comparado con {{ rango(c.desde, c.hasta) }}{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="cuerpo">
+  {% if not d.facturas %}
+    <div class="alert alert-warning mt-3">No hay armados cargados en este período.</div>
+  {% else %}
+    {# ---------- Lo principal ---------- #}
+    <div class="kpis">
+      <div class="kpi hero"><div class="e">Mangueras armadas</div><div class="v">{{ u(t.mangueras) }}</div>
+        <div class="s">{% if c %}{{ dlt(c.mangueras) }} vs {{ u(c.anterior.mangueras) }} antes<br>{% endif %}
+          {{ "%.1f"|format(d.promedio_dia) }} por día · {{ t.facturas }} facturas{% if t.servicios %}<br>+ {{ u(t.servicios) }} trabajos sobre piezas del cliente{% endif %}</div></div>
+      <div class="kpi"><div class="e">Venta neta</div><div class="v">{{ cs(t.neto) }}</div>
+        <div class="s">{% if c %}{{ dlt(c.neto) }} vs período anterior<br>{% endif %}sin IVA, con descuento</div></div>
+      <div class="kpi"><div class="e">Ganancia</div><div class="v">{{ cs(t.utilidad) }}</div>
+        <div class="s">Margen <strong>{{ "%.1f"|format(t.margen) if t.margen is not none else '—' }}%</strong>{% if c %} {{ dlt(c.margen, pts=True) }}{% endif %}
+          {% if c %}<br>{{ dlt(c.utilidad) }} vs período anterior{% endif %}</div></div>
+      <div class="kpi"><div class="e">Mano de obra</div><div class="v">{{ cs(t.mano_obra) }}</div>
+        <div class="s">{% if c %}{{ dlt(c.mano_obra) }} vs período anterior<br>{% endif %}Soldadura: <strong>{{ cs(t.otros) }}</strong></div></div>
+    </div>
+
+    {# ---------- Cómo se compone la venta ---------- #}
+    {% set pcosto = (t.costo / t.neto_con_costo * 100) if t.neto_con_costo else 0 %}
+    {% set pcred = (t.credito / t.neto * 100) if t.neto else 0 %}
+    <h3>¿De dónde sale y a dónde va cada córdoba vendido?</h3>
+    <div class="dos">
+      <div>
+        <div class="barra" role="img" aria-label="Costo {{ '%.0f'|format(pcosto) }}%, ganancia {{ '%.0f'|format(100 - pcosto) }}%">
+          <span style="width: {{ pcosto }}%; background: #8a8984">{{ "%.0f"|format(pcosto) }}%</span>
+          <span style="width: {{ 100 - pcosto }}%; background: #027266">{{ "%.0f"|format(100 - pcosto) }}%</span></div>
+        <div class="ley"><i style="background: #8a8984"></i>Costo de materiales {{ cs(t.costo) }}<i style="background: #027266"></i>Ganancia {{ cs(t.utilidad) }}</div>
+      </div>
+      <div>
+        <div class="barra" role="img" aria-label="Crédito {{ '%.0f'|format(pcred) }}%, contado {{ '%.0f'|format(100 - pcred) }}%">
+          <span style="width: {{ pcred }}%; background: #027266">{{ "%.0f"|format(pcred) }}%</span>
+          <span style="width: {{ 100 - pcred }}%; background: #FE6412">{{ "%.0f"|format(100 - pcred) }}%</span></div>
+        <div class="ley"><i style="background: #027266"></i>Crédito {{ cs(t.credito) }}<i style="background: #FE6412"></i>Contado {{ cs(t.contado) }}</div>
+      </div>
+    </div>
+
+    {# ---------- Por día ---------- #}
+    <h3>Mangueras armadas por día</h3>
+    <div style="position: relative; height: 165px"><canvas id="graficoDias" role="img" aria-label="Mangueras armadas por día, crédito y contado"></canvas></div>
+    <div class="ley"><i style="background: #027266"></i>Crédito<i style="background: #FE6412"></i>Contado
+      {% if d.mejor_dia %}<span class="ms-3">Mejor día: <strong>{{ d.mejor_dia.fecha.day }} {{ meses[d.mejor_dia.fecha.month - 1] }}</strong> con {{ u(d.mejor_dia.mangueras) }} mangueras</span>{% endif %}</div>
+
+    {# ---------- Quién arma y quién vende ---------- #}
+    <div class="dos">
+      <div>
+        <h3>Quién facturó el armado</h3>
+        <table>
+          <thead><tr><th>Nombre</th><th class="n">Mangueras</th><th class="n">Venta neta</th><th class="n">Margen</th></tr></thead>
+          <tbody>{% for p in d.por_facturador[:5] %}<tr><td>{{ p.nombre }}</td><td class="n">{{ u(p.mangueras) }}</td><td class="n">{{ cs(p.neto) }}</td>
+            <td class="n">{{ "%.0f"|format(p.margen) ~ '%' if p.margen is not none else '—' }}</td></tr>{% endfor %}
+            <tr class="tot"><td>Total</td><td class="n">{{ u(t.mangueras) }}</td><td class="n">{{ cs(t.neto) }}</td><td class="n">{{ "%.0f"|format(t.margen) ~ '%' if t.margen is not none else '—' }}</td></tr></tbody>
+        </table>
+      </div>
+      <div>
+        <h3>Vendedores con más venta de armados</h3>
+        <table>
+          <thead><tr><th>Vendedor</th><th class="n">Mangueras</th><th class="n">Venta neta</th><th class="n">Margen</th></tr></thead>
+          <tbody>{% for p in d.por_vendedor[:6] %}<tr><td>{{ p.nombre }}</td><td class="n">{{ u(p.mangueras) }}</td><td class="n">{{ cs(p.neto) }}</td>
+            <td class="n">{{ "%.0f"|format(p.margen) ~ '%' if p.margen is not none else '—' }}</td></tr>{% endfor %}
+            {% if d.por_vendedor|length > 6 %}<tr><td colspan="4" style="color: #8a8984; font-size: .72rem">y {{ d.por_vendedor|length - 6 }} vendedores más</td></tr>{% endif %}</tbody>
+        </table>
+      </div>
+    </div>
+
+    {# ---------- Medidas y puntos de atención ---------- #}
+    <div class="dos">
+      <div>
+        <h3>Mangueras por medida</h3>
+        {% set top_med = d.medidas | rejectattr('medida', 'equalto', 'Sin medida') | sort(attribute='mangueras', reverse=True) | list %}
+        {% set sin_med = d.medidas | selectattr('medida', 'equalto', 'Sin medida') | sum(attribute='mangueras') %}
+        {% set max_med = (top_med | map(attribute='mangueras') | first) or 1 %}
+        {% for m in top_med[:7] %}
+        <div class="med"><span>{{ m.medida }}</span><div class="b"><span style="width: {{ (m.mangueras / max_med * 100)|round(1) }}%"></span></div><span class="n">{{ u(m.mangueras) }}</span></div>
+        {% endfor %}
+        <div class="ley">{% if top_med|length > 7 %}Otras medidas: {{ u(top_med[7:] | sum(attribute='mangueras')) }} · {% endif %}{% if sin_med %}Sin medida en la descripción: {{ u(sin_med) }}{% endif %}</div>
+      </div>
+      <div>
+        <h3>Puntos de atención</h3>
+        <ul class="puntos">{% for p in puntos %}<li>{{ p }}</li>{% endfor %}</ul>
+      </div>
+    </div>
+  {% endif %}
+  </div>
+
+  <div class="pie">
+    <span>Manguera = línea del reporte Factura de Armados que empieza con «MANGUERA». Venta neta, costo y ganancia de Ventas del día
+      (factura sin IVA, con descuento, sin anuladas); margen = ganancia / venta neta. Mano de obra y soldadura según el reporte de armados.</span>
+    <span style="white-space: nowrap">Grupo Comersa · <span id="fechaPDF"></span></span>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(function () {
+  {% if d.dias %}
+  const dias = {{ d.dias | map(attribute='fecha') | map('string') | list | tojson }};
+  new Chart(document.getElementById('graficoDias'), {
+    type: 'bar',
+    data: { labels: dias.map(d => +d.slice(8, 10)), datasets: [
+      { label: 'Crédito', data: {{ d.dias | map(attribute='mang_credito') | map('float') | list | tojson }}, backgroundColor: '#027266', maxBarThickness: 22 },
+      { label: 'Contado', data: {{ d.dias | map(attribute='mang_contado') | map('float') | list | tojson }}, backgroundColor: '#FE6412', maxBarThickness: 22,
+        borderRadius: { topLeft: 3, topRight: 3 } },
+    ]},
+    options: { animation: false, maintainAspectRatio: false, plugins: { legend: { display: false } },   // sin animación: el PDF captura el gráfico completo
+      scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#52514e', font: { size: 10 } } },
+                y: { stacked: true, beginAtZero: true, ticks: { precision: 0, color: '#8a8984', font: { size: 10 } }, grid: { color: '#ecebe8' }, border: { display: false } } } }
+  });
+  {% endif %}
+
+  const aviso = document.getElementById('avisoPDF');
+  document.getElementById('btnPDF').addEventListener('click', async (e) => {
+    const btn = e.currentTarget, texto = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Generando…'; aviso.textContent = '';
+    document.getElementById('fechaPDF').textContent = new Date().toLocaleString('es-NI', { dateStyle: 'short', timeStyle: 'short' });
+    try {
+      const canvas = await html2canvas(document.getElementById('hoja'), { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
+      let w = W, h = canvas.height * W / canvas.width;
+      if (h > H) { w = w * H / h; h = H; }               // si la hoja crece, se reduce para que quepa en una página
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (W - w) / 2, 0, w, h);
+      pdf.save('armado_mangueras_{{ f.desde.isoformat() }}_al_{{ f.hasta.isoformat() }}.pdf');
+    } catch (err) {
+      console.error(err);
+      aviso.className = 'small w-100 text-end text-danger'; aviso.textContent = 'No se pudo generar el PDF';
+    } finally {
+      btn.disabled = false; btn.innerHTML = texto;
+    }
+  });
+})();
+</script>
+{% endblock %}

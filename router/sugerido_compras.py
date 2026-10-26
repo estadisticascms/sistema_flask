@@ -42,6 +42,8 @@ def leer_parametros(fuente):
         "meses_historial": entero(fuente.get("meses_historial"), MESES_HISTORIAL, 6),
         "dias_reciente": entero(fuente.get("dias_reciente"), DIAS_RECIENTE, 0),
         "q": (fuente.get("q") or "").strip(),
+        "proveedor": (fuente.get("proveedor") or "").strip(),
+        "agrupar": "proveedor" if fuente.get("agrupar") == "proveedor" else "marca",
         # por defecto solo productos con sugerido; el checkbox enviado vacío significa "todos"
         "solo_sugerido": fuente.get("solo_sugerido", "1") == "1",
         "ocultar_cubiertos": fuente.get("ocultar_cubiertos") == "1",
@@ -99,25 +101,29 @@ def calcular(p):
         if p["marcas"]:
             where.append(f"p.Marca IN ({', '.join(['%s'] * len(p['marcas']))})")
             params += p["marcas"]
+        if p["proveedor"]:
+            where.append("p.`Proveedor Ultima Compra` = %s"); params.append(p["proveedor"])
         for palabra in p["q"].split():
             like = f"%{palabra}%"
             where.append("(p.`Codigo Producto` LIKE %s OR p.Nombre LIKE %s OR p.`Numero Parte` LIKE %s)")
             params += [like] * 3
         cursor.execute(f"""
             SELECT /*+ NO_INDEX(c) */ p.`Codigo Producto`, p.Nombre, p.`Numero Parte`, p.Marca, p.`Ultimo Costo`, c.segmento,
-                   c.grupo_equival, c.familia, c.subfamilia
+                   c.grupo_equival, c.familia, c.subfamilia, p.`Ultimo Precio FOB`, p.`Fecha Ultima Compra`,
+                   p.`Fecha Ultima Recepcion`, p.`Proveedor Ultima Compra`
             FROM catalogo_productos p LEFT JOIN clase_prod c ON c.codigo = p.`Codigo Producto`
             WHERE {' AND '.join(where)}
         """, params)
         productos = {r[0]: {"codigo": r[0], "nombre": r[1], "numero_parte": r[2], "marca": r[3],
                             "costo": float(r[4] or 0), "segmento": r[5], "grupo": (r[6] or "").strip() or None,
-                            "familia": r[7], "subfamilia": r[8]}
+                            "familia": r[7], "subfamilia": r[8], "fob": float(r[9]) if r[9] else None,
+                            "fecha_compra": r[10], "fecha_recepcion": r[11], "proveedor": (r[12] or "").strip() or None}
                      for r in cursor.fetchall()}
         codigos = sorted(productos)
         if not codigos:
             return [], {"inicio": inicio, "fin": fin}
 
-        filtrar = bool(p["marcas"] or p["q"])  # con filtros se consulta solo esos códigos
+        filtrar = bool(p["marcas"] or p["q"] or p["proveedor"])  # con filtros se consulta solo esos códigos
 
         # 2) Ventas del período (unidades, sin anuladas). ventas_por_producto no tiene índices:
         #    se recorre una sola vez y se filtra en Python.
@@ -192,6 +198,11 @@ def calcular(p):
         f["equivalentes"] = equivalentes.get(f["codigo"], [])
         f["eq_disponible"] = sum(max(e["disponible"], 0) for e in f["equivalentes"])
         f["eq_marcas"] = len({e["marca"] for e in f["equivalentes"] if e["marca"] != f["marca"]})
+        # Equivalente con el FOB más bajo (solo si es más barato que el del producto)
+        con_fob = [e for e in f["equivalentes"] if e.get("fob")]
+        barato = min(con_fob, key=lambda e: e["fob"]) if con_fob else None
+        f["eq_fob_min"] = barato if barato and (not f["fob"] or barato["fob"] < f["fob"]) else None
+        f["eq_fob_dif"] = (barato["fob"] - f["fob"]) / f["fob"] * 100 if f["eq_fob_min"] and f["fob"] else None
         f["ingresos"] = ingresos.get(f["codigo"], [])
         ultima_compra = f["ingresos"][0]["fecha"] if f["ingresos"] else None
         f["dias_compra"] = (fin - ultima_compra).days if ultima_compra else None
@@ -202,7 +213,8 @@ def calcular(p):
         filas = [f for f in filas if f["dias_compra"] is None or f["dias_compra"] > p["dias_reciente"]]
     if p["ocultar_cubiertos"]:  # lo que pide ya está disponible en productos equivalentes
         filas = [f for f in filas if not (f["sugerido"] > 0 and f["eq_disponible"] >= f["sugerido"])]
-    filas.sort(key=lambda f: ((f["marca"] or "").upper(), -f["sugerido"] * f["costo"], f["nombre"] or ""))
+    grupo = "proveedor" if p["agrupar"] == "proveedor" else "marca"
+    filas.sort(key=lambda f: ((f[grupo] or "~").upper(), (f["marca"] or "").upper(), -f["sugerido"] * (f["fob"] or 0), f["nombre"] or ""))
     return filas, {"inicio": inicio, "fin": fin}
 
 
@@ -212,12 +224,14 @@ def buscar_equivalentes(cursor, filas, existencias, ventas_todas, meses_historia
     if not grupos:
         return {}
     miembros = {}
-    for cod, grupo, marca, nombre, parte in en_lotes(cursor, """
-        SELECT c.codigo, c.grupo_equival, p.Marca, p.Nombre, p.`Numero Parte`
+    for cod, grupo, marca, nombre, parte, fob, proveedor, fecha in en_lotes(cursor, """
+        SELECT c.codigo, c.grupo_equival, p.Marca, p.Nombre, p.`Numero Parte`, p.`Ultimo Precio FOB`,
+               p.`Proveedor Ultima Compra`, p.`Fecha Ultima Compra`
         FROM clase_prod c JOIN catalogo_productos p ON p.`Codigo Producto` = c.codigo
         WHERE c.grupo_equival IN ({IN})
     """, grupos):
-        miembros.setdefault(grupo, []).append({"codigo": cod, "marca": marca, "nombre": nombre, "numero_parte": parte})
+        miembros.setdefault(grupo, []).append({"codigo": cod, "marca": marca, "nombre": nombre, "numero_parte": parte,
+                                               "fob": float(fob) if fob else None, "proveedor": proveedor, "fecha_compra": fecha})
 
     # Existencias de los equivalentes que no estaban en el alcance del reporte
     faltan = sorted({m["codigo"] for ms in miembros.values() for m in ms} - set(existencias))
@@ -239,6 +253,17 @@ def buscar_equivalentes(cursor, filas, existencias, ventas_todas, meses_historia
         if otros:
             resultado[f["codigo"]] = otros
     return resultado
+
+
+def lista_proveedores():
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT `Proveedor Ultima Compra`, COUNT(*) FROM catalogo_productos WHERE `Proveedor Ultima Compra` <> '' "
+                   "GROUP BY 1 ORDER BY 1")
+    proveedores = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return proveedores
 
 
 def lista_marcas():
@@ -264,7 +289,8 @@ def sugerido_compras():
         filas, periodo = calcular(p)
     return render_template(
         "sugerido_compras.html", p=p, filas=filas[:MAX_FILAS_PANTALLA], total_filas=len(filas),
-        recortado=len(filas) > MAX_FILAS_PANTALLA, periodo=periodo, marcas=lista_marcas(),
+        recortado=len(filas) > MAX_FILAS_PANTALLA, periodo=periodo, marcas=lista_marcas(), proveedores=lista_proveedores(),
+        con_fob_menor=sum(1 for f in filas if f["sugerido"] > 0 and f["eq_fob_min"]),
         opciones_cobertura=MESES_COBERTURA, opciones_historial=MESES_HISTORIAL, opciones_reciente=DIAS_RECIENTE,
         total_nhe=sum(f["nhe"] for f in filas), con_sugerido=sum(1 for f in filas if f["sugerido"] > 0),
         con_equivalente=sum(1 for f in filas if f["sugerido"] > 0 and f["eq_disponible"] > 0),
@@ -315,12 +341,13 @@ def generar_excel(filas, p, periodo):
 
     ws["A1"] = "Sugerido de compras"
     ws["A1"].font = Font(bold=True, size=14, color=VERDE)
-    marcas = ", ".join(p["marcas"]) if p["marcas"] else "Todas"
+    marcas = (", ".join(p["marcas"]) if p["marcas"] else "Todas") + (f"  ·  Proveedor: {p['proveedor']}" if p["proveedor"] else "")
     ws["A2"] = (f"Marcas: {marcas}  ·  Cobertura: {p['meses_cobertura']} mes(es)  ·  "
                 f"Promedio de ventas: {periodo['inicio']:%d/%m/%Y} al {periodo['fin']:%d/%m/%Y} ({p['meses_historial']} meses)")
     demanda = "(vendido + ventas perdidas)" if p["con_perdidas"] else "vendido"
     ws["A3"] = ("Disponible = existencia total − bodegas NHE (mercadería faltante).  "
-                f"Sugerido = {demanda} ÷ meses × meses de cobertura − disponible.  Generado {datetime.now():%d/%m/%Y %H:%M}")
+                f"Sugerido = {demanda} ÷ meses × meses de cobertura − disponible.  Total FOB = pedido final × último precio FOB "
+                f"(moneda base, US$; vacío si el producto no tiene FOB).  Generado {datetime.now():%d/%m/%Y %H:%M}")
     ws["A2"].font = ws["A3"].font = Font(size=9, color="52514E")
 
     columnas = [
@@ -329,9 +356,11 @@ def generar_excel(filas, p, periodo):
         ("Ventas perdidas (unid.)", 11), ("Prom. mensual", 11), ("Cobertura (meses)", 11), ("Ingreso 1 fecha", 12),
         ("Ingreso 1 cant.", 10), ("Ingreso 2 fecha", 12), ("Ingreso 2 cant.", 10), ("Ingreso 3 fecha", 12),
         ("Ingreso 3 cant.", 10), ("Última venta", 12), ("Sugerido sin ventas perdidas", 12), ("Sugerido sistema", 11),
-        ("Pedido final", 11), ("Último costo C$", 12), ("Costo pedido C$", 14), ("Grupo equiv.", 11), ("Equivalentes", 11),
+        ("Pedido final", 11), ("Precio FOB US$", 12), ("Total FOB US$", 14), ("Grupo equiv.", 11), ("Equivalentes", 11),
         ("Disponible en equivalentes", 13), ("Detalle equivalentes", 60), ("Clientes que lo pidieron", 11),
-        ("Última venta perdida", 12),
+        ("Última venta perdida", 12), ("Proveedor última compra", 28), ("Fecha última compra", 12),
+        ("Fecha última recepción", 12), ("Equiv. FOB más bajo", 12), ("Marca equiv.", 14), ("FOB equiv.", 10),
+        ("Proveedor equiv.", 26), ("Dif. FOB %", 9),
     ]
     col = {titulo: i for i, (titulo, _) in enumerate(columnas, start=1)}
     letra = {titulo: get_column_letter(i) for titulo, i in col.items()}
@@ -345,12 +374,14 @@ def generar_excel(filas, p, periodo):
     ws.row_dimensions[fila_tit].height = 42
 
     resaltado = PatternFill("solid", fgColor="FFF1E8")
-    formatos = {"dd/mm/yyyy": ("Ingreso 1 fecha", "Ingreso 2 fecha", "Ingreso 3 fecha", "Última venta", "Última venta perdida"),
+    formatos = {"dd/mm/yyyy": ("Ingreso 1 fecha", "Ingreso 2 fecha", "Ingreso 3 fecha", "Última venta", "Última venta perdida",
+                               "Fecha última compra", "Fecha última recepción"),
+                "#,##0.00##": ("Precio FOB US$", "FOB equiv."), "0.0%": ("Dif. FOB %",),
                 "#,##0.##": ("Existencia total", "En NHE", "Disponible", "Vendido período", "Ventas perdidas (unid.)",
                              "Ingreso 1 cant.", "Ingreso 2 cant.", "Ingreso 3 cant.", "Sugerido sin ventas perdidas",
                              "Sugerido sistema", "Pedido final", "Equivalentes", "Disponible en equivalentes"),
                 "#,##0.0": ("Prom. mensual", "Cobertura (meses)"),
-                "#,##0.00": ("Último costo C$", "Costo pedido C$")}
+                "#,##0.00": ("Total FOB US$",)}
     for n, f in enumerate(filas, start=fila_tit + 1):
         ing = f["ingresos"] + [{"fecha": None, "cantidad": None}] * (3 - len(f["ingresos"]))
         valores = {
@@ -364,13 +395,21 @@ def generar_excel(filas, p, periodo):
             "Ingreso 2 fecha": ing[1]["fecha"], "Ingreso 2 cant.": ing[1]["cantidad"],
             "Ingreso 3 fecha": ing[2]["fecha"], "Ingreso 3 cant.": ing[2]["cantidad"],
             "Última venta": f["ultima_venta"], "Sugerido sin ventas perdidas": f["sugerido_sin_perdidas"],
-            "Sugerido sistema": f["sugerido"], "Pedido final": f["pedido"], "Último costo C$": f["costo"],
-            "Costo pedido C$": f"={letra['Pedido final']}{n}*{letra['Último costo C$']}{n}",
+            "Sugerido sistema": f["sugerido"], "Pedido final": f["pedido"], "Precio FOB US$": f["fob"],
+            # total FOB = pedido final × precio FOB (vacío si el producto no tiene FOB)
+            "Total FOB US$": f"={letra['Pedido final']}{n}*{letra['Precio FOB US$']}{n}" if f["fob"] else None,
             "Grupo equiv.": f["grupo"], "Equivalentes": len(f["equivalentes"]) or None,
             "Disponible en equivalentes": f["eq_disponible"] if f["equivalentes"] else None,
             "Detalle equivalentes": "; ".join(f"{e['marca']} {e['codigo']} ({e['numero_parte'] or 's/n'}): disp. {e['disponible']:,.0f}"
                                               for e in f["equivalentes"]) or None,
             "Clientes que lo pidieron": f["perdidas_clientes"] or None, "Última venta perdida": f["perdidas_ultima"],
+            "Proveedor última compra": f["proveedor"], "Fecha última compra": f["fecha_compra"],
+            "Fecha última recepción": f["fecha_recepcion"],
+            "Equiv. FOB más bajo": f["eq_fob_min"]["codigo"] if f["eq_fob_min"] else None,
+            "Marca equiv.": f["eq_fob_min"]["marca"] if f["eq_fob_min"] else None,
+            "FOB equiv.": f["eq_fob_min"]["fob"] if f["eq_fob_min"] else None,
+            "Proveedor equiv.": f["eq_fob_min"]["proveedor"] if f["eq_fob_min"] else None,
+            "Dif. FOB %": f["eq_fob_dif"] / 100 if f["eq_fob_dif"] is not None else None,
         }
         for titulo, v in valores.items():
             c = ws.cell(row=n, column=col[titulo], value=v)
@@ -382,6 +421,9 @@ def generar_excel(filas, p, periodo):
             ws.cell(row=n, column=col["Ventas perdidas (unid.)"]).fill = resaltado
         if f["eq_disponible"] > 0:
             ws.cell(row=n, column=col["Disponible en equivalentes"]).fill = PatternFill("solid", fgColor="E6F2F0")
+        if f["eq_fob_min"]:
+            for t in ("Equiv. FOB más bajo", "FOB equiv.", "Dif. FOB %"):
+                ws.cell(row=n, column=col[t]).fill = PatternFill("solid", fgColor="E6F2F0")
         ws.cell(row=n, column=col["Pedido final"]).font = Font(bold=True)
         if f.get("editado"):
             ws.cell(row=n, column=col["Pedido final"]).fill = resaltado
@@ -390,11 +432,11 @@ def generar_excel(filas, p, periodo):
     tot = ultima + 1
     ws.cell(row=tot, column=1, value="TOTAL").font = Font(bold=True)
     if filas:
-        for titulo in ("Ventas perdidas (unid.)", "Sugerido sin ventas perdidas", "Sugerido sistema", "Pedido final", "Costo pedido C$"):
+        for titulo in ("Ventas perdidas (unid.)", "Sugerido sin ventas perdidas", "Sugerido sistema", "Pedido final", "Total FOB US$"):
             l = letra[titulo]
             c = ws.cell(row=tot, column=col[titulo], value=f"=SUM({l}{fila_tit + 1}:{l}{ultima})")
             c.font = Font(bold=True)
-            c.number_format = "#,##0.00" if titulo == "Costo pedido C$" else "#,##0"
+            c.number_format = "#,##0.00" if titulo == "Total FOB US$" else "#,##0"
     ws.freeze_panes = ws.cell(row=fila_tit + 1, column=4)
     ws.auto_filter.ref = f"A{fila_tit}:{get_column_letter(len(columnas))}{max(ultima, fila_tit)}"
     ws.sheet_view.zoomScale = 90

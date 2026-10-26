@@ -1,0 +1,251 @@
+{% extends "layout.html" %}
+{% block title %}Ventas por Departamento y Mes{% endblock %}
+{% macro dinero(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
+{% macro fecha(t) %}{{ (t[8:10] ~ '/' ~ t[5:7] ~ '/' ~ t[:4]) if t else '' }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .vdm h4 { color: var(--credito); }
+  .vdm .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .vdm .form-control-sm, .vdm .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .migas { font-size: .85rem; }
+  .migas a { color: var(--credito); }
+  .tabla-m { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-m thead th { position: sticky; top: 0; z-index: 3; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .45rem;
+                      border-bottom: 1px solid var(--grid); white-space: nowrap; text-align: right; }
+  .tabla-m th.izq, .tabla-m td.izq { text-align: left; }
+  .tabla-m td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; vertical-align: middle; }
+  .tabla-m .fijo { position: sticky; left: 0; background: #fff; z-index: 2; text-align: left; min-width: 200px; max-width: 320px; white-space: normal; }
+  .tabla-m thead .fijo { z-index: 4; background: #f6f5f1; }
+  .tabla-m tbody tr:hover td { background-color: #faf9f6; }
+  .tabla-m tfoot td { font-weight: 700; background: #f6f5f1; border-top: 2px solid var(--grid); }
+  .tabla-m tfoot .fijo { background: #f6f5f1; }
+  .tabla-m .total { font-weight: 700; color: var(--ink); }
+  .tabla-m tr.sin-compra td { color: var(--ink-3); }
+  .sub { font-size: .7rem; color: var(--ink-3); }
+  .sub strong { color: var(--ink); }
+  .var { font-size: .74rem; font-weight: 700; white-space: nowrap; }
+  .var.sube { color: var(--credito); } .var.baja { color: #b42318; }
+  .btn-prod { border: 1px solid #b7d9d4; background: #fff; color: var(--credito); border-radius: 6px; font-size: .72rem; padding: .15rem .5rem; min-height: 28px; white-space: nowrap; }
+  .btn-prod:hover, .btn-prod:focus-visible { background: #e6f2f0; outline: none; }
+  .tabla-prod { font-size: .8rem; }
+  .tabla-prod th { color: var(--ink-3); font-weight: 600; white-space: nowrap; }
+  .tabla-prod th, .tabla-prod td { text-align: left; vertical-align: top; }
+  .tabla-prod .text-end { text-align: right; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .vdm .btn:focus-visible, .vdm a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+{% set base = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor} %}
+{% set params = dict(base, depto=f.depto, q=f.q, sin_compra='1' if f.sin_compra else '') %}
+{% set claves = d.meses|map(attribute=0)|list %}
+<div class="dash vdm container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i> Ventas por departamento · comparativo mensual</h4>
+      <div class="text-muted small">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }} · venta neta sin IVA, sin anuladas{% if f.vendedor %} · {{ f.vendedor }}{% endif %}</div>
+    </div>
+    <a class="btn btn-verde btn-sm" href="{{ url_for('ventas_depto_mes.descargar_excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+  </div>
+  <nav class="migas mb-2" aria-label="Ruta">
+    {% if f.depto %}<a href="{{ url_for('ventas_depto_mes.reporte', **base) }}"><i class="bi bi-map" aria-hidden="true"></i> Todos los departamentos</a>
+      <i class="bi bi-chevron-right small text-muted" aria-hidden="true"></i> <strong>{{ d.depto_fila.nombre if d.depto_fila else f.depto }}</strong>
+    {% else %}<strong>Todos los departamentos</strong> <span class="text-muted">· clic en un departamento para ver sus clientes</span>{% endif %}
+  </nav>
+
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="depto">Departamento</label>
+        <select id="depto" name="depto" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for dep in departamentos + [sin_depto, ocasional] %}<option value="{{ dep|upper }}" {% if dep|upper == f.depto %}selected{% endif %}>{{ dep if dep in fuera_del_mapa else nombre_depto(dep) }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="vendedor">Vendedor</label>
+        <select id="vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for v in vendedores %}<option {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      {% if f.depto %}
+      <div class="col-6 col-lg-2"><label class="form-label" for="q">Cliente o vendedor</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Buscar"></div>
+      <div class="col-6 col-lg-1 d-flex align-items-end"><div class="form-check mb-1" title="Agrega los clientes activos del departamento que no compraron en el período">
+        <input class="form-check-input" type="checkbox" name="sin_compra" value="1" id="sin_compra" {% if f.sin_compra %}checked{% endif %}>
+        <label class="form-check-label small" for="sin_compra">Ver sin compra</label></div></div>
+      {% endif %}
+      <div class="col-12 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+    <div class="small text-muted mt-1">Períodos:
+      {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('ventas_depto_mes.reporte', **dict(params, desde=i.isoformat(), hasta=fin.isoformat())) }}">{{ nombre }}</a>{% endfor %}
+      <a class="ms-2" href="{{ url_for('ventas_depto_mes.reporte', **dict(params, desde=(f.ultima.replace(day=1)).isoformat()[:4] ~ '-01-01', hasta=f.ultima.isoformat())) }}">Año completo por mes</a>
+    </div>
+  </form>
+
+  {# ---------- Gráfico comparativo ---------- #}
+  <div class="card card-body mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <h6 class="mb-0" style="color: var(--credito)">{% if f.depto %}Venta mensual de {{ d.depto_fila.nombre if d.depto_fila else f.depto }}{% else %}Venta mensual de los principales departamentos{% endif %}</h6>
+      <span class="small text-muted">C$ sin IVA</span>
+    </div>
+    <div style="height: 260px"><canvas id="grafico" role="img" aria-label="Gráfico de ventas por mes"></canvas></div>
+  </div>
+
+{% if not f.depto %}
+  {# ===================== Nivel 1: departamentos × meses ===================== #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-m">
+      <caption class="visually-hidden">Venta por departamento y mes</caption>
+      <thead><tr><th class="fijo izq">Departamento</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}
+        <th>Total C$</th><th>%</th><th title="Último mes contra el anterior{{ ' (el último mes está incompleto)' if d.parcial }}">Var. mes{% if d.parcial %}*{% endif %}</th><th class="izq">Clientes</th></tr></thead>
+      <tbody>
+        {% for x in d.filas %}
+        <tr>
+          <td class="fijo"><a href="{{ url_for('ventas_depto_mes.reporte', **dict(base, depto=x.depto|upper)) }}" class="fw-semibold">{{ x.nombre }}</a></td>
+          {% for m in claves %}{% set v = x.meses.get(m, 0) %}
+          <td {% if v > 0 and d.maximo and x.depto not in fuera_del_mapa %}style="background-color: rgba(2, 114, 102, {{ '%.2f'|format(0.05 + 0.35 * (v / d.maximo) ** 0.5) }})"{% endif %}>{{ dinero(v) if v else '—' }}</td>
+          {% endfor %}
+          <td class="total">{{ dinero(x.total) }}</td>
+          <td>{{ "{:.1f}".format(x.pct) }}%</td>
+          <td>{% if x.variacion is not none %}<span class="var {{ 'sube' if x.variacion >= 0 else 'baja' }}"><i class="bi {{ 'bi-arrow-up' if x.variacion >= 0 else 'bi-arrow-down' }}" aria-hidden="true"></i> {{ "{:+.0f}".format(x.variacion) }}%</span>{% else %}—{% endif %}</td>
+          <td class="izq sub" title="Compraron en el período / clientes en la tabla ({{ x.activos }} activos)">{% if x.depto == ocasional %}<strong>{{ x.compraron }}</strong> compradores{% else %}<strong>{{ x.compraron }}</strong> / {{ x.cartera }}{% if x.cartera %} · {{ "{:.0f}".format(x.compraron / x.cartera * 100) }}%{% endif %}{% endif %}
+            {% if x.depto == ocasional %}<div>no están en la tabla de clientes</div>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td class="fijo">Total</td>{% for m in claves %}<td>{{ dinero(d.por_mes[m]) }}</td>{% endfor %}<td>{{ dinero(d.total) }}</td><td>100%</td><td></td><td></td></tr></tfoot>
+    </table>
+  </div>
+
+{% else %}
+  {# ===================== Nivel 2: clientes del departamento ===================== #}
+  {% set df = d.depto_fila %}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Venta del departamento</div><div class="valor">C$ {{ dinero(df.total if df else 0) }}</div>
+      <div class="sub">{{ "{:.1f}".format(df.pct if df else 0) }}% del total</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Clientes que compraron</div>
+      <div class="valor">{{ df.compraron if df else 0 }}{% if not df or df.depto != ocasional %} <span class="fs-6 text-muted">/ {{ df.cartera if df else 0 }}</span>{% endif %}</div>
+      <div class="sub">{% if df and df.depto == ocasional %}compradores que no están en la tabla de clientes{% else %}en la tabla de clientes ({{ df.activos if df else 0 }} activos){% endif %}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Último mes vs. anterior</div>
+      <div class="valor">{% if df and df.variacion is not none %}<span class="var {{ 'sube' if df.variacion >= 0 else 'baja' }}" style="font-size: 1.3rem">{{ "{:+.1f}".format(df.variacion) }}%</span>{% else %}—{% endif %}</div>
+      <div class="sub">{{ d.meses[-1][1] }}{% if d.parcial %} (hasta el {{ f.hasta.strftime('%d') }}){% endif %} contra {{ d.meses[-2][1] if d.meses|length > 1 else '—' }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Cliente principal</div>
+      {% set c1 = d.clientes[0] if d.clientes and d.clientes[0].total else none %}
+      <div class="valor" style="font-size: 1rem; white-space: normal">{{ c1.cliente if c1 else '—' }}</div>
+      <div class="sub">{% if c1 %}C$ {{ dinero(c1.total) }} · {{ c1.vendedor }}{% endif %}</div></div></div>
+  </div>
+
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-m">
+      <caption class="visually-hidden">Clientes del departamento por mes</caption>
+      <thead><tr><th class="fijo izq">Cliente · vendedor</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}
+        <th>Total C$</th><th>%</th><th>Fact.</th><th class="izq">Última</th><th class="izq"><span class="visually-hidden">Productos</span></th></tr></thead>
+      <tbody>
+        {% for c in d.clientes %}
+        <tr class="{{ 'sin-compra' if c.sin_compra }}">
+          <td class="fijo"><div class="fw-semibold">{{ c.posicion }}. {{ c.cliente }}</div>
+            <div class="sub"><i class="bi bi-person" aria-hidden="true"></i> {{ c.vendedor or 'sin vendedor' }}
+              {% if c.otros_vendedores %}<span title="También le vendieron: {{ c.otros_vendedores|join(', ') }}"> · +{{ c.otros_vendedores|length }}</span>{% endif %}
+              {% if c.asignado and c.asignado != c.vendedor %}<span title="Vendedor asignado en la ficha del cliente"> · ficha: {{ c.asignado }}</span>{% endif %}
+              {% if c.sin_compra %} · <em>sin compras en el período</em>{% endif %}</div></td>
+          {% for m in claves %}{% set v = c.meses.get(m, 0) %}
+          <td {% if v > 0 and d.maximo_cliente %}style="background-color: rgba(2, 114, 102, {{ '%.2f'|format(0.05 + 0.35 * (v / d.maximo_cliente) ** 0.5) }})"{% endif %}>{{ dinero(v) if v else '—' }}</td>
+          {% endfor %}
+          <td class="total">{{ dinero(c.total) }}</td>
+          <td>{{ "{:.1f}".format(c.pct) }}%</td>
+          <td>{{ c.facturas or '' }}</td>
+          <td class="izq small">{{ fecha(c.ultima) }}</td>
+          <td class="izq">{% if c.total %}<button type="button" class="btn-prod" data-cliente="{{ c.cliente }}"><i class="bi bi-box-seam" aria-hidden="true"></i> Productos</button>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ d.meses|length + 6 }}" class="text-center text-muted py-4">No hay ventas a clientes de este departamento con estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if d.clientes %}
+      <tfoot><tr><td class="fijo">Total ({{ d.clientes|selectattr('total')|list|length }} clientes)</td>
+        {% for m in claves %}<td>{{ dinero(df.meses.get(m, 0) if df else 0) }}</td>{% endfor %}
+        <td>{{ dinero(df.total if df else 0) }}</td><td>100%</td><td></td><td></td><td></td></tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+{% endif %}
+  {% if d.parcial %}<div class="small text-muted mt-2">* {{ d.meses[-1][1] }} está incompleto (datos hasta el {{ f.hasta.strftime('%d/%m/%Y') }}): compare con cuidado contra meses completos.</div>{% endif %}
+  <div class="small text-muted mt-2">El departamento sale de la ficha del cliente (se reconocen municipios y nombres mal escritos). El vendedor es quien más le vendió
+    en el período; las devoluciones no se descuentan porque no vienen detalladas por producto.</div>
+</div>
+
+{# ---------- Ventana: productos de un cliente ---------- #}
+<div class="modal fade" id="modal-prod" tabindex="-1" aria-labelledby="modal-prod-titulo" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-md-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div><h5 class="modal-title mb-0" id="modal-prod-titulo" style="font-size: 1.05rem; color: var(--credito); font-weight: 700">Productos</h5>
+          <div class="small text-muted">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}{% if f.vendedor %} · {{ f.vendedor }}{% endif %}</div></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modal-prod-cuerpo"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(() => {
+  const MESES = {{ d.meses|map(attribute=1)|list|tojson }};
+  const CLAVES = {{ claves|tojson }};
+  const PALETA = ['#027266', '#FE6412', '#4F6D8A', '#8AB17D', '#D9A441', '#9C6644'];
+  {% if f.depto %}
+  const series = [{ label: {{ (d.depto_fila.nombre if d.depto_fila else f.depto)|tojson }}, data: CLAVES.map(m => ({{ (d.depto_fila.meses if d.depto_fila else {})|tojson }})[m] || 0), tipo: 'bar' }];
+  {% else %}
+  const FILAS = {{ d.filas|rejectattr('depto', 'in', fuera_del_mapa)|selectattr('total')|list|map(attribute='nombre')|list|tojson }};
+  const DATOS = {{ d.filas|rejectattr('depto', 'in', fuera_del_mapa)|selectattr('total')|list|map(attribute='meses')|list|tojson }};
+  const series = FILAS.slice(0, 6).map((n, i) => ({ label: n, data: CLAVES.map(m => DATOS[i][m] || 0) }));
+  {% endif %}
+  const fmt = (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + ' M' : v >= 1e3 ? Math.round(v / 1e3) + ' K' : Math.round(v);
+  if (window.Chart) new Chart(document.getElementById('grafico'), {
+    type: series.length === 1 ? 'bar' : 'line',
+    data: { labels: MESES, datasets: series.map((s, i) => ({ label: s.label, data: s.data, borderColor: PALETA[i % PALETA.length],
+            backgroundColor: series.length === 1 ? PALETA[0] : PALETA[i % PALETA.length], tension: .25, pointRadius: 3, borderWidth: 2, borderRadius: 4 })) },
+    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } },
+                 tooltip: { callbacks: { label: (c) => `${c.dataset.label}: C$ ${Math.round(c.parsed.y).toLocaleString('en-US')}` } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: fmt }, grid: { color: '#ecebe8' } }, x: { grid: { display: false } } } }
+  });
+
+  // ---- Productos del cliente (se cargan al abrir la ventana) ----
+  const modal = document.getElementById('modal-prod'), cuerpo = document.getElementById('modal-prod-cuerpo');
+  const URL = "{{ url_for('ventas_depto_mes.productos_cliente') }}";
+  const FILTROS = {{ {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor}|tojson }};
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = (n, d = 0) => Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  let ventana = null;
+  document.querySelectorAll('.btn-prod').forEach(b => b.addEventListener('click', async () => {
+    ventana = ventana || new bootstrap.Modal(modal);
+    document.getElementById('modal-prod-titulo').textContent = 'Productos · ' + b.dataset.cliente;
+    cuerpo.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando…</div>';
+    ventana.show();
+    try {
+      const qs = new URLSearchParams({ ...FILTROS, cliente: b.dataset.cliente });
+      const datos = await (await fetch(`${URL}?${qs}`)).json();
+      if (!datos.length) { cuerpo.innerHTML = '<p class="text-muted mb-0">Sin productos en el período.</p>'; return; }
+      const total = datos.reduce((a, d) => a + d.monto, 0), unid = datos.reduce((a, d) => a + d.cantidad, 0);
+      const vendedores = [...new Set(datos.map(d => d.vendedor).filter(Boolean))];
+      cuerpo.innerHTML = `<div class="d-flex flex-wrap gap-3 mb-2 small"><span><strong>C$ ${num(total, 2)}</strong> total</span>
+          <span><strong>${num(unid)}</strong> unidades</span><span><strong>${datos.length}</strong> productos</span>
+          <span>Vendedor(es): <strong>${esc(vendedores.join(', '))}</strong></span></div>
+        <div class="table-responsive"><table class="table table-sm table-striped tabla-prod mb-0">
+          <thead><tr><th>Código</th><th>Nº parte</th><th>Descripción</th><th>Marca</th><th>Vendedor</th>
+            <th class="text-end">Cantidad</th><th class="text-end">Monto C$</th><th class="text-end">Fact.</th><th>Última</th></tr></thead>
+          <tbody>${datos.map(d => `<tr><td>${esc(d.codigo)}</td><td>${esc(d.parte)}</td><td>${esc(d.descripcion)}</td><td>${esc(d.marca)}</td>
+            <td class="small">${esc(d.vendedor)}</td><td class="text-end">${num(d.cantidad, d.cantidad % 1 ? 2 : 0)}</td>
+            <td class="text-end fw-bold">${num(d.monto, 2)}</td><td class="text-end">${d.facturas}</td>
+            <td class="text-nowrap">${esc(d.ultima.split('-').reverse().join('/'))}</td></tr>`).join('')}</tbody>
+          <tfoot><tr class="fw-bold"><td colspan="5">Total</td><td class="text-end">${num(unid)}</td><td class="text-end">${num(total, 2)}</td><td colspan="2"></td></tr></tfoot>
+        </table></div>`;
+    } catch { cuerpo.innerHTML = '<p class="text-danger mb-0">No se pudo cargar el detalle. Intente de nuevo.</p>'; }
+  }));
+})();
+</script>
+{% endblock %}

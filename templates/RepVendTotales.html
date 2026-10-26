@@ -32,10 +32,11 @@
 
   {# ---------- Controles (no salen en la imagen) ---------- #}
   <form method="get" class="controles d-flex flex-wrap align-items-end gap-2 mb-2 mx-auto" style="max-width: 1180px">
+    <input type="hidden" name="vista" value="detalle">
     <div class="btn-group btn-group-sm" role="group" aria-label="Períodos rápidos">
       {% for nombre, i, f in rangos %}
         <a class="btn btn-outline-secondary {% if i == fecha_inicio and f == fecha_fin %}active{% endif %}"
-           href="{{ url_for('rep_vend_totales', fecha_inicio=i, fecha_fin=f, vendedor=vendedor or '') }}">{{ nombre }}</a>
+           href="{{ url_for('rep_vend_totales', vista='detalle', fecha_inicio=i, fecha_fin=f, vendedor=vendedor or '') }}">{{ nombre }}</a>
       {% endfor %}
     </div>
     <div><label class="form-label small mb-0">Desde</label>
@@ -49,6 +50,7 @@
       </select></div>
     <button class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Aplicar</button>
     <div class="ms-auto d-flex gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('rep_vend_totales', dia=fecha_fin, vendedor=vendedor or '') }}"><i class="bi bi-phone"></i> Vista del día (WhatsApp)</a>
       <button type="button" id="btnImagen" class="btn btn-success btn-sm"><i class="bi bi-image"></i> Descargar imagen</button>
       <button type="button" id="btnCopiar" class="btn btn-outline-success btn-sm" hidden><i class="bi bi-clipboard"></i> Copiar imagen</button>
       <span id="avisoImagen" class="small align-self-center"></span>

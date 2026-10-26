@@ -1,0 +1,227 @@
+{% extends "layout.html" %}
+{% block title %}Análisis de Cartera{% endblock %}
+{% macro dinero(v) %}{{ "{:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro fecha(v) %}{{ v.strftime('%d/%m/%Y') if v else '—' }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .ac h4 { color: var(--credito); }
+  .ac .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .ac .form-control-sm, .ac .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-ac { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-ac thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .45rem .4rem;
+                       border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; }
+  .tabla-ac th.izq, .tabla-ac td.izq { text-align: left; }
+  .tabla-ac td { padding: .4rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; vertical-align: middle; white-space: nowrap; }
+  .tabla-ac tbody tr:hover td { background: #faf9f6; }
+  .tabla-ac tfoot td { font-weight: 700; background: #f6f5f1; }
+  .sub { font-size: .7rem; color: var(--ink-3); }
+  .reco { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 2px 8px; border-radius: 10px; font-size: .72rem; white-space: nowrap; }
+  .reco.rojo { background: #fde8e8; color: #b42318; } .reco.naranja { background: #fff1e8; color: #9a3412; }
+  .reco.verde { background: #e3f3f1; color: var(--credito); } .reco.gris { background: #eeede8; color: #52514e; }
+  .reco.azul { background: #e8eef6; color: #2f4f73; }
+  .chips-reco { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .chips-reco a { text-decoration: none; }
+  .chips-reco a.activo .reco { outline: 2px solid var(--contado); outline-offset: 1px; }
+  .motivo { white-space: normal; text-align: left !important; font-size: .72rem; color: var(--ink-2); min-width: 220px; max-width: 340px; }
+  .barra-uso { height: 6px; background: var(--grid); border-radius: 3px; margin-top: 3px; min-width: 60px; }
+  .barra-uso span { display: block; height: 100%; border-radius: 3px; }
+  .tramo { display: grid; grid-template-columns: 110px 1fr 110px; gap: .5rem; align-items: center; font-size: .8rem; margin: .3rem 0; }
+  .tramo .b { height: 16px; background: var(--grid); border-radius: 4px; overflow: hidden; }
+  .tramo .b span { display: block; height: 100%; }
+  .num-txt { font-variant-numeric: tabular-nums; text-align: right; }
+  .btn-det { border: 1px solid #b7d9d4; background: #fff; color: var(--credito); border-radius: 6px; font-size: .72rem; padding: .15rem .5rem; min-height: 28px; }
+  .btn-det:hover, .btn-det:focus-visible { background: #e6f2f0; outline: none; }
+  .tabla-det { font-size: .78rem; } .tabla-det th, .tabla-det td { text-align: left; } .tabla-det .text-end { text-align: right; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .ac .btn:focus-visible, .ac a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor, 'q': f.q, 'reco': f.reco} %}
+{% set colores_tramo = ['#7fbab2', '#E9C46A', '#FE6412', '#c2410c', '#b42318'] %}
+<div class="dash ac container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-wallet2" aria-hidden="true"></i> Análisis de cartera</h4>
+      <div class="text-muted small">Facturas de crédito del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }} contra lo recuperado ·
+        saldos al {{ f.corte.strftime('%d/%m/%Y') }}{% if f.vendedor %} · {{ f.vendedor }}{% endif %}</div>
+    </div>
+    <a class="btn btn-verde btn-sm" href="{{ url_for('analisis_cartera.descargar_excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Facturas desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" min="{{ inicio_datos.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-3"><label class="form-label" for="vendedor">Vendedor</label>
+        <select id="vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for v in d.vendedores %}<option {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-3"><label class="form-label" for="q">Cliente</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Buscar cliente o vendedor"></div>
+      <input type="hidden" name="reco" value="{{ f.reco }}">
+      <div class="col-12 col-lg-2 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+  </form>
+
+  {# ---------- Indicadores ---------- #}
+  {% set pct_cobro = d.cobrado / d.vendido * 100 if d.vendido else 0 %}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Vendido a crédito</div><div class="valor">C$ {{ dinero(d.vendido) }}</div><div class="sub">con IVA · {{ d.meses_periodo }} meses</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Recuperado</div><div class="valor">C$ {{ dinero(d.cobrado) }}</div>
+      <div class="sub">{{ "{:.0f}".format(pct_cobro) }}% de lo vendido (incluye facturas anteriores)</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Cartera pendiente</div><div class="valor">C$ {{ dinero(d.saldo) }}</div>
+      <div class="sub">de facturas del período</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Vencido</div>
+      <div class="valor" style="color: #b42318">C$ {{ dinero(d.vencido) }}</div>
+      <div class="sub">{{ "{:.0f}".format(d.vencido / d.saldo * 100 if d.saldo else 0) }}% de la cartera</div></div></div>
+    <div class="col-12 col-lg"><div class="card kpi"><div class="etiqueta">Días promedio de pago</div>
+      <div class="valor">{{ "{:.0f}".format(d.dias) if d.dias else '—' }} días</div><div class="sub">ponderado por monto pagado</div></div></div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-xl-8"><div class="card card-body">
+      <div class="d-flex justify-content-between"><h6 class="mb-1" style="color: var(--credito)">Vendido a crédito contra recuperado, por mes</h6>
+        <span class="small text-muted">línea: días promedio de pago</span></div>
+      <div style="height: 270px"><canvas id="grafico" role="img" aria-label="Vendido a crédito y recuperado por mes"></canvas></div>
+    </div></div>
+    <div class="col-xl-4"><div class="card card-body h-100">
+      <h6 class="mb-2" style="color: var(--credito)">Antigüedad de la cartera</h6>
+      {% set max_tramo = d.tramos|map(attribute='monto')|max %}
+      {% for t in d.tramos %}
+      <div class="tramo"><span>{{ t.nombre }}</span>
+        <span class="b" aria-hidden="true"><span style="width: {{ (t.monto / max_tramo * 100) if max_tramo else 0 }}%; background: {{ colores_tramo[loop.index0] }}"></span></span>
+        <span class="num-txt"><strong>{{ dinero(t.monto) }}</strong><div class="sub">{{ t.facturas }} fact.</div></span></div>
+      {% endfor %}
+      <div class="sub mt-2">Saldo por días de vencida al {{ f.corte.strftime('%d/%m/%Y') }}. Retenciones IR/alcaldía cubiertas: C$ {{ dinero(d.retenido) }}.</div>
+    </div></div>
+  </div>
+
+  {# ---------- Tabla por mes ---------- #}
+  <details class="card card-body mb-3" open>
+    <summary class="fw-semibold" style="color: var(--credito)">Detalle por mes</summary>
+    <div class="table-responsive mt-2"><table class="tabla-ac">
+      <thead><tr><th class="izq">Mes</th><th>Vendido crédito</th><th>Facturas</th><th>Recuperado</th><th>% rec./vend.</th><th>Días prom. pago</th>
+        <th>Devuelto</th><th title="Lo que falta pagar de las facturas emitidas ese mes">Saldo de esas facturas</th><th>Vencido</th><th>Pagadas</th></tr></thead>
+      <tbody>{% for m in d.por_mes %}<tr><td class="izq fw-semibold">{{ m.mes }}</td><td>{{ dinero(m.vendido) }}</td><td>{{ m.facturas }}</td>
+        <td>{{ dinero(m.cobrado) }}</td><td>{{ "{:.0f}%".format(m.pct) if m.pct is not none else '—' }}</td><td>{{ "{:.0f}".format(m.dias) if m.dias else '—' }}</td>
+        <td>{{ dinero(m.devuelto) if m.devuelto else '—' }}</td><td>{{ dinero(m.saldo) }}</td>
+        <td {% if m.vencido %}style="color: #b42318"{% endif %}>{{ dinero(m.vencido) if m.vencido else '—' }}</td>
+        <td>{{ m.pagadas }} / {{ m.facturas }}</td></tr>{% endfor %}</tbody>
+      <tfoot><tr><td class="izq">Total</td><td>{{ dinero(d.vendido) }}</td><td>{{ d.por_mes|sum(attribute='facturas') }}</td><td>{{ dinero(d.cobrado) }}</td>
+        <td>{{ "{:.0f}%".format(pct_cobro) }}</td><td>{{ "{:.0f}".format(d.dias) if d.dias else '—' }}</td><td>{{ dinero(d.devuelto) }}</td>
+        <td>{{ dinero(d.saldo) }}</td><td>{{ dinero(d.vencido) }}</td><td></td></tr></tfoot>
+    </table></div>
+  </details>
+
+  {# ---------- Clientes y recomendación ---------- #}
+  <div class="card card-body p-0">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 p-3 pb-2">
+      <h6 class="mb-0" style="color: var(--credito)"><i class="bi bi-people" aria-hidden="true"></i> Clientes: cómo pagan y qué hacer con su crédito</h6>
+      <div class="chips-reco" role="group" aria-label="Filtrar por recomendación">
+        <a href="{{ url_for('analisis_cartera.reporte', **dict(params, reco='')) }}" class="{{ 'activo' if not f.reco }}"><span class="reco gris">Todos</span></a>
+        {% for k, (nombre, color, icono) in recomendaciones.items() %}
+        <a href="{{ url_for('analisis_cartera.reporte', **dict(params, reco=k)) }}" class="{{ 'activo' if f.reco == k }}" {% if f.reco == k %}aria-current="true"{% endif %}>
+          <span class="reco {{ color }}"><i class="bi {{ icono }}" aria-hidden="true"></i> {{ nombre }} · {{ d.conteo_reco[k] }}</span></a>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="table-responsive" style="max-height: 70vh">
+      <table class="tabla-ac">
+        <thead><tr><th class="izq">Cliente</th><th class="izq">Términos</th><th>Límite</th><th>Comprado</th><th>Saldo</th><th>Uso límite</th><th>Vencido</th>
+          <th>Días prom. pago</th><th>% a tiempo</th><th class="izq">Recomendación</th><th>Límite sugerido</th><th class="izq">Motivo</th><th></th></tr></thead>
+        <tbody>
+          {% for c in d.clientes %}
+          {% set nombre, color, icono = recomendaciones[c.reco] %}
+          <tr>
+            <td class="izq" style="white-space: normal; min-width: 200px"><div class="fw-semibold">{{ c.cliente }}</div>
+              <div class="sub">{{ c.vendedor or 'sin vendedor' }}{% if c.ultimo_pago %} · último pago {{ fecha(c.ultimo_pago) }}{% endif %}{% if not c.en_tabla %} · <em>no está en Clientes</em>{% endif %}</div></td>
+            <td class="izq">{{ c.terminos or (c.plazo ~ ' días*') }}</td>
+            <td>{{ dinero(c.limite) if c.limite else '—' }}</td>
+            <td>{{ dinero(c.comprado) if c.comprado else '—' }}<div class="sub">{{ c.facturas }} fact.</div></td>
+            <td class="fw-semibold">{{ dinero(c.saldo) if c.saldo else '—' }}</td>
+            <td>{% if c.uso is not none %}{{ "{:.0f}%".format(c.uso) }}<div class="barra-uso" aria-hidden="true"><span style="width: {{ [c.uso, 100]|min }}%; background: {{ '#b42318' if c.uso > 100 else ('#FE6412' if c.uso > 80 else '#027266') }}"></span></div>{% else %}—{% endif %}</td>
+            <td {% if c.vencido %}style="color: #b42318"{% endif %}>{{ dinero(c.vencido) if c.vencido else '—' }}{% if c.max_vencida %}<div class="sub">hasta {{ c.max_vencida }} días</div>{% endif %}</td>
+            <td>{{ "{:.0f}".format(c.dias_pago) if c.dias_pago is not none else '—' }}</td>
+            <td>{{ "{:.0f}%".format(c.pct_a_tiempo) if c.pct_a_tiempo is not none else '—' }}</td>
+            <td class="izq"><span class="reco {{ color }}"><i class="bi {{ icono }}" aria-hidden="true"></i> {{ nombre }}</span></td>
+            <td>{{ dinero(c.limite_sugerido) if c.limite_sugerido is not none else '—' }}</td>
+            <td class="motivo">{{ c.motivo }}</td>
+            <td>{% if c.facturas %}<button type="button" class="btn-det" data-cliente="{{ c.cliente }}"><i class="bi bi-list-ul" aria-hidden="true"></i> Facturas</button>{% endif %}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="13" class="text-center text-muted py-4">No hay clientes con estos filtros.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="small text-muted mt-2">
+    Saldo = total − pagado − devoluciones; si lo que falta cabe en la retención (IR 2% / alcaldía 1%) la factura se toma como pagada.
+    "A tiempo" = pagos hechos dentro del plazo + {{ 5 }} días. * plazo tomado de sus facturas (no tiene términos en la ficha).
+    La recuperación está cargada desde enero 2026: las facturas de 2025 solo cuentan como pagos recibidos.
+    Reglas: <strong>suspender</strong> si tiene vencido de más de 90 días que pesa (10% o más de su saldo o más de C$ 50,000) o paga 60 días después del plazo; <strong>revisar</strong> si tiene vencido de más de 60 días,
+    paga 30 días después del plazo o paga a tiempo menos del 40%; <strong>aumentar</strong> si paga a tiempo (85% o más), no tiene vencido importante y usa 70% o más de su límite.
+  </div>
+</div>
+
+{# ---------- Ventana: facturas y pagos del cliente ---------- #}
+<div class="modal fade" id="modal-cli" tabindex="-1" aria-labelledby="modal-cli-titulo" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-md-down"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title" id="modal-cli-titulo" style="font-size: 1.05rem; color: var(--credito); font-weight: 700">Facturas</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <div class="modal-body" id="modal-cli-cuerpo"></div>
+  </div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(() => {
+  const M = {{ d.por_mes|tojson }};
+  if (window.Chart) new Chart(document.getElementById('grafico'), {
+    data: { labels: M.map(m => m.mes), datasets: [
+      { type: 'bar', label: 'Vendido a crédito', data: M.map(m => m.vendido), backgroundColor: '#027266', borderRadius: 4, yAxisID: 'y' },
+      { type: 'bar', label: 'Recuperado', data: M.map(m => m.cobrado), backgroundColor: '#FE6412', borderRadius: 4, yAxisID: 'y' },
+      { type: 'line', label: 'Días prom. de pago', data: M.map(m => m.dias), borderColor: '#4F6D8A', backgroundColor: '#4F6D8A', tension: .3, yAxisID: 'y2', pointRadius: 3 } ] },
+    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } },
+        tooltip: { callbacks: { label: c => c.dataset.yAxisID === 'y2' ? `${c.dataset.label}: ${Math.round(c.parsed.y)} días` : `${c.dataset.label}: C$ ${Math.round(c.parsed.y).toLocaleString('en-US')}` } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: v => v >= 1e6 ? (v / 1e6) + ' M' : v }, grid: { color: '#ecebe8' } },
+                y2: { position: 'right', beginAtZero: true, grid: { display: false }, ticks: { callback: v => v + ' d' } }, x: { grid: { display: false } } } }
+  });
+
+  const modal = document.getElementById('modal-cli'), cuerpo = document.getElementById('modal-cli-cuerpo');
+  const URL = "{{ url_for('analisis_cartera.detalle_cliente') }}";
+  const FILTROS = {{ {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor}|tojson }};
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const n = (v) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const f = (s) => s ? s.split('-').reverse().join('/') : '';
+  let ventana = null;
+  document.querySelectorAll('.btn-det').forEach(b => b.addEventListener('click', async () => {
+    ventana = ventana || new bootstrap.Modal(modal);
+    document.getElementById('modal-cli-titulo').textContent = 'Facturas de crédito · ' + b.dataset.cliente;
+    cuerpo.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando…</div>';
+    ventana.show();
+    try {
+      const d = await (await fetch(`${URL}?${new URLSearchParams({ ...FILTROS, cliente: b.dataset.cliente })}`)).json();
+      const pend = d.facturas.filter(x => x.saldo > 0);
+      cuerpo.innerHTML = `<h6 class="mb-1">Facturas (${d.facturas.length}, ${pend.length} con saldo)</h6>
+        <div class="table-responsive"><table class="table table-sm table-striped tabla-det"><thead><tr><th>Factura</th><th>Fecha</th><th>Vence</th>
+          <th class="text-end">Total</th><th class="text-end">Pagado</th><th class="text-end">Devuelto</th><th class="text-end">Retención</th><th class="text-end">Saldo</th><th class="text-end">Días vencida</th></tr></thead>
+          <tbody>${d.facturas.map(x => `<tr${x.saldo > 0 && x.dias_vencida > 0 ? ' class="table-danger"' : ''}><td>${esc(x.factura)}</td><td>${f(x.fecha)}</td><td>${f(x.vence)}</td>
+            <td class="text-end">${n(x.total)}</td><td class="text-end">${n(x.pagado)}</td><td class="text-end">${x.devuelto ? n(x.devuelto) : ''}</td>
+            <td class="text-end">${x.retenido ? n(x.retenido) : ''}</td><td class="text-end fw-bold">${x.saldo ? n(x.saldo) : '—'}</td>
+            <td class="text-end">${x.saldo > 0 && x.dias_vencida > 0 ? x.dias_vencida : ''}</td></tr>`).join('')}</tbody></table></div>
+        <h6 class="mb-1 mt-3">Pagos recibidos (${d.pagos.length})</h6>
+        <div class="table-responsive"><table class="table table-sm table-striped tabla-det"><thead><tr><th>Fecha</th><th>Recibo</th><th>Factura</th><th class="text-end">Días</th><th class="text-end">Monto</th></tr></thead>
+          <tbody>${d.pagos.map(p => `<tr><td>${f(p.fecha)}</td><td>${esc(p.recibo)}</td><td>${esc(p.factura)}</td><td class="text-end">${p.dias}</td><td class="text-end">${n(p.monto)}</td></tr>`).join('')}</tbody></table></div>`;
+    } catch { cuerpo.innerHTML = '<p class="text-danger mb-0">No se pudo cargar el detalle.</p>'; }
+  }));
+})();
+</script>
+{% endblock %}

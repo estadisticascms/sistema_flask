@@ -1,0 +1,182 @@
+{% extends "layout.html" %}
+{% block title %}Revisión de Precios para Comisionistas{% endblock %}
+{% macro num(v) %}{% set r = v|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endmacro %}
+{% macro pct(v) %}{% if v is none %}—{% else %}{{ "%+.0f"|format(v) }}%{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .pv h4 { color: var(--credito); }
+  .pv .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .pv .form-control-sm, .pv .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-pv { width: 100%; font-size: .76rem; border-collapse: separate; border-spacing: 0; min-width: 1650px; }
+  .tabla-pv td.cliente-precio { background: #eef7f6; font-weight: 700; color: var(--credito); }
+  .comision { display: inline-block; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .7rem; white-space: nowrap; }
+  .comision.si { background: #e3f3f1; color: var(--credito); } .comision.no { background: #b42318; color: #fff; }
+  .comision.revisar { background: #eceae4; color: #52514e; }
+  .tabla-pv thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .4rem; white-space: nowrap; vertical-align: bottom; }
+  .tabla-pv td { padding: .35rem .4rem; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  .tabla-pv tbody tr:hover td { background: #faf9f6; }
+  .tabla-pv tr.nueva-factura td { border-top: 2px solid #d9d6ce; }
+  .tabla-pv .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-pv .meta { font-size: .7rem; color: var(--ink-3); }
+  .tabla-pv td.precio { text-align: right; white-space: nowrap; }
+  .tabla-pv td.precio .d { display: block; font-size: .7rem; font-weight: 700; }
+  .tabla-pv td.precio.asignado { background: #eef7f6; box-shadow: inset 0 0 0 1px #b9dcd7; }
+  .d.neg { color: #b42318; } .d.pos { color: var(--credito); }
+  .estado { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; padding: 1px 8px; border-radius: 10px; font-size: .7rem; white-space: nowrap; }
+  .estado.debajo { background: #fde8e8; color: #b42318; } .estado.descuento { background: #fef7e0; color: #854d0e; }
+  .estado.lista { background: #e3f3f1; color: var(--credito); } .estado.sin_precio { background: #eceae4; color: #52514e; }
+  .estado.costo { background: #b42318; color: #fff; }
+  .chip-estado { text-decoration: none; border: 1px solid var(--grid); border-radius: 10px; padding: .3rem .55rem; display: block; color: var(--ink); height: 100%; }
+  .chip-estado:hover, .chip-estado.activo { border-color: var(--credito); background: #f3f9f8; }
+  .chip-estado .n { font-size: 1.1rem; font-weight: 700; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .pv .btn:focus-visible, .pv a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .pv .page-link { color: var(--credito); }
+  .pv .page-item.active .page-link { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .vend table.table { width: 100%; margin: 0; font-size: .78rem; } .vend table.table td, .vend table.table th { text-align: left; }
+  .vend table.table .text-end { text-align: right; }
+</style>
+
+{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'cliente': f.cliente, 'factura': f.factura, 'recibo': f.recibo,
+                 'vendedor': f.vendedor, 'tipo': f.tipo, 'estado': f.estado, 'tc': f.tc, 'tolerancia': f.tolerancia, 'desc_general': f.desc_general} %}
+<div class="dash pv container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-tags" aria-hidden="true"></i> Revisión de precios para comisionistas</h4>
+      <div class="text-muted small">
+        {% if f.factura %}Factura <strong>{{ f.factura }}</strong>{% elif f.recibo %}Facturas del recibo <strong>{{ f.recibo }}</strong>
+          {% if extra.facturas_recibo %}({{ extra.facturas_recibo|join(', ') }}){% endif %}
+        {% else %}Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}{% endif %}
+        · ¿se respetó el precio establecido para el cliente? Si el precio neto cobrado (después de descuento, sin IVA) queda debajo
+        del mínimo permitido, esa línea no paga comisión.</div>
+    </div>
+    {% if r.lineas %}<a class="btn btn-verde btn-sm" href="{{ url_for('revision_precios_venta.descargar_excel', **params) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel ({{ "{:,}".format(r.lineas) }})</a>{% endif %}
+  </div>
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-1"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-12 col-lg-2"><label class="form-label" for="cliente">Cliente</label>
+        <input type="search" id="cliente" name="cliente" value="{{ f.cliente }}" class="form-control form-control-sm" placeholder="Nombre o parte del nombre"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="factura">No. factura</label>
+        <input id="factura" name="factura" inputmode="numeric" value="{{ f.factura }}" class="form-control form-control-sm" title="Busca en todas las fechas"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="recibo">No. recibo</label>
+        <input id="recibo" name="recibo" inputmode="numeric" value="{{ f.recibo }}" class="form-control form-control-sm" title="Facturas pagadas con ese recibo (todas las fechas)"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="vendedor">Vendedor</label>
+        <select id="vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for v in vendedores %}<option {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="tipo">Tipo</label>
+        <select id="tipo" name="tipo" class="form-select form-select-sm">{% for k, v in tipos.items() %}<option value="{{ k }}" {% if k == f.tipo %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="estado">Mostrar</label>
+        <select id="estado" name="estado" class="form-select form-select-sm">{% for k, v in estados.items() %}<option value="{{ k }}" {% if k == f.estado %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-4 col-lg-1"><label class="form-label" for="desc_general">Desc. general %</label>
+        <input type="number" id="desc_general" name="desc_general" min="0" max="90" step="0.5" value="{{ f.desc_general|round(1) }}" class="form-control form-control-sm"
+               title="Descuento permitido aunque la ficha del cliente diga 0%. Se usa el mayor entre este y el del cliente"></div>
+      <div class="col-4 col-lg-1"><label class="form-label" for="tolerancia">Tolerancia %</label>
+        <input type="number" id="tolerancia" name="tolerancia" min="0" max="20" step="0.1" value="{{ f.tolerancia }}" class="form-control form-control-sm" title="Diferencias menores se consideran redondeo"></div>
+      <div class="col-4 col-lg-1"><label class="form-label" for="tc">Tipo de cambio</label>
+        <input type="number" id="tc" name="tc" step="0.0001" min="1" value="{{ f.tc }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-search" aria-hidden="true"></i> Revisar</button></div>
+      {% if f.factura or f.recibo or f.cliente or f.vendedor %}<div class="col-6 col-lg-1 d-grid"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('revision_precios_venta.reporte', desde=f.desde.isoformat(), hasta=f.hasta.isoformat()) }}">Limpiar</a></div>{% endif %}
+    </div>
+  </form>
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Líneas revisadas</div><div class="valor">{{ "{:,}".format(r.lineas) }}</div>
+      <div class="sub">{{ "{:,}".format(r.facturas) }} facturas · {{ r.clientes }} clientes · C$ {{ "{:,.2f}".format(r.venta) }} sin IVA</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: #b42318"></div>
+      <div class="etiqueta">Dejado de cobrar</div><div class="valor">C$ {{ "{:,.2f}".format(r.faltante) }}</div>
+      <div class="sub">diferencia contra el mínimo permitido en {{ "{:,}".format(r.debajo) }} líneas</div>
+      <div class="sub"><span class="comision no">No paga comisión</span> {{ "{:,}".format(r.debajo) }} líneas en {{ "{:,}".format(r.facturas_sin_comision) }} facturas</div></div></div>
+    <div class="col-12 col-lg-6"><div class="card kpi"><div class="etiqueta mb-1">Líneas por resultado (clic para filtrar)</div>
+      <div class="row g-2">
+        {% for k, etiqueta, n in [('debajo', 'Debajo del mínimo', r.debajo), ('costo', 'Debajo del costo', r.costo), ('descuento', 'Descuento permitido', r.descuento), ('lista', 'Precio de lista o más', r.lista)] %}
+        <div class="col-6 col-md-3"><a class="chip-estado {{ 'activo' if f.estado == k }}" href="{{ url_for('revision_precios_venta.reporte', **dict(params, estado=('' if f.estado == k else k))) }}">
+          <span class="estado {{ k }}">{{ etiqueta }}</span><div class="n">{{ "{:,}".format(n) }}</div></a></div>
+        {% endfor %}
+      </div>
+      {% if r.sin_precio or r.sin_ficha %}<div class="sub mt-1">{{ r.sin_precio }} líneas sin precio en el catálogo · {{ r.sin_ficha }} clientes no están en la tabla de clientes (se comparan contra Precio 1 sin descuento).</div>{% endif %}
+    </div></div>
+  </div>
+
+  {% if r.por_vendedor %}
+  <details class="card card-body py-2 mb-2 vend">
+    <summary class="small fw-semibold">Líneas debajo del mínimo por vendedor ({{ r.por_vendedor|length }})</summary>
+    <div class="table-responsive mt-2"><table class="table table-sm mb-0">
+      <thead><tr><th>Vendedor</th><th class="text-end">Líneas</th><th class="text-end">Facturas</th><th class="text-end">Dejado de cobrar C$</th><th></th></tr></thead>
+      <tbody>{% for v in r.por_vendedor %}<tr><td>{{ v.vendedor }}</td><td class="text-end">{{ v.lineas }}</td><td class="text-end">{{ v.facturas }}</td>
+        <td class="text-end fw-semibold">{{ "{:,.2f}".format(v.faltante) }}</td>
+        <td><a href="{{ url_for('revision_precios_venta.reporte', **dict(params, vendedor=v.vendedor, estado='debajo')) }}">ver líneas</a></td></tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% endif %}
+  <p class="small text-muted mb-2"><i class="bi bi-info-circle" aria-hidden="true"></i>
+    Precio del cliente = el precio de la lista asignada en su ficha (Precio 1 a 4, resaltado también en su columna); si no tiene lista se usa Precio 1.
+    Mínimo permitido = precio del cliente − su descuento{% if f.desc_general %} (o {{ f.desc_general|round(1) }}% general, el mayor){% endif %}.
+    Comisión: «No paga» si se vendió debajo del mínimo; «Revisar» si el producto no tiene precio en el catálogo.
+    Los precios del sistema son los vigentes hoy en el catálogo; en facturas viejas el precio pudo ser otro.</p>
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-pv">
+      <thead><tr>
+        <th>Fecha</th><th>Factura</th><th>Cliente</th><th>Producto</th><th class="num">Cant.</th><th class="num">Precio fact.</th><th class="num">Desc.</th>
+        <th class="num">Sub-Total 2</th><th class="num">Precio unit. venta</th>
+        <th class="num">Prec1 C$</th><th class="num">Prec2 C$</th><th class="num">Prec3 C$</th><th class="num">Prec4 C$</th>
+        <th class="num">Precio del cliente</th><th class="num">Mínimo permitido</th><th>Resultado</th><th>Comisión</th>
+      </tr></thead>
+      <tbody>
+        {% set ns = namespace(ultima=None) %}
+        {% for x in filas %}
+        <tr class="{{ 'nueva-factura' if ns.ultima is not none and ns.ultima != x.factura }}">
+          {% set ns.ultima = x.factura %}
+          <td class="text-nowrap">{{ x.fecha[8:10] }}/{{ x.fecha[5:7] }}/{{ x.fecha[:4] }}<div class="meta">{{ x.tipo|capitalize }}</div></td>
+          <td class="fw-semibold">{{ x.factura|int }}<div class="meta">{{ x.tipo_factura or '' }}</div></td>
+          <td style="max-width: 210px">{{ x.cliente }}<div class="meta">{{ x.vendedor }}</div>
+            <div class="meta">{% if x.en_tabla %}Lista {{ x.nivel or '—' }} · desc. {{ x.desc_ficha|round(1) }}%{% else %}<span class="text-danger">no está en clientes</span>{% endif %}</div></td>
+          <td style="max-width: 250px">{{ x.descripcion }}<div class="meta">{{ x.parte }} · {{ x.codigo }} · {{ x.marca }}</div></td>
+          <td class="num">{{ num(x.cantidad) }}</td>
+          <td class="num">{{ "{:,.2f}".format(x.precio_facturado) }}</td>
+          <td class="num">{% if x.descuento %}{{ "{:,.2f}".format(x.descuento) }}<div class="meta">{{ x.desc_pct|round(1) }}%</div>{% else %}—{% endif %}</td>
+          <td class="num">{{ "{:,.2f}".format(x.neto) }}</td>
+          <td class="num fw-bold">{{ "{:,.2f}".format(x.unit) }}</td>
+          {% for p in x.precios %}
+          <td class="precio {{ 'asignado' if x.nivel == loop.index or (not x.nivel and loop.first) }}">{{ "{:,.2f}".format(p.cs) if p.cs else '—' }}
+            {% if p.dif is not none %}<span class="d {{ 'neg' if p.dif < -f.tolerancia else ('pos' if p.dif >= 0 else '') }}">{{ pct(p.dif) }}</span>{% endif %}</td>
+          {% endfor %}
+          <td class="num cliente-precio">{{ "{:,.2f}".format(x.lista) if x.lista else '—' }}
+            <div class="meta">{% if x.nivel %}Precio {{ x.nivel }}{% else %}Precio 1 (sin lista){% endif %}{% if x.desc_cliente %} · −{{ x.desc_cliente|round(1) }}%{% endif %}</div></td>
+          <td class="num">{{ "{:,.2f}".format(x.minimo) if x.minimo else '—' }}
+            {% if x.dif_minimo is not none %}<div class="meta {{ 'text-danger fw-bold' if x.estado == 'debajo' }}">{{ pct(x.dif_minimo) }}</div>{% endif %}</td>
+          <td><span class="estado {{ x.estado }}">{{ estados[x.estado] if x.estado != 'lista' else 'Precio de lista' }}</span>
+            {% if x.estado == 'debajo' %}<div class="meta text-danger">faltó C$ {{ "{:,.2f}".format(x.faltante) }}</div>{% endif %}
+            {% if x.bajo_costo %}<div><span class="estado costo">Debajo del costo ({{ "{:,.2f}".format(x.costo) }})</span></div>{% endif %}</td>
+          <td><span class="comision {{ x.comision }}">{{ comision[x.comision] }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="18" class="text-center text-muted py-4">
+          {% if f.recibo and not extra.facturas_recibo %}No se encontró el recibo {{ f.recibo }} en la recuperación cargada.{% else %}No hay líneas de venta con estos filtros.{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if paginas > 1 %}
+  <nav class="mt-2" aria-label="Páginas"><ul class="pagination pagination-sm flex-wrap">
+    {% for p in range(1, paginas + 1) %}{% if p <= 3 or (p - pagina)|abs <= 2 or p > paginas - 2 %}
+    <li class="page-item {{ 'active' if p == pagina }}"><a class="page-link" href="{{ url_for('revision_precios_venta.reporte', **dict(params, pagina=p)) }}">{{ p }}</a></li>
+    {% endif %}{% endfor %}
+  </ul></nav>
+  {% endif %}
+</div>
+{% endblock %}

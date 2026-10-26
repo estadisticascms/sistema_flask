@@ -1,0 +1,280 @@
+{% extends "layout.html" %}
+{% block title %}{{ 'Editar' if cheque else 'Nuevo' }} Cheque{% endblock %}
+{% block content %}
+<style>
+  .ch h4 { color: var(--color-secundario, #027266); }
+  .ch .form-label { font-size: .8rem; color: #52514e; margin-bottom: 2px; font-weight: 600; }
+  .partida th { background: #f6f5f1; font-size: .78rem; color: #52514e; font-weight: 600; white-space: nowrap; }
+  .partida.table { width: 100%; margin: 0; }   /* styles.css deja las tablas al 80% */
+  .partida td { vertical-align: top; text-align: left; }
+  .partida input, .partida select { font-size: .85rem; }
+  .partida .monto-col { width: 14%; min-width: 110px; }
+  .partida tr.auto td { background: #eef7f6; }
+  .partida .nota-auto { font-size: .72rem; color: #027266; font-weight: 600; }
+  .partida tfoot td { font-weight: 700; border-top: 2px solid #d9d6ce; }
+  .sug-cuentas { position: absolute; z-index: 20; background: #fff; border: 1px solid #d9d6ce; border-radius: 8px; max-height: 260px; overflow-y: auto;
+                 width: min(560px, 90vw); box-shadow: 0 6px 18px rgba(0,0,0,.12); }
+  .sug-cuentas button { display: block; width: 100%; text-align: left; border: 0; background: #fff; padding: .4rem .6rem; font-size: .8rem; }
+  .sug-cuentas button:hover, .sug-cuentas button:focus { background: #eef7f6; outline: none; }
+  .sug-cuentas .cod { font-weight: 700; color: #027266; margin-right: .4rem; }
+  .letras { font-weight: 700; color: #1f1f1d; background: #f6f5f1; border-radius: 8px; padding: .45rem .7rem; min-height: 38px; font-size: .9rem; }
+  .cuadre { font-weight: 700; border-radius: 8px; padding: .3rem .7rem; }
+  .cuadre.ok { background: #e3f3f1; color: #027266; } .cuadre.mal { background: #fde8e8; color: #b42318; }
+  .num-cheque { font-size: 1.4rem; font-weight: 800; color: #FE6412; }
+  .ch .btn:focus-visible, .ch input:focus-visible, .ch select:focus-visible { outline: 3px solid #FE6412; outline-offset: 1px; }
+</style>
+
+<div class="ch container mt-3 mb-5" style="max-width: 1100px">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <h4 class="mb-0"><i class="bi bi-pencil-square" aria-hidden="true"></i> {{ ('Editar cheque No. ' ~ cheque.numero) if cheque else 'Nuevo cheque' }}</h4>
+    <a href="{{ url_for('cheques.lista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-ul" aria-hidden="true"></i> Cheques</a>
+  </div>
+
+  {% if errores %}
+  <div class="alert alert-danger" role="alert"><strong>No se guardó:</strong><ul class="mb-0">{% for e in errores %}<li>{{ e }}</li>{% endfor %}</ul></div>
+  {% endif %}
+
+  <form method="post" id="form-cheque" autocomplete="off" novalidate>
+    <div class="card card-body mb-3">
+      <div class="row g-3">
+        <div class="col-6 col-md-3"><label class="form-label" for="fecha">Fecha del cheque</label>
+          <input type="date" id="fecha" name="fecha" class="form-control" value="{{ val.fecha }}" required></div>
+        <div class="col-12 col-md-5"><label class="form-label" for="banco_id">Banco</label>
+          <select id="banco_id" name="banco_id" class="form-select" required>
+            <option value="">Seleccione…</option>
+            {% for b in bancos %}<option value="{{ b.id }}" data-moneda="{{ b.moneda }}" data-proximo="{{ b.proximo_cheque or '' }}"
+              data-cuenta-id="{{ b.cuenta_id or '' }}" data-cuenta-texto="{{ b.cuenta_texto }}"
+              {% if val.banco_id == (b.id|string) %}selected{% endif %}>{{ b.nombre }} · {{ b.moneda }}</option>{% endfor %}
+          </select></div>
+        <div class="col-12 col-md-4">
+          <span class="form-label d-block">Número de cheque</span>
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <div class="form-check mb-0"><input class="form-check-input" type="radio" name="numeracion" id="num-auto" value="auto"
+              {% if not (form and form.get('numeracion') == 'manual') and not (cheque and cheque.numero_manual) %}checked{% endif %}>
+              <label class="form-check-label" for="num-auto">Automático</label></div>
+            <div class="form-check mb-0"><input class="form-check-input" type="radio" name="numeracion" id="num-manual" value="manual"
+              {% if (form and form.get('numeracion') == 'manual') or (not form and cheque and cheque.numero_manual) %}checked{% endif %}>
+              <label class="form-check-label" for="num-manual">Manual</label></div>
+          </div>
+          <div class="mt-1" id="caja-auto"><span class="num-cheque" id="proximo">—</span> <span class="small text-muted" id="proximo-nota"></span></div>
+          <input type="text" inputmode="numeric" id="numero_manual" name="numero_manual" class="form-control mt-1" placeholder="Número del cheque"
+                 value="{{ form.get('numero_manual') if form else (cheque.numero if cheque and cheque.numero_manual else '') }}" hidden>
+        </div>
+        <div class="col-12 col-md-8"><label class="form-label" for="beneficiario">Beneficiario</label>
+          <input id="beneficiario" name="beneficiario" class="form-control text-uppercase" maxlength="150" list="dl-benef" required value="{{ val.beneficiario }}"></div>
+        <div class="col-6 col-md-2"><label class="form-label" for="monto">Monto <span id="moneda-txt">C$</span></label>
+          <input id="monto" name="monto" class="form-control text-end fw-bold" inputmode="decimal" required value="{{ val.monto }}"></div>
+        <div class="col-6 col-md-2"><label class="form-label" for="tasa_cambio">Tasa</label>
+          <input id="tasa_cambio" name="tasa_cambio" class="form-control text-end" inputmode="decimal" value="{{ val.tasa_cambio }}"></div>
+        <div class="col-12"><span class="form-label d-block">Monto en letras</span><div class="letras" id="letras" aria-live="polite">—</div></div>
+        <div class="col-12"><label class="form-label" for="concepto">Concepto</label>
+          <textarea id="concepto" name="concepto" rows="2" class="form-control text-uppercase" maxlength="1000">{{ val.concepto }}</textarea></div>
+      </div>
+    </div>
+
+    <div class="card card-body mb-3">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <div><h6 class="mb-0" style="color: #027266">Partida contable <span class="small text-muted fw-normal">(en córdobas)</span></h6>
+          <div class="small fw-semibold" id="conversion" style="color: #9a3412" aria-live="polite" hidden></div></div>
+        <span class="cuadre" id="cuadre" aria-live="polite">Diferencia 0.00</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm partida mb-1">
+          <thead><tr><th style="width: 30%">Cuenta</th><th>Descripción</th><th class="text-end monto-col">Debe C$</th><th class="text-end monto-col">Haber C$</th><th style="width: 12%">Referencia</th><th></th></tr></thead>
+          <tbody id="lineas">
+            {% for l in (lineas or [{}, {'auto': 1}]) %}
+            <tr class="linea{{ ' auto' if l.auto }}" {% if l.auto %}data-auto="1"{% endif %}>
+              <td class="position-relative">
+                <input name="cuenta_texto" class="form-control form-control-sm buscar-cuenta" placeholder="Código o nombre de la cuenta" aria-label="Cuenta contable"
+                       value="{{ l.cuenta_texto or '' }}" autocomplete="off">
+                <input type="hidden" name="cuenta_id" value="{{ l.cuenta_id or '' }}">
+                <div class="nota-auto"{% if not l.auto %} hidden{% endif %}><i class="bi bi-bank" aria-hidden="true"></i> Banco: se llena solo con el monto del cheque</div>
+                <div class="sug-cuentas" hidden></div></td>
+              <td><input name="descripcion" class="form-control form-control-sm" maxlength="255" value="{{ l.descripcion or '' }}" aria-label="Descripción"></td>
+              <td><input name="debe" class="form-control form-control-sm text-end debe" inputmode="decimal" value="{{ l.debe or '' }}" aria-label="Debe"></td>
+              <td><input name="haber" class="form-control form-control-sm text-end haber" inputmode="decimal" value="{{ l.haber or '' }}" aria-label="Haber"></td>
+              <td><input name="referencia" class="form-control form-control-sm" maxlength="100" value="{{ l.referencia or '' }}" aria-label="Referencia"></td>
+              <td><button type="button" class="btn btn-sm btn-outline-danger quitar" aria-label="Quitar línea"><i class="bi bi-x-lg" aria-hidden="true"></i></button></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot><tr><td colspan="2" class="text-end small">Totales</td>
+            <td class="text-end" id="tot-d">0.00</td><td class="text-end" id="tot-h">0.00</td><td colspan="2"></td></tr></tfoot>
+        </table>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="agregar"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar línea</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="completar" title="Pone en la primera línea (que no sea el banco) el valor que falta para cuadrar"><i class="bi bi-magic" aria-hidden="true"></i> Completar con la diferencia</button>
+      </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-success" id="guardar"><i class="bi bi-check2-circle" aria-hidden="true"></i> Guardar y ver para imprimir</button>
+      <a href="{{ url_for('cheques.lista') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+  </form>
+</div>
+<datalist id="dl-benef">{% for b in beneficiarios %}<option value="{{ b }}">{% endfor %}</datalist>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const banco = $('banco_id'), monto = $('monto');
+  const fecha = $('fecha'); if (!fecha.value) fecha.value = new Date().toISOString().slice(0, 10);
+  const num = (n) => (Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const val = (s) => parseFloat(String(s || '').replace(/,/g, '')) || 0;
+  const NUMERO_ACTUAL = {{ (cheque.numero if cheque else 'null')|tojson }}, BANCO_ACTUAL = {{ (cheque.banco_id if cheque else 'null')|tojson }};
+
+  function infoBanco() {
+    const o = banco.selectedOptions[0];
+    const moneda = o && o.value ? o.dataset.moneda : 'C$';
+    $('moneda-txt').textContent = moneda;
+    const manual = $('num-manual').checked;
+    $('numero_manual').hidden = !manual; $('caja-auto').hidden = manual;
+    if (!manual) {
+      if (NUMERO_ACTUAL && String(BANCO_ACTUAL) === banco.value) { $('proximo').textContent = NUMERO_ACTUAL; $('proximo-nota').textContent = 'se conserva'; }
+      else if (o && o.value && o.dataset.proximo) { $('proximo').textContent = o.dataset.proximo; $('proximo-nota').textContent = 'se asigna al guardar'; }
+      else { $('proximo').textContent = '—'; $('proximo-nota').textContent = o && o.value ? 'Sin consecutivo configurado: use manual o configúrelo en Bancos' : ''; }
+    }
+    letras(); sincronizarBanco();
+  }
+  banco.addEventListener('change', infoBanco);
+  document.querySelectorAll('input[name=numeracion]').forEach(r => r.addEventListener('change', infoBanco));
+
+  // Monto en letras (lo calcula el servidor, igual que en la impresión)
+  let t;
+  function letras() {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const m = val(monto.value);
+      if (!m) { $('letras').textContent = '—'; return; }
+      const moneda = banco.selectedOptions[0]?.dataset.moneda || 'C$';
+      try { $('letras').textContent = (await (await fetch(`{{ url_for('cheques.letras') }}?monto=${m}&moneda=${encodeURIComponent(moneda)}`)).json()).texto; } catch {}
+    }, 250);
+  }
+  monto.addEventListener('input', () => { letras(); sincronizarBanco(); });
+  $('tasa_cambio').addEventListener('input', sincronizarBanco);
+
+  // La partida va en córdobas: un cheque en dólares se convierte con la tasa (igual que el servidor, redondeo a centavos)
+  const esDolares = () => banco.selectedOptions[0]?.dataset.moneda === 'U$';
+  function montoCordobas() {
+    const m = val(monto.value);
+    return esDolares() ? Math.round((m * val($('tasa_cambio').value) + 1e-9) * 100) / 100 : m;
+  }
+
+  // Línea del banco: mientras el usuario no la cambie, lleva la cuenta del banco al Haber por el monto del cheque
+  function sincronizarBanco() {
+    const o = banco.selectedOptions[0], tr = document.querySelector('.linea[data-auto]');
+    if (tr && o && o.value && o.dataset.cuentaId) {
+      tr.querySelector('input[name=cuenta_id]').value = o.dataset.cuentaId;
+      tr.querySelector('.buscar-cuenta').value = o.dataset.cuentaTexto;
+      tr.querySelector('.debe').value = '';
+      tr.querySelector('.haber').value = val(monto.value) ? montoCordobas().toFixed(2) : '';
+    }
+    const conv = $('conversion');
+    conv.hidden = !esDolares();
+    conv.textContent = `Cheque en dólares: U$ ${num(val(monto.value))} × ${val($('tasa_cambio').value)} = C$ ${num(montoCordobas())}`;
+    cuadrar();
+  }
+  function soltarBanco(tr) {   // el usuario editó la línea del banco: deja de llenarse sola
+    if (!tr.dataset.auto) return;
+    delete tr.dataset.auto; tr.classList.remove('auto'); tr.querySelector('.nota-auto').hidden = true;
+  }
+
+  // Partida doble: total Debe = total Haber
+  function cuadrar() {
+    let d = 0, h = 0;
+    document.querySelectorAll('.linea').forEach(tr => { d += val(tr.querySelector('.debe').value); h += val(tr.querySelector('.haber').value); });
+    $('tot-d').textContent = num(d); $('tot-h').textContent = num(h);
+    const dif = Math.round((d - h) * 100) / 100;
+    const c = $('cuadre');
+    c.textContent = dif === 0 ? (d > 0 ? 'Partida cuadrada' : 'Sin valores') : `Diferencia ${num(dif)} (Debe ${dif > 0 ? 'mayor' : 'menor'} que Haber)`;
+    c.className = 'cuadre ' + (dif === 0 && d > 0 ? 'ok' : 'mal');
+    return dif;
+  }
+  $('completar').addEventListener('click', () => {
+    const fila = document.querySelector('.linea:not([data-auto])');
+    if (!fila) return;
+    const de = fila.querySelector('.debe'), ha = fila.querySelector('.haber');
+    const neto = val(de.value) - val(ha.value) - cuadrar();
+    de.value = neto > 0 ? neto.toFixed(2) : ''; ha.value = neto < 0 ? (-neto).toFixed(2) : '';
+    cuadrar();
+  });
+
+  // Buscador de cuentas contables
+  function prepararFila(tr) {
+    const entrada = tr.querySelector('.buscar-cuenta'), oculto = tr.querySelector('input[name=cuenta_id]'), lista = tr.querySelector('.sug-cuentas');
+    const desc = tr.querySelector('input[name=descripcion]');
+    let timer;
+    entrada.addEventListener('input', () => {
+      oculto.value = ''; soltarBanco(tr);
+      clearTimeout(timer);
+      const q = entrada.value.trim();
+      if (q.length < 2) { lista.hidden = true; return; }
+      timer = setTimeout(async () => {
+        const datos = await (await fetch(`{{ url_for('cheques.buscar_cuentas') }}?q=${encodeURIComponent(q)}`)).json();
+        lista.innerHTML = datos.length ? '' : '<div class="p-2 small text-muted">Sin resultados (agréguela en Cuentas contables)</div>';
+        datos.forEach(c => {
+          const b = document.createElement('button'); b.type = 'button';
+          b.innerHTML = `<span class="cod">${c.cta}-${c.scta}-${c.sscta}</span><span class="small text-muted">${c.codigo}</span> ${c.descripcion.replace(/[<>&]/g, '')}`;
+          b.addEventListener('click', () => {
+            oculto.value = c.id; entrada.value = `${c.codigo} ${c.descripcion}`;
+            if (!desc.value) desc.value = c.descripcion;
+            lista.hidden = true; tr.querySelector('.debe').focus();
+          });
+          lista.append(b);
+        });
+        lista.hidden = false;
+      }, 200);
+    });
+    entrada.addEventListener('keydown', e => { if (e.key === 'ArrowDown' && !lista.hidden) { e.preventDefault(); lista.querySelector('button')?.focus(); } if (e.key === 'Escape') lista.hidden = true; });
+    lista.addEventListener('keydown', e => {
+      const bs = [...lista.querySelectorAll('button')], i = bs.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); bs[Math.min(i + 1, bs.length - 1)]?.focus(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); i <= 0 ? entrada.focus() : bs[i - 1].focus(); }
+      if (e.key === 'Escape') { lista.hidden = true; entrada.focus(); }
+    });
+    // Un valor en Debe borra el de Haber y al revés: cada línea va a un solo lado
+    const de = tr.querySelector('.debe'), ha = tr.querySelector('.haber');
+    de.addEventListener('input', () => { if (de.value.trim()) ha.value = ''; soltarBanco(tr); cuadrar(); });
+    ha.addEventListener('input', () => { if (ha.value.trim()) de.value = ''; soltarBanco(tr); cuadrar(); });
+    // Un valor negativo (p. ej. retención escrita como -2,289.43 en el Debe) pasa a la otra columna en positivo: el total no cambia
+    const voltear = (desde, hacia) => desde.addEventListener('change', () => {
+      const v = val(desde.value);
+      if (v < 0) { desde.value = ''; hacia.value = (-v).toFixed(2); cuadrar(); }
+    });
+    voltear(de, ha); voltear(ha, de);
+    tr.querySelector('.quitar').addEventListener('click', () => {
+      if (document.querySelectorAll('.linea').length > 1) tr.remove(); else tr.querySelectorAll('input').forEach(i => i.value = '');
+      cuadrar();
+    });
+  }
+  document.querySelectorAll('.linea').forEach(prepararFila);
+  document.addEventListener('click', e => document.querySelectorAll('.sug-cuentas').forEach(l => { if (!l.parentElement.contains(e.target)) l.hidden = true; }));
+  $('agregar').addEventListener('click', () => {
+    const base = document.querySelector('.linea'), nueva = base.cloneNode(true);
+    nueva.querySelectorAll('input').forEach(i => i.value = ''); delete nueva.dataset.auto; nueva.classList.remove('auto');
+    nueva.querySelector('.nota-auto').hidden = true;
+    nueva.querySelector('.sug-cuentas').hidden = true; nueva.querySelector('.sug-cuentas').innerHTML = '';
+    const auto = document.querySelector('.linea[data-auto]');   // las líneas nuevas van antes del banco
+    auto ? auto.before(nueva) : $('lineas').append(nueva); prepararFila(nueva); nueva.querySelector('.buscar-cuenta').focus();
+  });
+
+  // Antes de guardar: avisar si no cuadra o falta cuenta (el servidor valida igual)
+  $('form-cheque').addEventListener('submit', e => {
+    const sinCuenta = [...document.querySelectorAll('.linea')].some(tr => (val(tr.querySelector('.debe').value) || val(tr.querySelector('.haber').value)) && !tr.querySelector('input[name=cuenta_id]').value);
+    if (sinCuenta) { e.preventDefault(); alert('Seleccione la cuenta contable de cada línea de la lista de sugerencias.'); return; }
+    if (cuadrar() !== 0) { e.preventDefault(); alert('La partida no cuadra: revise la diferencia.'); return; }
+    $('guardar').disabled = true; $('guardar').textContent = 'Guardando…';
+  });
+  (() => {
+    if (document.querySelector('.linea[data-auto]')) return;
+    const o = banco.selectedOptions[0];
+    const tr = [...document.querySelectorAll('.linea')].find(f => o && o.dataset.cuentaId && f.querySelector('input[name=cuenta_id]').value === o.dataset.cuentaId
+                                                              && val(f.querySelector('.haber').value) === montoCordobas());
+    if (tr) { tr.dataset.auto = '1'; tr.classList.add('auto'); tr.querySelector('.nota-auto').hidden = false; }
+  })();
+  infoBanco();
+})();
+</script>
+{% endblock %}

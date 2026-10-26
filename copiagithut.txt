@@ -18,3 +18,14 @@ git checkout -- static/logo.png (este es un ejemplo de que se copio la imagen lo
 luego se sube todo normal con
 git pull origin main
 
+subir cambio al proyecto
+git add .
+git commit -m "Descripción de cambios"
+git push
+
+para copiar en el servidor de la nube
+
+primero entrar a la carpeta donde esta el proyecto
+git pull origin main
+
+

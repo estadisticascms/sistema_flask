@@ -1,0 +1,199 @@
+{% extends "layout.html" %}
+{% block title %}Armado de Mangueras{% endblock %}
+{% set dias_semana = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'] %}
+{% macro c(v) %}{{ "{:,.2f}".format(v or 0) }}{% endmacro %}
+{% macro u(v) %}{% set r = (v or 0)|float|round(2) %}{{ "{:,.0f}".format(r) if r == r|int else "{:,.2f}".format(r) }}{% endmacro %}
+{% macro pct(v) %}{% if v is none %}—{% else %}{{ "{:.1f}".format(v) }}%{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .arm h4 { color: var(--credito); }
+  .arm .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .arm td.prods { white-space: normal; min-width: 260px; font-size: .74rem; color: var(--ink-2); }
+  .arm .tipo { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: .68rem; font-weight: 600; }
+  .arm .tipo.manguera { background: #e6f1ef; color: var(--credito); }
+  .arm .tipo.servicio { background: #fff1e8; color: #9a3412; }
+  .arm .tipo.repuesto { background: #f1f0ec; color: var(--ink-2); }
+  .arm .cr { color: var(--credito); font-weight: 600; } .arm .co { color: #c2410c; font-weight: 600; }
+  .arm .bajo { color: #b42318; font-weight: 700; }
+</style>
+
+<div class="dash arm container-fluid px-3 my-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-tools" aria-hidden="true"></i> Armado de mangueras</h4>
+      <div class="text-muted small">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }} · reporte Factura de Armados; costo y ganancia de Ventas del día</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-success btn-sm" href="{{ url_for('reporte_armados.gerencia', **params) }}"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Resumen gerencia (PDF)</a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('cargar_armados.cargar_armados') }}"><i class="bi bi-cloud-arrow-up" aria-hidden="true"></i> Cargar armados</a>
+    </div>
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-12 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+      <div class="col-12 col-lg-7 small text-muted">Períodos:
+        {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('reporte_armados.reporte', desde=i.isoformat(), hasta=fin.isoformat()) }}">{{ nombre }}</a>{% endfor %}
+        <span class="ms-2">· último día cargado: {{ f.ultima.strftime('%d/%m/%Y') }}</span></div>
+    </div>
+  </form>
+
+  {% set t = d.total %}
+  {% if not d.facturas %}
+    <div class="alert alert-warning">No hay armados cargados en este período. <a href="{{ url_for('cargar_armados.cargar_armados') }}">Cargar el reporte Factura de Armados</a>.</div>
+  {% else %}
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi kpi-hero"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Mangueras armadas</div><div class="valor">{{ u(t.mangueras) }}</div>
+      <div class="sub">Promedio {{ u(d.promedio_dia) }} por día · {{ d.dias|length }} días con armados</div>
+      {% if d.mejor_dia %}<div class="sub">Mejor día: {{ d.mejor_dia.fecha.strftime('%d/%m') }} con {{ u(d.mejor_dia.mangueras) }}</div>{% endif %}
+      {% if t.servicios %}<div class="sub">+ {{ u(t.servicios) }} trabajos (adaptadores, terminales, reparaciones)</div>{% endif %}</div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Venta neta</div><div class="valor">C$ {{ c(t.neto) }}</div>
+      {% set pc = (t.credito / t.neto * 100) if t.neto else 0 %}
+      <div class="medidor" role="img" aria-label="Crédito {{ '%.0f'|format(pc) }}%, contado {{ '%.0f'|format(100 - pc) }}%">
+        <span style="width: {{ pc }}%; background: var(--credito)"></span><span style="width: {{ 100 - pc }}%; background: var(--contado)"></span></div>
+      <div class="sub"><span class="cr">Crédito C$ {{ c(t.credito) }}</span> · <span class="co">Contado C$ {{ c(t.contado) }}</span></div>
+      <div class="sub">{{ t.facturas }} facturas · subtotal sin descuento C$ {{ c(t.subtotal) }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Ganancia · margen</div><div class="valor">C$ {{ c(t.utilidad) }} <span style="font-size: 1rem">· {{ pct(t.margen) }}</span></div>
+      <div class="sub">Venta neta − costo de materiales (C$ {{ c(t.costo) }})</div>
+      {% if d.sin_costo %}<div class="sub text-danger">{{ d.sin_costo|length }} factura(s) sin costo aún, fuera del margen</div>{% endif %}</div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Mano de obra · soldadura</div><div class="valor">C$ {{ c(t.mano_obra) }}</div>
+      <div class="sub">{{ pct(t.mano_obra / t.subtotal * 100 if t.subtotal else none) }} del subtotal · C$ {{ c(t.mano_obra / t.mangueras if t.mangueras else 0) }} por manguera</div>
+      <div class="sub">Soldadura (otros): <strong>C$ {{ c(t.otros) }}</strong></div></div></div>
+  </div>
+
+  {# ---------- Por día ---------- #}
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-1">
+      <span>Mangueras armadas por día</span>
+      <small><span class="clave" style="background: var(--credito)"></span>Crédito <span class="clave ms-2" style="background: var(--contado)"></span>Contado</small>
+    </div>
+    <div class="card-body"><div class="grafico" style="height: 240px"><canvas id="graficoDias" role="img" aria-label="Mangueras armadas por día, crédito y contado"></canvas></div></div>
+    <div class="table-responsive">
+      <table class="tabla table table-sm mb-0">
+        <thead><tr><th>Día</th><th class="num">Facturas</th><th class="num">Mangueras</th><th class="num">Trabajos</th><th class="num">Venta neta</th>
+          <th class="num">Mano de obra</th><th class="num">Soldadura</th><th class="num">Costo</th><th class="num">Ganancia</th><th class="num">Margen</th></tr></thead>
+        <tbody>
+          {% for dia in d.dias %}
+          <tr class="{{ 'resaltado' if dia is sameas d.mejor_dia }}"><td>{{ dias_semana[dia.fecha.weekday()] }} {{ dia.fecha.strftime('%d/%m/%Y') }}</td>
+            <td class="num">{{ dia.facturas }}</td><td class="num">{{ u(dia.mangueras) }}</td><td class="num">{{ u(dia.servicios) if dia.servicios else '—' }}</td>
+            <td class="num">{{ c(dia.neto) }}</td><td class="num">{{ c(dia.mano_obra) }}</td><td class="num">{{ c(dia.otros) }}</td>
+            <td class="num">{{ c(dia.costo) }}</td><td class="num">{{ c(dia.utilidad) }}</td><td class="num">{{ pct(dia.margen) }}</td></tr>
+          {% endfor %}
+          <tr class="total"><td>Total</td><td class="num">{{ t.facturas }}</td><td class="num">{{ u(t.mangueras) }}</td><td class="num">{{ u(t.servicios) }}</td>
+            <td class="num">{{ c(t.neto) }}</td><td class="num">{{ c(t.mano_obra) }}</td><td class="num">{{ c(t.otros) }}</td>
+            <td class="num">{{ c(t.costo) }}</td><td class="num">{{ c(t.utilidad) }}</td><td class="num">{{ pct(t.margen) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {# ---------- Por persona y por medida ---------- #}
+  <div class="row g-3 mb-3">
+    {% for titulo, filas in [('Por quién facturó', d.por_facturador), ('Por vendedor', d.por_vendedor)] %}
+    <div class="col-lg-6"><div class="card h-100">
+      <div class="card-header">{{ titulo }}</div>
+      <div class="table-responsive"><table class="tabla table table-sm mb-0">
+        <thead><tr><th>Nombre</th><th class="num">Fact.</th><th class="num">Mangueras</th><th class="num">Venta neta</th><th class="num">MO</th><th class="num">Soldadura</th><th class="num">Margen</th></tr></thead>
+        <tbody>{% for p in filas %}<tr><td>{{ p.nombre }}</td><td class="num">{{ p.facturas }}</td><td class="num">{{ u(p.mangueras) }}</td>
+          <td class="num">{{ c(p.neto) }}</td><td class="num">{{ c(p.mano_obra) }}</td><td class="num">{{ c(p.otros) }}</td><td class="num">{{ pct(p.margen) }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div></div>
+    {% endfor %}
+  </div>
+
+  {% if d.medidas %}
+  {% set max_med = (d.medidas | map(attribute='mangueras') | max) or 1 %}
+  <div class="card mb-3">
+    <div class="card-header">Mangueras por medida <small>· según la descripción del producto</small></div>
+    <div class="table-responsive"><table class="tabla table table-sm mb-0">
+      <thead><tr><th>Medida</th><th>Mangueras</th><th class="num">Subtotal</th><th class="num">Promedio por manguera</th></tr></thead>
+      <tbody>{% for m in d.medidas %}<tr><td>{{ m.medida }}</td>
+        <td class="barra-celda"><span class="barra" style="width: {{ (m.mangueras / max_med * 100)|round(1) }}%"></span><span class="txt">{{ u(m.mangueras) }}</span></td>
+        <td class="num">{{ c(m.subtotal) }}</td><td class="num">{{ c(m.subtotal / m.mangueras if m.mangueras else 0) }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div>
+  {% endif %}
+
+  {# ---------- Detalle ---------- #}
+  <details class="card mb-3">
+    <summary class="card-header" style="cursor: pointer">Detalle de facturas ({{ d.facturas|length }})</summary>
+    <div class="table-responsive" style="max-height: 600px">
+      <table class="tabla table table-sm mb-0">
+        <thead class="sticky-top bg-white"><tr><th>Fecha</th><th>Factura</th><th>Tipo</th><th>Cliente</th><th>Facturó / vendedor</th><th>Productos</th>
+          <th class="num">Mang.</th><th class="num">Venta neta</th><th class="num">MO</th><th class="num">Soldadura</th><th class="num">Ganancia</th><th class="num">Margen</th></tr></thead>
+        <tbody>
+          {% for fac in d.facturas %}
+          <tr><td>{{ fac.fecha.strftime('%d/%m/%Y') }}</td><td>{{ fac.nfactura }}</td>
+            <td><span class="{{ 'cr' if fac.tipo_venta == 'CREDITO' else 'co' }}">{{ fac.tipo_venta|capitalize }}</span><div class="text-muted" style="font-size: .7rem">{{ fac.estatus or '' }}</div></td>
+            <td class="desc">{{ fac.cliente or '—' }}</td><td style="font-size: .74rem">{{ fac.facturador }}<br><span class="text-muted">{{ fac.vendedor }}</span></td>
+            <td class="prods">{% for p in fac.productos %}<div><span class="tipo {{ p.tipo }}">{{ p.tipo }}</span> {{ u(p.cantidad) }} × {{ p.producto }}{% if p.otros %} · sold. {{ c(p.otros) }}{% endif %}</div>{% endfor %}</td>
+            <td class="num">{{ u(fac.mangueras) }}</td><td class="num">{{ c(fac.neto) }}</td><td class="num">{{ c(fac.mano_obra) }}</td><td class="num">{{ c(fac.otros) }}</td>
+            <td class="num">{{ c(fac.utilidad) if fac.utilidad is not none else '—' }}</td>
+            <td class="num {{ 'bajo' if fac.margen is not none and fac.margen < 20 }}">{{ pct(fac.margen) if fac.margen is not none else 'sin costo' }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
+  {# ---------- Control ---------- #}
+  {% if d.mixtas_sin_armado %}
+  <details class="card mb-3">
+    <summary class="card-header" style="cursor: pointer">⚠️ {{ d.mixtas_sin_armado|length }} factura(s) mixtas en Ventas del día que no están en el reporte de armados</summary>
+    <div class="card-body small text-muted pb-0">Puede faltar cargar el reporte Factura de Armados de esos días, o son facturas mixtas que no son de armado.</div>
+    <div class="table-responsive"><table class="tabla table table-sm mb-0">
+      <thead><tr><th>Fecha</th><th>Factura</th><th>Tipo</th><th class="num">Venta neta</th><th class="num">Ganancia</th></tr></thead>
+      <tbody>{% for v in d.mixtas_sin_armado %}<tr><td>{{ v.Fecha.strftime('%d/%m/%Y') }}</td><td>{{ v.factura }}</td><td>{{ (v.tipo_venta or '')|capitalize }}</td>
+        <td class="num">{{ c(v.neto) }}</td><td class="num">{{ c(v.utilidad) }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% endif %}
+
+  <p class="small text-muted">Manguera = línea cuyo producto empieza con «MANGUERA»; trabajo = adaptadores, terminales o reparaciones sobre piezas del cliente
+    (o cualquier otra línea con mano de obra). Venta neta, costo y ganancia salen de la factura en Ventas del día (sin anuladas);
+    margen = ganancia / venta neta. MO y soldadura son los montos del reporte de armados.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if d.dias %}
+<script>
+(function () {
+  const css = getComputedStyle(document.querySelector('.dash'));
+  const v = (n) => css.getPropertyValue(n).trim();
+  const C = { credito: v('--credito'), contado: v('--contado'), grid: v('--grid'), ink2: v('--ink-2'), ink3: v('--ink-3'), surface: v('--surface') };
+  Chart.defaults.font.family = "'Segoe UI', Arial, sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = C.ink2;
+  const dias = {{ d.dias | map(attribute='fecha') | map('string') | list | tojson }};
+  const credito = {{ d.dias | map(attribute='mang_credito') | map('float') | list | tojson }};
+  const contado = {{ d.dias | map(attribute='mang_contado') | map('float') | list | tojson }};
+  const barra = (label, data, color, extra) => Object.assign({ label, data, backgroundColor: color, maxBarThickness: 28,
+    borderColor: C.surface, borderWidth: 0, borderRadius: 0 }, extra);
+  new Chart(document.getElementById('graficoDias'), {
+    type: 'bar',
+    data: { labels: dias.map(d => d.slice(8, 10) + '/' + d.slice(5, 7)), datasets: [
+      barra('Crédito', credito, C.credito),
+      barra('Contado', contado, C.contado, { borderWidth: { bottom: 2 }, borderRadius: { topLeft: 4, topRight: 4 } }),
+    ]},
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false },
+        tooltip: { mode: 'index', intersect: false, callbacks: { footer: (it) => 'Total: ' + it.reduce((s, x) => s + x.parsed.y, 0) + ' mangueras' } } },
+      scales: { x: { stacked: true, grid: { display: false }, border: { color: C.grid } },
+                y: { stacked: true, beginAtZero: true, ticks: { precision: 0, color: C.ink3 }, grid: { color: C.grid, drawTicks: false }, border: { display: false } } } }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

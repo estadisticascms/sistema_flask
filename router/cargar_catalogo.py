@@ -7,7 +7,7 @@ import uuid
 from flask import Blueprint, request, render_template, session, flash, redirect, url_for
 from utils.db import get_connection
 from router.accesos import requiere_acceso
-from router.cargar_ventas import ErrorArchivo, a_texto, leer_filas, ruta_temporal, limpiar_temporales
+from router.cargar_ventas import ErrorArchivo, a_texto, a_fecha, leer_filas, ruta_temporal, limpiar_temporales
 from router.cargar_inventario import arreglar_texto
 
 cargar_catalogo_bp = Blueprint("cargar_catalogo", __name__)
@@ -23,9 +23,21 @@ COLUMNAS = [
     "Descripcion Larga", "Observaciones", "Equivalencias", "Codigo EAN", "Codigo SKU", "Codigo UPC",
     "Modelo", "Otros 1", "Otros 2", "Codigo SAC", "Unidad Medida", "Tipo Producto", "Categoria", "Marca",
     "Precio 1", "Precio 2", "Precio 3", "Precio 4", "Moneda", "Costo Promedio", "Ultimo Costo",
-    "Existencia Actual",
+    "Existencia Actual", "Ultimo Precio FOB", "Fecha Ultima Compra", "Fecha Ultima Recepcion", "Proveedor Ultima Compra",
 ]
-NUMERICAS = {"Precio 1", "Precio 2", "Precio 3", "Precio 4", "Costo Promedio", "Ultimo Costo", "Existencia Actual"}
+# Columnas de última compra (reportes desde oct-2026). Si el archivo no las trae, se conservan los valores actuales.
+NUEVAS = ["Ultimo Precio FOB", "Fecha Ultima Compra", "Fecha Ultima Recepcion", "Proveedor Ultima Compra"]
+# Encabezado del reporte cuando no es igual al nombre de la columna en la tabla
+ENCABEZADOS = {"Ultimo Precio FOB": "Ultimo precio FOB (moneda base)", "Fecha Ultima Compra": "Fecha ultima compra",
+               "Fecha Ultima Recepcion": "Fecha ultima recepcion", "Proveedor Ultima Compra": "Proveedor ultima compra"}
+FECHAS = {"Fecha Ultima Compra", "Fecha Ultima Recepcion"}
+NUMERICAS = {"Precio 1", "Precio 2", "Precio 3", "Precio 4", "Costo Promedio", "Ultimo Costo", "Existencia Actual",
+             "Ultimo Precio FOB"}
+# Largo máximo de cada columna de texto en la tabla (se recorta con aviso)
+LARGOS = {"Nombre": 255, "Codigo Producto": 20, "Numero Parte": 150, "Medida": 150, "Descripcion Corta": 500,
+          "Codigo EAN": 50, "Codigo SKU": 50, "Codigo UPC": 50, "Modelo": 255, "Otros 1": 150, "Otros 2": 150,
+          "Codigo SAC": 60, "Unidad Medida": 20, "Tipo Producto": 100, "Categoria": 100, "Marca": 80, "Moneda": 5,
+          "Proveedor Ultima Compra": 150}
 CAMPOS_VISIBLES = ["Existencia Actual", "Costo Promedio", "Ultimo Costo", "Precio 1", "Nombre", "Marca", "Numero Parte"]
 
 
@@ -51,16 +63,19 @@ def leer_catalogo(archivo):
         archivo.seek(0)
         filas = leer_filas(archivo)  # por si la hoja viene con otro nombre
 
-    objetivo = {sin_tildes(c): c for c in COLUMNAS}
+    objetivo = {sin_tildes(ENCABEZADOS.get(c, c)): c for c in COLUMNAS}
+    objetivo.update({sin_tildes(c): c for c in NUEVAS})
+    obligatorias = [c for c in COLUMNAS if c not in NUEVAS]
     inicio, pos = None, None
     for i, fila in enumerate(filas[:40]):
         encontrados = {objetivo[sin_tildes(a_texto(v))]: j for j, v in enumerate(fila)
                        if sin_tildes(a_texto(v)) in objetivo}
-        if len(encontrados) == len(COLUMNAS):
+        if all(c in encontrados for c in obligatorias):
             inicio, pos = i, encontrados
             break
     if inicio is None:
         raise ErrorArchivo("no se encontraron las columnas del catálogo (Id Producto, Código Producto, Existencia Actual, ...)")
+    trae_nuevas = all(c in pos for c in NUEVAS)
 
     productos, errores, advertencias, total_reportado = [], [], [], None
     for num, fila in enumerate(filas[inicio + 1:], start=inicio + 2):
@@ -74,8 +89,16 @@ def leer_catalogo(archivo):
 
         p = {}
         for col in COLUMNAS:
+            if col not in pos:
+                p[col] = None
+                continue
             valor = fila[pos[col]] if pos[col] < len(fila) else None
-            if col in NUMERICAS:
+            if col in FECHAS:
+                f = a_fecha(valor) if a_texto(valor) else None
+                if a_texto(valor) and f is None:
+                    advertencias.append(f"Fila {num} ({a_texto(fila[pos['Codigo Producto']])}): {col} no es una fecha ('{a_texto(valor)}'); se guarda vacía")
+                p[col] = f.isoformat() if f else None
+            elif col in NUMERICAS:
                 try:
                     p[col] = a_numero(valor)
                 except ValueError:
@@ -86,12 +109,30 @@ def leer_catalogo(archivo):
         if not p["Codigo Producto"]:
             errores.append(f"Fila {num}: no tiene Código Producto ({p['Nombre'] or 'sin nombre'}); no se carga")
             continue
+        try:
+            p["Id Producto"] = int(float(str(p["Id Producto"]).replace(",", "")))
+        except (TypeError, ValueError):
+            errores.append(f"Fila {num} ({p['Codigo Producto']}): Id Producto inválido ('{p['Id Producto'] or ''}'); no se carga")
+            continue
+        if len(p["Codigo Producto"]) > LARGOS["Codigo Producto"]:
+            errores.append(f"Fila {num}: Código Producto '{p['Codigo Producto']}' demasiado largo; no se carga")
+            continue
+        for col, largo in LARGOS.items():
+            if p[col] and len(p[col]) > largo:
+                advertencias.append(f"Fila {num} ({p['Codigo Producto']}): {col} tiene más de {largo} caracteres; se recorta")
+                p[col] = p[col][:largo]
+        # FOB 0 sin compra registrada = no hay dato
+        if p["Ultimo Precio FOB"] == 0 and not p["Fecha Ultima Compra"]:
+            p["Ultimo Precio FOB"] = None
         p["_fila"] = num
         productos.append(p)
 
     if not productos:
         raise ErrorArchivo("no contiene productos")
-    return productos, errores, advertencias, total_reportado
+    if not trae_nuevas:
+        advertencias.insert(0, "El archivo no trae las columnas de última compra (precio FOB, fechas y proveedor): "
+                               "se conservan los valores que ya tiene cada producto.")
+    return productos, errores, advertencias, total_reportado, trae_nuevas
 
 
 # -----------------------------
@@ -113,7 +154,7 @@ def _texto_comparable(valor):
     return "" if texto.lower() == "null" else texto
 
 
-def comparar(productos):
+def comparar(productos, trae_nuevas=True):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -136,7 +177,8 @@ def comparar(productos):
         if actual is None:
             nuevos.append(p)
             continue
-        cambios = [(c, actual[c], p[c]) for c in COLUMNAS if not iguales(c, actual[c], p[c])]
+        cambios = [(c, actual[c], p[c]) for c in COLUMNAS
+                   if (trae_nuevas or c not in NUEVAS) and not iguales(c, actual[c], p[c])]
         if cambios:
             modificados.append({"codigo": p["Codigo Producto"], "nombre": p["Nombre"], "cambios": cambios})
         else:
@@ -184,7 +226,7 @@ def cargar_catalogo():
     if not archivo or not archivo.filename:
         return render_template("cargar_catalogo.html", errores_archivo=["Falta el Reporte de Catálogo de Productos."])
     try:
-        productos, errores, advertencias, total_reportado = leer_catalogo(archivo)
+        productos, errores, advertencias, total_reportado, trae_nuevas = leer_catalogo(archivo)
     except ErrorArchivo as e:
         return render_template("cargar_catalogo.html",
                                errores_archivo=[f"{archivo.filename}: {e}. ¿Seleccionó el archivo correcto?"])
@@ -206,7 +248,7 @@ def cargar_catalogo():
         advertencias.insert(0, f"El reporte dice TOTAL DE REGISTROS: {total_reportado:,} pero se leyeron {len(productos):,} productos válidos")
 
     try:
-        dif = comparar(productos)
+        dif = comparar(productos, trae_nuevas)
     except Exception as e:
         return render_template("cargar_catalogo.html", errores_archivo=[f"Error al comparar con la base de datos: {e}"])
 
@@ -218,7 +260,7 @@ def cargar_catalogo():
     limpiar_temporales()
     token = uuid.uuid4().hex
     with open(ruta_temporal(token, PREFIJO_TEMP), "w", encoding="utf-8") as f:
-        json.dump([[p[c] for c in COLUMNAS] for p in productos], f, ensure_ascii=False)
+        json.dump({"trae_nuevas": trae_nuevas, "filas": [[p[c] for c in COLUMNAS] for p in productos]}, f, ensure_ascii=False)
     session["carga_catalogo_token"] = token
 
     return render_template(
@@ -246,7 +288,10 @@ def confirmar_carga_catalogo():
         return redirect(url_for("cargar_catalogo.cargar_catalogo"))
 
     with open(ruta, encoding="utf-8") as f:
-        filas = [tuple(fila) for fila in json.load(f)]
+        datos = json.load(f)
+    if isinstance(datos, list):   # validaciones guardadas antes de agregar las columnas de última compra
+        datos = {"trae_nuevas": False, "filas": [fila + [None] * len(NUEVAS) for fila in datos]}
+    filas = [list(fila) for fila in datos["filas"]]
 
     columnas = ", ".join(f"`{c}`" for c in COLUMNAS)
     sql = f"INSERT INTO catalogo_productos ({columnas}) VALUES ({', '.join(['%s'] * len(COLUMNAS))})"
@@ -256,6 +301,14 @@ def confirmar_carga_catalogo():
     try:
         # Reemplazo completo en una sola transacción: si algo falla, el catálogo queda como estaba
         conn.start_transaction()
+        if not datos["trae_nuevas"]:
+            # El archivo no trae la última compra: se conserva la que ya tiene cada producto
+            cursor.execute(f"SELECT `Codigo Producto`, {', '.join(f'`{c}`' for c in NUEVAS)} FROM catalogo_productos")
+            previos = {r[0]: list(r[1:]) for r in cursor.fetchall()}
+            i_cod, i_nuevas = COLUMNAS.index("Codigo Producto"), [COLUMNAS.index(c) for c in NUEVAS]
+            for fila in filas:
+                for i, v in zip(i_nuevas, previos.get(fila[i_cod], [None] * len(NUEVAS))):
+                    fila[i] = v
         cursor.execute("DELETE FROM catalogo_productos")
         borrados = cursor.rowcount
         for i in range(0, len(filas), LOTE_INSERT):

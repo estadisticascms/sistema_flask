@@ -1,66 +1,40 @@
 
 from flask import Blueprint, render_template, request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from utils.db import get_connection
 from router.accesos import requiere_acceso
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
 # -----------------------------
-# Venta del día (Neto Ajustado)
+# Venta neta de un período (facturado − devoluciones cerradas sin IVA)
 # -----------------------------
-def obtener_venta_dia(fecha_dia):
+def venta_neta(desde, hasta):
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    query = """
-        SELECT SUM(datos.Venta_Neta) - SUM(datos.DevTotal) AS Neto_Ajustado
-        FROM (
-            SELECT SUM(v.neto) AS Venta_Neta, 0 AS DevTotal
-            FROM ventas_historicas v WHERE DATE(v.fecha) = %s
-            UNION ALL
-            SELECT 0 AS Venta_Neta, SUM(r.totaldv)/1.15 AS DevTotal
-            FROM devoluciones r WHERE DATE(r.fechadv) = %s AND r.estado='Cerrado'
-        ) datos;
-    """
-    cursor.execute(query, (fecha_dia, fecha_dia))
-    row = cursor.fetchone()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT (SELECT COALESCE(SUM(neto), 0) FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s)
+             - (SELECT COALESCE(SUM(totaldv), 0) / 1.15 FROM devoluciones WHERE fechadv BETWEEN %s AND %s AND estado = 'Cerrado')
+    """, (desde, hasta, desde, hasta))
+    valor = cursor.fetchone()[0]
     cursor.close()
     conn.close()
-    return row["Neto_Ajustado"] or 0
+    return float(valor or 0)
+
+
+def mismo_periodo(fecha_dia, meses_atras):
+    """Del día 1 al mismo día (o al último día si el mes es más corto) de N meses atrás."""
+    anio, mes = fecha_dia.year, fecha_dia.month - meses_atras
+    while mes < 1:
+        anio, mes = anio - 1, mes + 12
+    ultimo = (date(anio + (mes == 12), mes % 12 + 1, 1) - timedelta(days=1)).day
+    return date(anio, mes, 1), date(anio, mes, min(fecha_dia.day, ultimo))
+
 
 # -----------------------------
-# Recuperación del día
+# Ranking de vendedores de un período
 # -----------------------------
-def obtener_recuperacion_dia(fecha_dia):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    query = "SELECT SUM(total) AS TotalCordobas FROM reciboscaja WHERE DATE(fecharc) = %s;"
-    cursor.execute(query, (fecha_dia,))
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return row["TotalCordobas"] or 0
-
-# -----------------------------
-# Devoluciones del día
-# -----------------------------
-def obtener_devoluciones_dia(fecha_dia):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    query = """
-        SELECT SUM(r.totaldv)/1.15 AS Devoluciones
-        FROM devoluciones r
-        WHERE DATE(r.fechadv) = %s AND r.estado='Cerrado';
-    """
-    cursor.execute(query, (fecha_dia,))
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return row["Devoluciones"] or 0
-# -----------------------------
-# Ranking de vendedores del día
-# -----------------------------
-def obtener_ranking_vendedores(fecha_dia):
+def obtener_ranking_vendedores(desde, hasta):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     query = """
@@ -73,43 +47,43 @@ def obtener_ranking_vendedores(fecha_dia):
                    SUM(CASE WHEN v.tipo_venta='Credito' THEN v.neto ELSE 0 END) AS Credito,
                    SUM(CASE WHEN v.tipo_venta='Contado' THEN v.neto ELSE 0 END) AS Contado,
                    0 AS DevCredito, 0 AS DevContado
-            FROM ventas_historicas v WHERE DATE(v.fecha) = %s GROUP BY v.Vendedor
+            FROM ventas_historicas v WHERE v.fecha BETWEEN %s AND %s GROUP BY v.Vendedor
             UNION ALL
             SELECT r.Vendedor,
                    0 AS Credito, 0 AS Contado,
                    SUM(CASE WHEN r.tipofact='Credito' THEN r.totaldv/1.15 ELSE 0 END) AS DevCredito,
                    SUM(CASE WHEN r.tipofact='Contado' THEN r.totaldv/1.15 ELSE 0 END) AS DevContado
-            FROM devoluciones r WHERE DATE(r.fechadv) = %s AND r.estado='Cerrado' GROUP BY r.Vendedor
+            FROM devoluciones r WHERE r.fechadv BETWEEN %s AND %s AND r.estado='Cerrado' GROUP BY r.Vendedor
         ) datos
         GROUP BY datos.Vendedor
         ORDER BY Neto_Ajustado DESC;
     """
-    cursor.execute(query, (fecha_dia, fecha_dia))
+    cursor.execute(query, (desde, hasta, desde, hasta))
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
     return rows
 
 # -----------------------------
-# Productos del día (una sola lectura de ventas_por_producto para top 10 y marcas)
+# Productos de un período (una sola lectura de ventas_por_producto para top 10 y marcas)
 # -----------------------------
-def obtener_productos_dia(fecha_dia):
+def obtener_productos(desde, hasta):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     query = """
-        SELECT v.Codigo AS codigo, v.Numero_parte AS numero_parte, v.`Descrip Prod.` AS descripcion,
-               v.Marca AS marca, c.segmento, c.familia,
+        SELECT v.Codigo AS codigo, MAX(v.Numero_parte) AS numero_parte, MAX(v.`Descrip Prod.`) AS descripcion,
+               MAX(v.Marca) AS marca, MAX(c.segmento) AS segmento, MAX(c.familia) AS familia,
                SUM(v.`Cantidad Vendida`) AS unidades,
                SUM(v.`Sub-Total 2`) AS venta,
                SUM(v.`Cantidad Vendida` * v.`Costo Unit.`) AS costo,
                COUNT(DISTINCT v.`No. Factura`) AS facturas
         FROM ventas_por_producto v
         LEFT JOIN clase_prod c ON c.codigo = v.Codigo
-        WHERE v.Fecha = %s AND v.Estatus <> 'Anulado'
-        GROUP BY v.Codigo, v.Numero_parte, v.`Descrip Prod.`, v.Marca, c.segmento, c.familia
+        WHERE v.Fecha BETWEEN %s AND %s AND v.Estatus <> 'Anulado'
+        GROUP BY v.Codigo
         ORDER BY venta DESC
     """
-    cursor.execute(query, (str(fecha_dia),))  # Fecha es texto 'YYYY-MM-DD' en esta tabla
+    cursor.execute(query, (str(desde), str(hasta)))  # Fecha es texto 'YYYY-MM-DD' en esta tabla
     rows = cursor.fetchall()
     cursor.close()
     conn.close()
@@ -122,7 +96,7 @@ def obtener_productos_dia(fecha_dia):
 
 
 def ranking_marcas(productos, limite=10):
-    """Agrupa los productos del día por marca; el resto se pliega en 'Otras marcas'."""
+    """Agrupa los productos por marca; el resto se pliega en 'Otras marcas'."""
     marcas = {}
     for p in productos:
         m = marcas.setdefault(p["marca"] or "Sin marca", {"Marca": p["marca"] or "Sin marca", "VentasTotales": 0.0,
@@ -146,47 +120,96 @@ def ranking_marcas(productos, limite=10):
 
 
 # -----------------------------
-# Indicadores del día y acumulado del mes
+# Indicadores del mes (del día 1 a la fecha elegida) y comparaciones al mismo día
 # -----------------------------
-def obtener_indicadores(fecha_dia):
+def obtener_indicadores_mes(fecha_dia):
+    inicio = fecha_dia.replace(day=1)
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
-        SELECT COUNT(*) AS facturas, COALESCE(SUM(neto), 0) AS neto, COALESCE(SUM(utilidad), 0) AS utilidad,
+        SELECT COUNT(*) AS facturas, COUNT(DISTINCT Fecha) AS dias, COUNT(DISTINCT cliente) AS clientes,
+               COALESCE(SUM(neto), 0) AS facturado, COALESCE(SUM(utilidad), 0) AS utilidad,
                COALESCE(SUM(CASE WHEN tipo_venta = 'Credito' THEN neto END), 0) AS credito,
                COALESCE(SUM(CASE WHEN tipo_venta = 'Contado' THEN neto END), 0) AS contado
-        FROM ventas_historicas WHERE Fecha = %s
-    """, (fecha_dia,))
-    dia = cursor.fetchone()
-    inicio_mes = fecha_dia.replace(day=1)
-    cursor.execute("""
-        SELECT COALESCE(SUM(neto), 0) AS neto, COUNT(DISTINCT Fecha) AS dias
         FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s
-    """, (inicio_mes, fecha_dia))
-    mes = cursor.fetchone()
-    # Devoluciones cerradas (sin IVA), igual que en la venta neta del día y en el reporte mensual
+    """, (inicio, fecha_dia))
+    m = {k: float(v or 0) for k, v in cursor.fetchone().items()}
+    # Devoluciones cerradas (sin IVA), separadas por tipo de factura
     cursor.execute("""
-        SELECT COALESCE(SUM(CASE WHEN fechadv = %s THEN totaldv END), 0) / 1.15 AS dia,
-               COALESCE(SUM(totaldv), 0) / 1.15 AS mes
+        SELECT COALESCE(SUM(totaldv), 0) / 1.15 AS total,
+               COALESCE(SUM(CASE WHEN tipofact = 'Credito' THEN totaldv END), 0) / 1.15 AS credito
         FROM devoluciones WHERE fechadv BETWEEN %s AND %s AND estado = 'Cerrado'
-    """, (fecha_dia, inicio_mes, fecha_dia))
+    """, (inicio, fecha_dia))
     dev = cursor.fetchone()
+    cursor.execute("SELECT COALESCE(SUM(total), 0) AS total, COUNT(*) AS recibos FROM reciboscaja WHERE fecharc BETWEEN %s AND %s",
+                   (inicio, fecha_dia))
+    rec = cursor.fetchone()
     cursor.close()
     conn.close()
 
-    dia = {k: float(v or 0) for k, v in dia.items()}
-    dia["margen"] = dia["utilidad"] / dia["neto"] * 100 if dia["neto"] else None
-    dia["ticket"] = dia["neto"] / dia["facturas"] if dia["facturas"] else None
-    dev_dia, dev_mes = float(dev["dia"] or 0), float(dev["mes"] or 0)
-    facturado_mes, dias = float(mes["neto"] or 0), int(mes["dias"] or 0)
-    mes_neto = facturado_mes - dev_mes          # acumulado del mes neto de devoluciones
-    dia_neto = dia["neto"] - dev_dia            # venta del día neta de devoluciones
-    promedio = mes_neto / dias if dias else None
-    # Comparar contra el promedio de los OTROS días del mes con venta (todo neto de devoluciones)
-    promedio_otros = (mes_neto - dia_neto) / (dias - 1) if dias > 1 and dia["neto"] else None
-    variacion = (dia_neto / promedio_otros - 1) * 100 if promedio_otros else None
-    return dia, {"neto": mes_neto, "facturado": facturado_mes, "devoluciones": dev_mes, "dias": dias,
-                 "promedio": promedio, "inicio": inicio_mes}, variacion
+    m["devoluciones"] = float(dev["total"] or 0)
+    dev_credito = float(dev["credito"] or 0)
+    m["credito"] -= dev_credito
+    m["contado"] -= m["devoluciones"] - dev_credito
+    m["neto"] = m["facturado"] - m["devoluciones"]
+    m["margen"] = m["utilidad"] / m["facturado"] * 100 if m["facturado"] else None
+    m["ticket"] = m["facturado"] / m["facturas"] if m["facturas"] else None
+    m["promedio"] = m["neto"] / m["dias"] if m["dias"] else None
+    m["recuperacion"], m["recibos"] = float(rec["total"] or 0), int(rec["recibos"] or 0)
+    m["inicio"] = inicio
+    comparaciones = []
+    for etiqueta, meses_atras in (("mes anterior", 1), ("mismo mes año anterior", 12)):
+        desde, hasta = mismo_periodo(fecha_dia, meses_atras)
+        valor = venta_neta(desde, hasta)
+        comparaciones.append({"etiqueta": etiqueta, "desde": desde, "hasta": hasta, "valor": valor,
+                              "variacion": (m["neto"] / valor - 1) * 100 if valor else None})
+    return m, comparaciones
+
+
+# -----------------------------
+# Ingresos de mercadería (órdenes de compra) por proveedor
+# -----------------------------
+def ingresos_por_proveedor(desde, hasta, limite=10):
+    """Desde 2023 el ingreso no trae proveedor: se completa con el último proveedor del catálogo."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT t.id_documento_origen AS documento, t.codigo_producto AS codigo, t.cantidad, t.total_mn,
+               COALESCE(NULLIF(TRIM(t.cliente_proveedor), ''), NULLIF(TRIM(c.`Proveedor Ultima Compra`), ''), 'Sin proveedor') AS proveedor
+        FROM transacciones_inventario t
+        LEFT JOIN catalogo_productos c ON c.`Codigo Producto` = t.codigo_producto
+        WHERE t.tipo_transaccion = 'ENTRADA' AND t.tipo_documento_origen = 'ORDEN COMPRA' AND t.fecha BETWEEN %s AND %s
+    """, (desde, hasta))
+    filas = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    prov = {}
+    for r in filas:
+        p = prov.setdefault(r["proveedor"], {"proveedor": r["proveedor"], "costo": 0.0, "unidades": 0.0, "documentos": set(), "productos": set()})
+        p["costo"] += float(r["total_mn"] or 0)
+        p["unidades"] += float(r["cantidad"] or 0)
+        p["documentos"].add(r["documento"])
+        p["productos"].add(r["codigo"])
+    lista = sorted(prov.values(), key=lambda p: -p["costo"])
+    for p in lista:
+        p["documentos"], p["productos"] = len(p["documentos"]), len(p["productos"])
+    resto = lista[limite:]
+    return {"todos": lista, "top": lista[:limite], "total": sum(p["costo"] for p in lista),
+            "otros": {"proveedor": f"Otros {len(resto)} proveedores", "costo": sum(p["costo"] for p in resto)} if resto else None,
+            "documentos": len({r["documento"] for r in filas}), "productos": len({r["codigo"] for r in filas})}
+
+
+# -----------------------------
+# Cartera de crédito al corte (reutiliza el análisis de cartera)
+# -----------------------------
+def cartera_al(fecha_dia):
+    from router.analisis_cartera import calcular, INICIO_DATOS   # aquí: evita importaciones circulares
+    from router.ventas_bodegas import en_cache
+    f = {"desde": INICIO_DATOS, "hasta": fecha_dia, "corte": fecha_dia, "vendedor": "", "q": "", "reco": ""}
+    r = en_cache(f"dashboard_cartera_{fecha_dia}", lambda: calcular(f), segundos=600)
+    return {"saldo": r["saldo"], "vencido": r["vencido"], "pct_vencido": r["vencido"] / r["saldo"] * 100 if r["saldo"] else None,
+            "dias": r["dias"], "tramos": r["tramos"], "suspender": r["conteo_reco"].get("suspender", 0),
+            "revisar": r["conteo_reco"].get("revisar", 0), "desde": INICIO_DATOS}
 
 
 def obtener_resumen_mensual(fecha_inicio, fecha_fin, credito, contado):
@@ -362,23 +385,20 @@ def dashboard_view():
     fecha_fin = fecha_dia.strftime("%Y-%m-%d")
     fecha_inicio = request.args.get("fecha_inicio") or f"{fecha_dia.year}-01-01"
 
-    # Indicadores del día
-    venta_dia = obtener_venta_dia(fecha_fin)
-    recuperacion_dia = obtener_recuperacion_dia(fecha_fin)
-    devoluciones_dia = obtener_devoluciones_dia(fecha_fin)
-    indicadores, mes, variacion = obtener_indicadores(fecha_dia)
+    # Mes de la fecha elegida (del día 1 a esa fecha)
+    inicio_mes = fecha_dia.replace(day=1)
+    mes, comparaciones = obtener_indicadores_mes(fecha_dia)
+    ranking_vendedores_mes = obtener_ranking_vendedores(inicio_mes, fecha_dia)
+    productos_mes = obtener_productos(inicio_mes, fecha_dia)
+    top_productos = productos_mes[:10]
+    ranking_marcas_mes, top_marcas, otras_marcas = ranking_marcas(productos_mes)
+    venta_productos_mes = sum(p["venta"] for p in productos_mes)
+    ingresos = ingresos_por_proveedor(inicio_mes, fecha_dia)
+    cartera = cartera_al(fecha_dia)
 
-    # Rankings del día
-    ranking_vendedores_dia = obtener_ranking_vendedores(fecha_fin)
-    productos_dia = obtener_productos_dia(fecha_dia)
-    top_productos = productos_dia[:10]
-    ranking_marcas_dia, top_marcas, otras_marcas = ranking_marcas(productos_dia)
-    venta_productos_dia = sum(p["venta"] for p in productos_dia)
-
-    # Totales del día
-    total_credito = sum(r["Credito"] or 0 for r in ranking_vendedores_dia)
-    total_contado = sum(r["Contado"] or 0 for r in ranking_vendedores_dia)
-    total_neto = sum(r["Neto_Ajustado"] or 0 for r in ranking_vendedores_dia)
+    total_credito = sum(r["Credito"] or 0 for r in ranking_vendedores_mes)
+    total_contado = sum(r["Contado"] or 0 for r in ranking_vendedores_mes)
+    total_neto = sum(r["Neto_Ajustado"] or 0 for r in ranking_vendedores_mes)
 
     # Reporte mensual con Crédito/Contado
     ventas_detalladas, meses_detallados = obtener_ventas_mes(fecha_inicio, fecha_fin)
@@ -388,12 +408,12 @@ def dashboard_view():
 
     # Totales generales por mes (para gráficos)
     totales_por_mes_credito = {
-        mes: float(sum(ventas_detalladas[v].get(mes, {}).get("Credito", 0) or 0 for v in ventas_detalladas))
-        for mes in meses_detallados
+        mes_: float(sum(ventas_detalladas[v].get(mes_, {}).get("Credito", 0) or 0 for v in ventas_detalladas))
+        for mes_ in meses_detallados
     }
     totales_por_mes_contado = {
-        mes: float(sum(ventas_detalladas[v].get(mes, {}).get("Contado", 0) or 0 for v in ventas_detalladas))
-        for mes in meses_detallados
+        mes_: float(sum(ventas_detalladas[v].get(mes_, {}).get("Contado", 0) or 0 for v in ventas_detalladas))
+        for mes_ in meses_detallados
     }
 
 
@@ -402,26 +422,29 @@ def dashboard_view():
     total_general = sum(totales_por_mes_credito.values()) + sum(totales_por_mes_contado.values())
     resumen_mensual = obtener_resumen_mensual(fecha_inicio, fecha_fin, totales_por_mes_credito, totales_por_mes_contado)
 
+    # Navegación por mes: fin del mes anterior / siguiente (sin pasar la última fecha cargada)
+    mes_anterior = inicio_mes - timedelta(days=1)
+    fin_siguiente = (inicio_mes + timedelta(days=62)).replace(day=1) - timedelta(days=1)
+    mes_siguiente = min(fin_siguiente, ultima) if ultima and ultima > fecha_dia else None
+
     return render_template("dashboard.html",
                            fecha_inicio=fecha_inicio,
                            fecha_fin=fecha_fin,
                            fecha_dia=fecha_dia,
-                           dia_anterior=(fecha_dia - timedelta(days=1)).strftime("%Y-%m-%d"),
-                           dia_siguiente=(fecha_dia + timedelta(days=1)).strftime("%Y-%m-%d"),
+                           mes_anterior=mes_anterior.strftime("%Y-%m-%d"),
+                           mes_siguiente=mes_siguiente.strftime("%Y-%m-%d") if mes_siguiente else None,
                            ultima_fecha=ultima,
-                           venta_dia=venta_dia,
-                           recuperacion_dia=recuperacion_dia,
-                           devoluciones_dia=devoluciones_dia,
-                           indicadores=indicadores,
                            mes=mes,
-                           variacion=variacion,
-                           ranking_vendedores_dia=ranking_vendedores_dia,
-                           ranking_marcas_dia=ranking_marcas_dia,
+                           comparaciones=comparaciones,
+                           ranking_vendedores_mes=ranking_vendedores_mes,
+                           ranking_marcas_mes=ranking_marcas_mes,
                            top_marcas=top_marcas,
                            otras_marcas=otras_marcas,
                            top_productos=top_productos,
-                           total_productos_dia=len(productos_dia),
-                           venta_productos_dia=venta_productos_dia,
+                           total_productos_mes=len(productos_mes),
+                           venta_productos_mes=venta_productos_mes,
+                           ingresos=ingresos,
+                           cartera=cartera,
                            total_general=total_general,
                            resumen_mensual=resumen_mensual,
                            total_credito=total_credito,
