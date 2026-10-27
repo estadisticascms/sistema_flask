@@ -1,0 +1,172 @@
+{% extends "layout.html" %}
+{% block title %}Bitácora de Accesos{% endblock %}
+{% set dias_semana = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'] %}
+{% macro duracion(m) %}{% if m < 1 %}—{% elif m < 60 %}{{ m }} min{% else %}{{ m // 60 }} h {{ "%02d"|format(m % 60) }} min{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .bit h4 { color: var(--credito); }
+  .bit .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .bit td.mods { white-space: normal; min-width: 280px; font-size: .74rem; color: var(--ink-2); }
+  .bit .ev { display: inline-block; padding: 0 7px; border-radius: 8px; font-size: .7rem; font-weight: 600; background: #f1f0ec; color: var(--ink-2); }
+  .bit .ev.login { background: #e6f1ef; color: var(--credito); }
+  .bit .ev.accion, .bit .ev.descarga { background: #fff1e8; color: #9a3412; }
+  .bit .ev.fallido, .bit .ev.denegado { background: #fde8e8; color: #b42318; }
+  .bit .ev.salida { background: #f1f0ec; color: var(--ink-3); }
+  .bit .alerta { color: #b42318; font-weight: 700; }
+  .bit td.ruta { font-size: .72rem; color: var(--ink-3); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .bit .scroll { max-height: 520px; overflow-y: auto; }
+  .bit .scroll thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+</style>
+
+<div class="dash bit container-fluid px-3 my-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-clock-history" aria-hidden="true"></i> Bitácora de accesos</h4>
+      <div class="text-muted small">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }} · quién entró al sistema, qué módulo usó y a qué hora</div>
+    </div>
+    <a class="btn btn-success btn-sm" href="{{ url_for('bitacora.descargar_excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="usuario">Usuario</label>
+        <select id="usuario" name="usuario" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for u in d.lista_usuarios %}<option {{ 'selected' if u == f.usuario }}>{{ u }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-3"><label class="form-label" for="modulo">Módulo</label>
+        <select id="modulo" name="modulo" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for m in d.lista_modulos %}<option {{ 'selected' if m == f.modulo }}>{{ m }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="evento">Evento</label>
+        <select id="evento" name="evento" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for k, t in eventos.items() %}<option value="{{ k }}" {{ 'selected' if k == f.evento }}>{{ t }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+      <div class="col-12 small text-muted">Períodos:
+        {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('bitacora.reporte', desde=i.isoformat(), hasta=fin.isoformat(), usuario=f.usuario or None) }}">{{ nombre }}</a>{% endfor %}
+      </div>
+    </div>
+  </form>
+
+  {% set e = d.eventos %}
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi kpi-hero"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Usuarios que entraron</div><div class="valor">{{ d.usuarios_activos }}</div>
+      <div class="sub">{{ e.login }} inicios de sesión</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Pantallas abiertas</div><div class="valor">{{ "{:,}".format(e.vista) }}</div>
+      <div class="sub">en {{ d.modulos_usados }} módulos distintos</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Guardados / cargas</div><div class="valor">{{ "{:,}".format(e.accion) }}</div>
+      <div class="sub">+ {{ e.descarga }} descargas de Excel o PDF</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: #b42318"></div>
+      <div class="etiqueta">Alertas</div><div class="valor {{ 'alerta' if e.fallido or e.denegado }}">{{ e.fallido + e.denegado }}</div>
+      <div class="sub">{{ e.fallido }} clave incorrecta · {{ e.denegado }} sin permiso</div></div></div>
+  </div>
+
+  {% if not d.jornadas %}
+    <div class="alert alert-info">No hay movimientos registrados con estos filtros. La bitácora empieza a registrar desde que se instaló esta pantalla.</div>
+  {% else %}
+
+  {# ---------- Por usuario y día ---------- #}
+  <div class="card mb-3">
+    <div class="card-header">Quién entró y qué usó <small>· un renglón por usuario y día</small></div>
+    <div class="table-responsive scroll"><table class="tabla table table-sm mb-0">
+      <thead><tr><th>Fecha</th><th>Usuario</th><th>Entrada</th><th>Última actividad</th><th class="num">Tiempo</th>
+        <th class="num">Pantallas</th><th class="num">Guardó</th><th class="num">Descargas</th><th>Módulos usados</th><th class="num">Alertas</th></tr></thead>
+      <tbody>
+      {% for j in d.jornadas %}
+        <tr>
+          <td>{{ dias_semana[j.dia.weekday()] }} {{ j.dia.strftime('%d/%m/%Y') }}</td>
+          <td><a href="{{ url_for('bitacora.reporte', desde=j.dia.isoformat(), hasta=j.dia.isoformat(), usuario=j.usuario) }}#detalle">{{ j.usuario }}</a></td>
+          <td>{{ j.entrada.strftime('%H:%M') }}</td>
+          <td>{{ j.ultima.strftime('%H:%M') }}</td>
+          <td class="num">{{ duracion(j.minutos) }}</td>
+          <td class="num">{{ j.vistas|int }}</td>
+          <td class="num">{{ j.acciones|int or '' }}</td>
+          <td class="num">{{ j.descargas|int or '' }}</td>
+          <td class="mods">{{ j.modulos or '—' }}</td>
+          <td class="num {{ 'alerta' if j.alertas }}">{{ j.alertas|int or '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <div class="card-footer small text-muted">Tiempo = de la primera a la última actividad del día (aproximado: no cuenta si dejó la pantalla abierta sin usarla).</div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    {# ---------- Módulos ---------- #}
+    <div class="col-lg-7"><div class="card h-100">
+      <div class="card-header">Módulos más usados</div>
+      <div class="table-responsive scroll"><table class="tabla table table-sm mb-0">
+        <thead><tr><th>Módulo</th><th>Área</th><th class="num">Usos</th><th>Usuarios</th><th>Último uso</th></tr></thead>
+        <tbody>
+        {% for m in d.modulos %}
+          <tr><td><a href="{{ url_for('bitacora.reporte', desde=f.desde.isoformat(), hasta=f.hasta.isoformat(), modulo=m.modulo) }}">{{ m.modulo }}</a></td>
+            <td>{{ m.area or '' }}</td><td class="num">{{ m.usos }}</td>
+            <td class="mods" style="min-width: 160px">{{ m.quienes }}</td><td>{{ m.ultimo.strftime('%d/%m %H:%M') }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div></div>
+
+    {# ---------- Horas ---------- #}
+    <div class="col-lg-5"><div class="card h-100">
+      <div class="card-header">Uso por hora del día</div>
+      <div class="card-body"><canvas id="graficoHoras" height="220" aria-label="Pantallas abiertas por hora del día" role="img"></canvas></div>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% if d.sin_entrar %}
+  <div class="card mb-3">
+    <div class="card-header">Usuarios que no entraron en el período <small>· {{ d.sin_entrar|length }}</small></div>
+    <div class="card-body py-2 small">
+      {% for u in d.sin_entrar %}<span class="me-3 text-nowrap"><i class="bi bi-person" aria-hidden="true"></i> {{ u.usuario }}
+        <span class="text-muted">({{ 'última vez ' ~ u.ultima.strftime('%d/%m/%Y') if u.ultima else 'sin registro' }})</span></span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# ---------- Detalle ---------- #}
+  {% if d.detalle %}
+  <div class="card mb-3" id="detalle">
+    <div class="card-header">Detalle de movimientos
+      <small>· {{ 'los últimos ' ~ limite ~ ' (el Excel trae todos)' if d.detalle|length >= limite else d.detalle|length ~ ' movimientos' }}</small></div>
+    <div class="table-responsive scroll"><table class="tabla table table-sm mb-0">
+      <thead><tr><th>Fecha</th><th>Hora</th><th>Usuario</th><th>Evento</th><th>Módulo</th><th>Ruta</th><th>IP</th></tr></thead>
+      <tbody>
+      {% for r in d.detalle %}
+        <tr><td>{{ r.fecha_hora.strftime('%d/%m/%Y') }}</td><td>{{ r.fecha_hora.strftime('%H:%M:%S') }}</td><td>{{ r.usuario }}</td>
+          <td><span class="ev {{ r.evento }}">{{ eventos.get(r.evento, r.evento) }}</span></td>
+          <td>{{ r.modulo or '' }}</td><td class="ruta" title="{{ r.ruta }}">{{ r.ruta }}</td><td>{{ r.ip }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+  {% endif %}
+</div>
+
+{% if d.jornadas %}
+<script>
+  new Chart(document.getElementById('graficoHoras'), {
+    type: 'bar',
+    data: { labels: [...Array(24).keys()].map(h => h + ':00'),
+            datasets: [{ label: 'Movimientos', data: {{ d.horas|tojson }}, backgroundColor: '#027266', borderRadius: 3 }] },
+    options: { plugins: { legend: { display: false } },
+               scales: { x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+                         y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#ecebe8' } } } }
+  });
+</script>
+{% endif %}
+{% endblock %}

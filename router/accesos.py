@@ -43,6 +43,8 @@ def requiere_acceso(vista):
             if row and row["permitido"]:
                 return f(*args, **kwargs)
             else:
+                from router.bitacora import registrar
+                registrar("denegado")
                 flash("⚠️ No tienes acceso", "warning")
                 return redirect(url_for("inicio"))
         wrapped.vista_acceso = vista   # para armar el catálogo de permisos

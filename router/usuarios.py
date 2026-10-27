@@ -3,6 +3,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from utils.db import get_connection
 from router.accesos import requiere_acceso, vistas_validas
+from router.bitacora import registrar
 
 usuarios_bp = Blueprint("usuarios", __name__)
 
@@ -80,7 +81,9 @@ def login():
         if user and check_password_hash(user["password"], password):
             session["usuario"] = user["usuario"]
             session["rol"] = user["rol"]
+            registrar("login")
             return redirect(url_for("inicio"))
+        registrar("fallido", usuario=usuario.strip() or "(vacío)")
         return render_template("login.html", error="Usuario o contraseña incorrectos.")
 
     return render_template("login.html")
@@ -90,6 +93,7 @@ def login():
 # -----------------------------
 @usuarios_bp.route("/logout")
 def logout():
+    registrar("salida")
     session.pop("usuario", None)
     session.pop("rol", None)
     return redirect(url_for("usuarios.login"))

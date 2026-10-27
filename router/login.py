@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session
 from werkzeug.security import check_password_hash
+from router.bitacora import registrar
 from utils.db import get_connection
 
 login_bp = Blueprint("login", __name__)
@@ -20,8 +21,10 @@ def login():
         if user and check_password_hash(user["password"], password):
             session["usuario"] = usuario
             session["rol"] = user["rol"]
+            registrar("login")
             return redirect(url_for("inicio"))
         else:
+            registrar("fallido", usuario=usuario.strip() or "(vacío)")
             return render_template("login.html", error="Usuario o contraseña incorrectos")
 
     return render_template("login.html")
@@ -29,6 +32,7 @@ def login():
 
 @login_bp.route("/logout")
 def logout():
+    registrar("salida")
     session.pop("usuario", None)
     session.pop("rol", None)
     return redirect(url_for("login.login"))

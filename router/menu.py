@@ -135,6 +135,7 @@ SECCIONES = [
             {"titulo": "Usuarios", "items": [
                 ("Usuarios", "/usuarios", "bi-person-gear", "Crear y editar usuarios", "contraseña clave"),
                 ("Accesos", "/accesos", "bi-shield-check", "Permisos de cada usuario", "permisos"),
+                ("Bitácora de accesos", "/bitacora_accesos", "bi-clock-history", "Quién entró, qué módulo usó, fecha y hora", "auditoria log historial ingresos usuarios"),
             ]},
         ],
     },

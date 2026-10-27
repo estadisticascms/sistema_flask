@@ -52,6 +52,7 @@ from router.cheques import cheques_bp
 from router.cargar_armados import cargar_armados_bp
 from router.reporte_armados import reporte_armados_bp, armados_del_dia
 from router.menu import contexto_menu
+from router.bitacora import bitacora_bp, iniciar_bitacora
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
@@ -91,6 +92,8 @@ app.register_blueprint(resumen_bp)
 app.register_blueprint(accesos_bp)
 app.register_blueprint(usuarios_bp)
 app.register_blueprint(login_bp)
+app.register_blueprint(bitacora_bp)
+iniciar_bitacora(app)
 app.register_blueprint(ventas_perdidas_bp)
 app.register_blueprint(productos_agotarse_bp)
 app.register_blueprint(ventas_bodega_bp)
