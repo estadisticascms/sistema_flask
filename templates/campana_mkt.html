@@ -18,6 +18,14 @@
   .avance .barra span { display: block; height: 100%; background: var(--contado); }
   .delta-pos { color: var(--credito); font-weight: 600; } .delta-neg { color: #b42318; font-weight: 600; }
   .nota-input { font-size: .75rem; min-width: 160px; }
+  .res { display: inline-block; padding: 1px 8px; border-radius: 9px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+  .res.verde { background: var(--credito); color: #fff; } .res.verde-suave { background: #e6f1ef; color: var(--credito); }
+  .res.naranja { background: #fff1e8; color: #9a3412; } .res.rojo { background: #fde8e8; color: #b42318; } .res.gris { background: #f1f0ec; color: var(--ink-2); }
+  .tabla-cp td.resultado { min-width: 230px; max-width: 280px; white-space: normal; }
+  .tabla-cp .consejo { font-size: .72rem; color: var(--ink-2); line-height: 1.25; margin-top: 2px; }
+  .tabla-cp .recompra { font-size: .72rem; font-weight: 600; margin-top: 2px; }
+  .tabla-cp .recompra.no { color: #b42318; } .tabla-cp .recompra.si { color: var(--credito); }
+  .chip-res { display: inline-flex; align-items: center; gap: 6px; margin: 0 10px 6px 0; font-size: .82rem; color: var(--ink); text-decoration: none; }
   .cp .btn:focus-visible, .btn-prod:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
   #modal-ventas table.table { width: 100%; margin: 0; font-size: .8rem; } #modal-ventas table.table td, #modal-ventas table.table th { text-align: left; }
   #modal-ventas table.table .text-end { text-align: right; }
@@ -97,10 +105,34 @@
       <div class="avance"><div class="barra" role="img" aria-label="{{ (tot.avance * 100)|round(1) }}% vendido"><span style="width: {{ (tot.avance * 100)|round(1) }}%"></span></div></div></div></div>
   </div>
 
+  {% if filas %}
+  {% set r = tot.resultados %}
+  <div class="card card-body mb-3">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <div>
+        <div class="fw-semibold" style="color: var(--credito)">¿Dio resultado la campaña?</div>
+        <div class="small text-muted mb-2">
+          {% if tot.evaluable %}Lleva {{ tot.dias }} días. Funciona = lo que queda sale en {{ meses_ok }} meses o menos al ritmo de la campaña.
+          {% else %}Lleva {{ tot.dias }} día{{ 's' if tot.dias != 1 }}: el resultado definitivo se ve a partir de los {{ dias_evaluar }} días.{% endif %}</div>
+        <div>
+          {% for k, (txt, color, _) in resultados.items() if r[k] %}
+          <a class="chip-res" href="{{ url_for('estrategia_productos.campana', id_=c.id, orden='resultado') }}"><span class="res {{ color }}">{{ txt }}</span> <strong>{{ r[k] }}</strong></a>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="text-lg-end small">
+        {% if tot.estancado %}<div>Sigue estancado (sin respuesta o lento): <strong class="delta-neg">C$ {{ "{:,.0f}".format(tot.estancado) }}</strong> al costo</div>{% endif %}
+        {% if tot.no_recomprar %}<div><strong class="delta-neg">{{ tot.no_recomprar }}</strong> producto{{ 's' if tot.no_recomprar != 1 }} para <strong>no volver a comprar</strong></div>{% endif %}
+        {% if tot.entro_mas %}<div class="text-warning-emphasis"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> A {{ tot.entro_mas }} le entró más inventario durante la campaña</div>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
-    <div class="small text-muted">Clic en un producto para ver a quién se vendió y con qué vendedor.</div>
+    <div class="small text-muted">Botón <i class="bi bi-receipt" aria-hidden="true"></i> Ventas: facturas, clientes y vendedores que lo vendieron.</div>
     <div class="btn-group btn-group-sm" role="group" aria-label="Ordenar">
-      {% for k, v in [('vendido', 'Más vendido'), ('avance', '% vendido'), ('sin_venta', 'Sin venta primero'), ('valor', 'Mayor inventario')] %}
+      {% for k, v in [('resultado', 'Por resultado'), ('vendido', 'Más vendido'), ('avance', '% vendido'), ('sin_venta', 'Sin venta primero'), ('valor', 'Mayor inventario')] %}
       <a class="btn {{ 'btn-secondary' if orden == k else 'btn-outline-secondary' }}" href="{{ url_for('estrategia_productos.campana', id_=c.id, orden=k) }}">{{ v }}</a>
       {% endfor %}
     </div>
@@ -108,8 +140,8 @@
   <div class="table-responsive border rounded-3 bg-white" style="max-height: 68vh">
     <table class="tabla-cp">
       <thead><tr><th>Producto</th><th class="num">Existencia inicial</th><th class="num">Existencia hoy</th><th class="num">Precio ref. C$</th>
-        <th class="num">Antes (unid./mes)</th><th>Vendido desde inicio</th><th class="num">Ahora (unid./mes)</th><th class="num">Monto C$</th>
-        <th class="num">Clientes</th><th>Última venta</th><th>Nota</th><th></th></tr></thead>
+        <th class="num">Antes (unid./mes)</th><th>Vendido desde inicio</th><th class="num">Ahora (unid./mes)</th><th>Resultado</th><th class="num">Monto C$</th>
+        <th class="num">Clientes</th><th>Última venta</th><th>Ventas</th><th>Nota</th><th></th></tr></thead>
       <tbody>
         {% for x in filas %}
         <tr>
@@ -122,11 +154,20 @@
           <td class="avance"><strong>{{ num(x.vendido) }}</strong> <span class="meta">({{ (x.avance * 100)|round(0)|int }}% de lo inicial)</span>
             <div class="barra" role="img" aria-label="{{ (x.avance * 100)|round(0)|int }}% vendido"><span style="width: {{ (x.avance * 100)|round(1) }}%"></span></div></td>
           <td class="num">{{ num(x.ritmo) }}
-            {% if x.variacion is not none %}<div class="{{ 'delta-pos' if x.variacion >= 0 else 'delta-neg' }}" style="font-size: .72rem">{{ "%+.0f"|format(x.variacion) }}%</div>
+            {% if not tot.evaluable %}{% if x.vendido > 0 %}<div class="meta" title="Con pocos días el ritmo mensual se exagera">muy pronto para %</div>{% endif %}
+            {% elif x.variacion is not none %}<div class="{{ 'delta-pos' if x.variacion >= 0 else 'delta-neg' }}" style="font-size: .72rem"
+              title="Ritmo de ahora contra el promedio mensual de antes">{{ "%+.0f"|format(x.variacion) }}% vs antes</div>
             {% elif x.vendido > 0 %}<div class="delta-pos" style="font-size: .72rem">volvió a venderse</div>{% endif %}</td>
+          <td class="resultado"><span class="res {{ x.resultado_color }}">{{ x.resultado_txt }}</span>
+            {% if x.meses_salir is not none and x.resultado != 'salio' %}<span class="meta">· lo que queda sale en {{ '%.0f'|format(x.meses_salir) if x.meses_salir >= 1 else 'menos de 1' }} {{ 'mes' if x.meses_salir < 1.5 else 'meses' }}</span>{% endif %}
+            <div class="consejo">{{ x.consejo }}</div>
+            {% if x.recompra %}<div class="recompra {{ 'no' if x.recompra.startswith('No') else 'si' }}"><i class="bi {{ 'bi-cart-x' if x.recompra.startswith('No') else 'bi-cart-check' }}" aria-hidden="true"></i> {{ x.recompra }}</div>{% endif %}
+            {% if x.entro_mas %}<div class="recompra no"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Entró más inventario durante la campaña</div>{% endif %}</td>
           <td class="num">{{ "{:,.2f}".format(x.monto) }}</td>
           <td class="num">{{ x.clientes or '' }}</td>
           <td class="text-nowrap">{{ x.ultima.strftime('%d/%m/%Y') if x.ultima else '—' }}</td>
+          <td>{% if x.vendido > 0 or x.monto %}<button type="button" class="btn btn-sm btn-outline-secondary btn-ventas text-nowrap" data-codigo="{{ x.codigo }}" data-nombre="{{ x.nombre }}"
+              aria-label="Ver facturas, clientes y vendedores de {{ x.codigo }}"><i class="bi bi-receipt" aria-hidden="true"></i> Ventas</button>{% endif %}</td>
           <td><form method="post" class="d-flex gap-1"><input type="hidden" name="accion" value="nota"><input type="hidden" name="codigo" value="{{ x.codigo }}">
             <input name="nota" value="{{ x.nota or '' }}" maxlength="255" class="form-control form-control-sm nota-input" aria-label="Nota de {{ x.codigo }}" placeholder="Acción, oferta…">
             <button class="btn btn-sm btn-outline-secondary" aria-label="Guardar nota"><i class="bi bi-check2" aria-hidden="true"></i></button></form></td>
@@ -134,12 +175,15 @@
             <button class="btn btn-sm btn-outline-danger" aria-label="Quitar {{ x.codigo }} de la campaña"><i class="bi bi-x-lg" aria-hidden="true"></i></button></form></td>
         </tr>
         {% else %}
-        <tr><td colspan="12" class="text-center text-muted py-4">La campaña no tiene productos. Agréguelos con el cuadro «Agregar productos» de arriba.</td></tr>
+        <tr><td colspan="14" class="text-center text-muted py-4">La campaña no tiene productos. Agréguelos con el cuadro «Agregar productos» de arriba.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <div class="small text-muted mt-1">Vendido = salidas por factura menos devoluciones desde el inicio de la campaña. "Antes" es el promedio mensual de los 12 meses previos a agregar el producto.</div>
+  <div class="small text-muted mt-1">Vendido = salidas por factura menos devoluciones desde el inicio de la campaña. "Antes" es el promedio mensual de los 12 meses previos a agregar el producto.<br>
+    Resultado: <span class="res verde">Salió</span> ya no queda (o se vendió el 90%) · <span class="res verde">Funciona</span> lo que queda sale en {{ meses_ok }} meses o menos ·
+    <span class="res naranja">Lento</span> se vende pero tardaría más · <span class="res rojo">Sin respuesta</span> ninguna venta en {{ dias_evaluar }} días o más.
+    «Volver a comprar» toma en cuenta la venta normal de antes: si vendía menos de 1 al mes, solo bajo pedido.</div>
 </div>
 
 <div class="modal fade" id="modal-ventas" tabindex="-1" aria-labelledby="modal-ventas-titulo" aria-hidden="true">
@@ -167,7 +211,7 @@
   const dinero = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fecha = (s) => s ? s.split('-').reverse().join('/') : '—';
   let ventana = null;
-  document.querySelectorAll('.btn-prod').forEach(b => b.addEventListener('click', async () => {
+  document.querySelectorAll('.btn-prod, .btn-ventas').forEach(b => b.addEventListener('click', async () => {
     ventana = ventana || new bootstrap.Modal(modal);
     document.getElementById('modal-ventas-titulo').textContent = `${b.dataset.codigo} · ${b.dataset.nombre}`;
     cuerpo.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cargando…</div>';

@@ -500,12 +500,53 @@ def montos_desde(codigos, desde):
         conn.close()
 
 
+# Resultado de cada producto: la meta es sacar el inventario estancado y decidir si se vuelve a comprar
+DIAS_EVALUAR = 30   # antes de esto la campaña es muy reciente para juzgar (el ritmo mensual se infla con pocos días)
+MESES_OK = 6        # si al ritmo de la campaña lo que queda sale en este plazo o menos, la campaña funciona
+RESULTADOS = {
+    "salio": ("Salió", "verde", "Ya salió el inventario."),
+    "funciona": ("Funciona", "verde", "Mantener la campaña hasta terminar de sacarlo."),
+    "vendiendo": ("Vendiendo", "verde-suave", "Va bien; se evalúa al cumplir 30 días."),
+    "lento": ("Lento", "naranja", "Reforzar: más descuento, combos u ofrecerlo a clientes que lo compraron antes."),
+    "sin_respuesta": ("Sin respuesta", "rojo", "La campaña no lo movió: liquidar, devolver al proveedor o dar de baja."),
+    "pronto": ("Muy pronto", "gris", "Sin ventas todavía; esperar a que cumpla 30 días."),
+}
+
+
+def resultado_producto(x, dias):
+    """Clasifica el producto, cuánto tardaría en salir lo que queda y si conviene volver a comprarlo."""
+    quedan = max(x["existencia"], 0)
+    x["meses_salir"] = quedan / x["ritmo"] if x["ritmo"] > 0 and quedan > 0 else None
+    if quedan <= 0 or x["avance"] >= 0.9:
+        r = "salio"
+    elif dias < DIAS_EVALUAR:
+        r = "vendiendo" if x["vendido"] > 0 else "pronto"
+    elif x["vendido"] <= 0:
+        r = "sin_respuesta"
+    else:
+        r = "funciona" if x["meses_salir"] is not None and x["meses_salir"] <= MESES_OK else "lento"
+    # ¿Volver a comprar? Solo si su venta normal (sin campaña) lo justifica
+    if r in ("sin_respuesta", "lento"):
+        recompra = "No volver a comprar"
+    elif r == "salio":
+        recompra = "Puede reponerse" if x["base"] >= 1 else "Solo bajo pedido"
+    elif r == "pronto":
+        recompra = ""
+    else:
+        recompra = "No comprar hasta que salga"
+    # Entró más inventario después de iniciar la campaña (se volvió a comprar o hubo traslado)
+    x["entro_mas"] = x["existencia"] > x["existencia_inicial"] - x["vendido"] + 0.5
+    etiqueta, color, consejo = RESULTADOS[r]
+    x.update(resultado=r, resultado_txt=etiqueta, resultado_color=color, consejo=consejo, recompra=recompra)
+
+
 def estado_campana(c, productos):
     """Calcula el avance de cada producto de la campaña y los totales."""
     base = datos_base()
     fin = base["fin"]
     corte = min(c["fecha_fin"], fin) if c["fecha_fin"] else fin
-    meses = max((corte - c["fecha_inicio"]).days + 1, 1) / DIAS_MES
+    dias = max((corte - c["fecha_inicio"]).days + 1, 1)
+    meses = dias / DIAS_MES
     codigos = [p["codigo"] for p in productos]
     vendidos = ventas_desde(codigos, c["fecha_inicio"])
     montos = en_cache(f"mkt_montos_{c['id']}_{len(codigos)}_{fin}", lambda: montos_desde(codigos, c["fecha_inicio"]), segundos=300)
@@ -523,11 +564,17 @@ def estado_campana(c, productos):
                       "vendido": unidades, "monto": montos.get(p["codigo"], 0.0), "clientes": clientes, "ultima": ultima,
                       "ritmo": ritmo, "variacion": (ritmo / base_mensual - 1) * 100 if base_mensual else None,
                       "avance": min(unidades / inicial, 1.0) if inicial else 0.0, "valor_inicial": inicial * float(p["costo"] or 0)})
+        resultado_producto(filas[-1], dias)
     tot = {"productos": len(filas), "con_venta": sum(1 for x in filas if x["vendido"] > 0),
            "valor_inicial": sum(x["valor_inicial"] for x in filas), "vendido_costo": sum(min(x["vendido"], x["existencia_inicial"]) * x["costo"] for x in filas),
            "monto": sum(x["monto"] for x in filas), "unidades": sum(x["vendido"] for x in filas),
            "unidades_inicial": sum(x["existencia_inicial"] for x in filas),
-           "base": sum(x["base"] for x in filas), "ritmo": sum(x["ritmo"] for x in filas), "meses": meses, "corte": corte}
+           "base": sum(x["base"] for x in filas), "ritmo": sum(x["ritmo"] for x in filas), "meses": meses, "corte": corte, "dias": dias,
+           "evaluable": dias >= DIAS_EVALUAR,
+           "resultados": {k: sum(1 for x in filas if x["resultado"] == k) for k in RESULTADOS},
+           "estancado": sum(max(x["existencia"], 0) * x["costo"] for x in filas if x["resultado"] in ("sin_respuesta", "lento")),
+           "no_recomprar": sum(1 for x in filas if x["recompra"] == "No volver a comprar"),
+           "entro_mas": sum(1 for x in filas if x["entro_mas"])}
     tot["avance"] = tot["vendido_costo"] / tot["valor_inicial"] if tot["valor_inicial"] else 0
     tot["variacion"] = (tot["ritmo"] / tot["base"] - 1) * 100 if tot["base"] else None
     return filas, tot
@@ -647,9 +694,12 @@ def campana(id_):
         return redirect(url_for("estrategia_productos.campanas"))
     filas, tot = estado_campana(c, productos)
     orden = request.args.get("orden", "vendido")
+    gravedad = ["sin_respuesta", "lento", "pronto", "vendiendo", "funciona", "salio"]   # lo que necesita acción primero
     filas.sort(key={"avance": lambda x: -x["avance"], "valor": lambda x: -x["valor_inicial"],
+                    "resultado": lambda x: (gravedad.index(x["resultado"]), -x["existencia"] * x["costo"]),
                     "sin_venta": lambda x: (x["vendido"] > 0, -x["valor_inicial"])}.get(orden, lambda x: (-x["monto"], -x["vendido"])))
-    return render_template("campana_mkt.html", c=c, filas=filas, tot=tot, estrategias=ESTRATEGIAS, orden=orden)
+    return render_template("campana_mkt.html", c=c, filas=filas, tot=tot, estrategias=ESTRATEGIAS, orden=orden,
+                           resultados=RESULTADOS, dias_evaluar=DIAS_EVALUAR, meses_ok=MESES_OK)
 
 
 def agregar_productos(id_):
@@ -722,7 +772,8 @@ def excel_campana(id_):
     ws["A2"].font = Font(size=9, color="52514E")
     columnas = [("Código", 11), ("Nº parte", 18), ("Descripción", 34), ("Marca", 13), ("Existencia inicial", 11), ("Existencia hoy", 11),
                 ("Costo C$", 12), ("Precio ref. C$", 12), ("Venta mensual antes", 11), ("Vendido desde inicio", 11), ("Venta mensual ahora", 11),
-                ("Variación", 10), ("% de la existencia vendida", 11), ("Monto vendido C$", 14), ("Clientes", 9), ("Última venta", 12), ("Nota", 30)]
+                ("Variación", 10), ("% de la existencia vendida", 11), ("Monto vendido C$", 14), ("Clientes", 9), ("Última venta", 12), ("Resultado", 14),
+                ("Recomendación", 44), ("¿Volver a comprar?", 20), ("Nota", 30)]
     for i, (nombre, ancho) in enumerate(columnas, start=1):
         cel = ws.cell(row=4, column=i, value=nombre)
         cel.font = Font(bold=True, color="FFFFFF")
@@ -733,7 +784,8 @@ def excel_campana(id_):
     for n, x in enumerate(filas, start=5):
         valores = [x["codigo"], x["parte"], x["nombre"], x["marca"], x["existencia_inicial"], x["existencia"], x["costo"], x["precio_ref"],
                    round(x["base"], 2), x["vendido"], round(x["ritmo"], 2), x["variacion"] / 100 if x["variacion"] is not None else None,
-                   x["avance"], round(x["monto"], 2), x["clientes"], x["ultima"], x["nota"] or ""]
+                   x["avance"], round(x["monto"], 2), x["clientes"], x["ultima"], x["resultado_txt"],
+                   x["consejo"], x["recompra"], x["nota"] or ""]
         for col, v in enumerate(valores, start=1):
             ws.cell(row=n, column=col, value=v)
         for col in (7, 8, 14):
