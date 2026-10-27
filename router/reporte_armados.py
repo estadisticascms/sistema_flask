@@ -152,6 +152,30 @@ def calcular(f):
     }
 
 
+def armados_del_dia(dia):
+    """Mangueras armadas del día y acumulado del mes (para la tarjeta de ventas del día por vendedor).
+    None si no hay armados cargados en el mes; 'pendiente' = el día todavía no se ha cargado."""
+    inicio = dia.replace(day=1)
+    lineas = _consulta("SELECT fecha, nfactura, tipo_venta, producto, cantidad, mano_obra FROM ventas_armados WHERE fecha BETWEEN %s AND %s",
+                       (inicio, dia))
+    if not lineas:
+        return None
+    r = {"dia": Decimal(0), "credito": Decimal(0), "contado": Decimal(0), "mes": Decimal(0), "facturas": set(), "dias_mes": set()}
+    for l in lineas:
+        if tipo_linea(l["producto"], l["mano_obra"]) != "manguera":
+            continue
+        r["mes"] += l["cantidad"]
+        r["dias_mes"].add(l["fecha"])
+        if l["fecha"] == dia:
+            r["dia"] += l["cantidad"]
+            r["credito" if l["tipo_venta"] == "CREDITO" else "contado"] += l["cantidad"]
+            r["facturas"].add(l["nfactura"])
+    r["facturas"], r["dias_mes"] = len(r["facturas"]), len(r["dias_mes"])
+    r["promedio"] = r["mes"] / r["dias_mes"] if r["dias_mes"] else 0
+    r["pendiente"] = max(l["fecha"] for l in lineas) < dia
+    return r
+
+
 @reporte_armados_bp.route("/reporte_armados")
 @requiere_acceso("reporte_armados")
 def reporte():

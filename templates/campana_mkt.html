@@ -33,7 +33,8 @@
     </div>
     <div class="d-flex flex-wrap gap-2">
       <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('estrategia_productos.campanas') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Campañas</a>
-      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('estrategia_productos.reporte') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar productos</a>
+      {% if c.estado == 'Activa' %}<button class="btn btn-sm" style="background: var(--contado); color: #fff" type="button" data-bs-toggle="collapse" data-bs-target="#agregar"
+        aria-expanded="{{ 'true' if not filas else 'false' }}" aria-controls="agregar"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar productos</button>{% endif %}
       <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#editar" aria-expanded="false" aria-controls="editar"><i class="bi bi-pencil" aria-hidden="true"></i> Editar / cerrar</button>
       {% if filas %}<a class="btn btn-sm" style="background: var(--credito); color: #fff" href="{{ url_for('estrategia_productos.excel_campana', id_=c.id) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>{% endif %}
     </div>
@@ -55,6 +56,30 @@
     </div>
     <div class="mt-2 text-end"><button class="btn btn-link btn-sm text-danger p-0" form="form-eliminar">Eliminar campaña</button></div>
   </form>
+  {% if c.estado == 'Activa' %}
+  <div class="card card-body mb-3 collapse {{ 'show' if not filas }}" id="agregar">
+    <div class="fw-semibold mb-1" style="color: var(--credito)">Agregar cualquier producto del catálogo</div>
+    <div class="small text-muted mb-2">No tiene que estar en la lista de poco movimiento. Búsquelo y presione <strong>+</strong>, o pegue una columna de
+      códigos o números de parte desde Excel. Al agregarlo se guarda su existencia, costo, precio y venta mensual de hoy para medir el avance.
+      También puede <a href="{{ url_for('estrategia_productos.reporte') }}">elegirlos en Poco movimiento</a>.</div>
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <label class="form-label" for="buscar-prod">Buscar en el catálogo</label>
+        <input type="search" id="buscar-prod" class="form-control form-control-sm" placeholder="Código, número de parte, descripción, marca o equivalencia" autocomplete="off">
+        <div id="resultados-prod" class="list-group list-group-flush small mt-1" style="max-height: 260px; overflow-y: auto" aria-live="polite"></div>
+      </div>
+      <form method="post" class="col-lg-6" onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Agregando…';">
+        <input type="hidden" name="accion" value="agregar">
+        <label class="form-label" for="codigos">Códigos o números de parte a agregar</label>
+        <textarea id="codigos" name="codigos" rows="6" class="form-control form-control-sm font-monospace" placeholder="Uno por línea (o separados por coma)"></textarea>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <span class="small text-muted" id="cuenta-codigos"></span>
+          <button class="btn btn-success btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar a la campaña</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
   <form method="post" id="form-eliminar" onsubmit="return confirm('¿Eliminar la campaña y su lista de productos? Las ventas no se tocan.');"><input type="hidden" name="accion" value="eliminar"></form>
 
   {# ---------- Indicadores ---------- #}
@@ -109,7 +134,7 @@
             <button class="btn btn-sm btn-outline-danger" aria-label="Quitar {{ x.codigo }} de la campaña"><i class="bi bi-x-lg" aria-hidden="true"></i></button></form></td>
         </tr>
         {% else %}
-        <tr><td colspan="12" class="text-center text-muted py-4">La campaña no tiene productos. <a href="{{ url_for('estrategia_productos.reporte') }}">Agréguelos desde el reporte de poco movimiento</a>.</td></tr>
+        <tr><td colspan="12" class="text-center text-muted py-4">La campaña no tiene productos. Agréguelos con el cuadro «Agregar productos» de arriba.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -165,6 +190,48 @@
         </table></div>`;
     } catch { cuerpo.innerHTML = '<p class="text-danger mb-0">No se pudo cargar el detalle.</p>'; }
   }));
+
+  // ---- Agregar productos: búsqueda en todo el catálogo; "+" pasa el código a la lista ----
+  const buscar = document.getElementById('buscar-prod');
+  if (!buscar) return;
+  const resultados = document.getElementById('resultados-prod'), lista = document.getElementById('codigos');
+  const cuenta = document.getElementById('cuenta-codigos');
+  const enCampana = new Set({{ filas | map(attribute='codigo') | list | tojson }});
+  const URL_BUSCAR = "{{ url_for('estrategia_productos.buscar_productos') }}";
+  const codigosLista = () => lista.value.split(/[\n\r,;\t]+/).map(s => s.trim()).filter(Boolean);
+  const actualizar = () => { const n = codigosLista().length; cuenta.textContent = n ? `${n} por agregar` : ''; };
+  lista.addEventListener('input', actualizar);
+  let espera = null, ultimo = '';
+  buscar.addEventListener('input', () => {
+    clearTimeout(espera);
+    espera = setTimeout(async () => {
+      const q = buscar.value.trim();
+      if (q === ultimo) return;
+      ultimo = q;
+      if (q.length < 2) { resultados.innerHTML = ''; return; }
+      resultados.innerHTML = '<div class="text-muted p-2"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Buscando…</div>';
+      try {
+        const d = await (await fetch(URL_BUSCAR + '?q=' + encodeURIComponent(q))).json();
+        if (q !== ultimo) return;
+        if (!d.productos.length) { resultados.innerHTML = '<div class="text-muted p-2">Sin resultados en el catálogo.</div>'; return; }
+        resultados.innerHTML = d.productos.map(p => {
+          const ya = enCampana.has(p.codigo) || codigosLista().includes(p.codigo);
+          return `<div class="list-group-item d-flex align-items-center gap-2 px-1">
+            <div class="flex-grow-1" style="min-width: 0"><div class="text-truncate fw-semibold">${esc(p.nombre)}</div>
+              <div class="text-muted" style="font-size: .72rem">${esc(p.codigo)}${p.parte ? ' · ' + esc(p.parte) : ''} · ${esc(p.marca)} · existencia ${num(p.existencia)} · ${num(p.mensual)} unid./mes</div></div>
+            <button type="button" class="btn btn-sm ${ya ? 'btn-outline-secondary' : 'btn-outline-success'}" data-codigo="${esc(p.codigo)}" ${ya ? 'disabled' : ''}
+              aria-label="Agregar ${esc(p.codigo)}">${ya ? (enCampana.has(p.codigo) ? 'En campaña' : 'En lista') : '<i class="bi bi-plus-lg" aria-hidden="true"></i>'}</button></div>`;
+        }).join('');
+      } catch { resultados.innerHTML = '<div class="text-danger p-2">No se pudo buscar.</div>'; }
+    }, 300);
+  });
+  resultados.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-codigo]');
+    if (!b) return;
+    lista.value = codigosLista().concat(b.dataset.codigo).join('\n');
+    b.disabled = true; b.className = 'btn btn-sm btn-outline-secondary'; b.textContent = 'En lista';
+    actualizar();
+  });
 })();
 </script>
 {% endblock %}

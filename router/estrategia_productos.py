@@ -7,6 +7,7 @@
 - Campañas (mkt_campanas / mkt_campana_productos): al agregar productos se guarda la foto inicial (existencia, costo, precio y
   venta mensual de antes); el seguimiento compara lo vendido desde el inicio contra ese ritmo anterior."""
 import io
+import re
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, send_file, session, url_for
@@ -292,6 +293,77 @@ def historial(codigo):
                    anios=[{"anio": a["anio"], "unidades": a_num(a["unidades"]), "monto": a_num(a["monto"])} for a in anios])
 
 
+def guardar_productos(cursor, campana_id, codigos, cat, base, f):
+    """Inserta los productos en la campaña con su foto inicial; devuelve cuántos eran nuevos (los repetidos se ignoran)."""
+    nuevos = 0
+    for cod in codigos:
+        if cod not in cat:
+            continue
+        x = analizar(cod, cat[cod], base, f)
+        cursor.execute("""INSERT IGNORE INTO mkt_campana_productos (campana_id, codigo, existencia_inicial, costo, precio_ref, venta_mensual_base,
+                          ultima_venta_previa, agregado_por) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                       (campana_id, cod, x["existencia"], round(x["costo"], 4), round(x["precio"], 4), round(x["mensual"], 4),
+                        x["ultima_venta"], usuario()))
+        nuevos += cursor.rowcount
+    return nuevos
+
+
+def resolver_codigos(texto):
+    """Texto pegado (códigos o números de parte, uno por línea o separados por coma, punto y coma o tabulador) ->
+    (códigos del catálogo, no encontrados, números de parte que corresponden a varios códigos)."""
+    tokens = list(dict.fromkeys(t.strip().upper() for t in re.split(r"[\n\r,;\t]+", texto or "") if t.strip()))
+    if not tokens:
+        return [], [], []
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        marcas = ", ".join(["%s"] * len(tokens))
+        cursor.execute(f"SELECT `Codigo Producto`, UPPER(TRIM(`Numero Parte`)) FROM catalogo_productos "
+                       f"WHERE UPPER(`Codigo Producto`) IN ({marcas}) OR UPPER(TRIM(`Numero Parte`)) IN ({marcas})", tokens + tokens)
+        filas = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+    por_codigo = {str(c).upper(): c for c, _ in filas}
+    por_parte = {}
+    for c, p in filas:
+        por_parte.setdefault(p, []).append(c)
+    codigos, no_encontrados, varios = [], [], []
+    for t in tokens:
+        if t in por_codigo:                     # el código manda sobre el número de parte
+            codigos.append(por_codigo[t])
+        elif len(por_parte.get(t, [])) == 1:
+            codigos.append(por_parte[t][0])
+        elif por_parte.get(t):
+            varios.append(f"{t} ({', '.join(por_parte[t][:5])})")
+        else:
+            no_encontrados.append(t)
+    return list(dict.fromkeys(codigos)), no_encontrados, varios
+
+
+@estrategia_bp.route("/campanas_mkt/buscar")
+@requiere_acceso("estrategia_productos")
+def buscar_productos():
+    """Busca en todo el catálogo (no solo en poco movimiento) por código, número de parte, descripción o equivalencias."""
+    palabras = (request.args.get("q") or "").upper().split()[:6]
+    if not palabras or len("".join(palabras)) < 2:
+        return jsonify(productos=[])
+    where = " AND ".join(["UPPER(CONCAT_WS(' ', `Codigo Producto`, `Numero Parte`, Nombre, Marca, Equivalencias)) LIKE %s"] * len(palabras))
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(f"SELECT `Codigo Producto` AS codigo, Nombre AS nombre, `Numero Parte` AS parte, Marca AS marca "
+                       f"FROM catalogo_productos WHERE {where} ORDER BY Nombre LIMIT 30", [f"%{p}%" for p in palabras])
+        productos = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+    base = datos_base()
+    return jsonify(productos=[{**p, "marca": (p["marca"] or "").strip(), "parte": p["parte"] or "",
+                               "existencia": base["existencias"].get(p["codigo"], 0.0),
+                               "mensual": base["ventas"].get(p["codigo"], (0.0, 0, 0))[0] / 12} for p in productos])
+
+
 @estrategia_bp.route("/productos_poco_movimiento/agregar", methods=["POST"])
 @requiere_acceso("estrategia_productos")
 def agregar_a_campana():
@@ -326,16 +398,7 @@ def agregar_a_campana():
             if not cursor.fetchone():
                 raise ValueError("La campaña no existe o está cerrada.")
             campana_id = int(campana_id)
-        nuevos = 0
-        for cod in codigos:
-            if cod not in cat:
-                continue
-            x = analizar(cod, cat[cod], base, f)
-            cursor.execute("""INSERT IGNORE INTO mkt_campana_productos (campana_id, codigo, existencia_inicial, costo, precio_ref, venta_mensual_base,
-                              ultima_venta_previa, agregado_por) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-                           (campana_id, cod, x["existencia"], round(x["costo"], 4), round(x["precio"], 4), round(x["mensual"], 4),
-                            x["ultima_venta"], usuario()))
-            nuevos += cursor.rowcount
+        nuevos = guardar_productos(cursor, campana_id, codigos, cat, base, f)
         conn.commit()
     except ValueError as e:
         conn.rollback()
@@ -534,6 +597,8 @@ def nueva_campana():
 @estrategia_bp.route("/campanas_mkt/<int:id_>", methods=["GET", "POST"])
 @requiere_acceso("estrategia_productos")
 def campana(id_):
+    if request.method == "POST" and request.form.get("accion") == "agregar":
+        return agregar_productos(id_)
     if request.method == "POST":
         accion = request.form.get("accion")
         conn = get_connection()
@@ -585,6 +650,34 @@ def campana(id_):
     filas.sort(key={"avance": lambda x: -x["avance"], "valor": lambda x: -x["valor_inicial"],
                     "sin_venta": lambda x: (x["vendido"] > 0, -x["valor_inicial"])}.get(orden, lambda x: (-x["monto"], -x["vendido"])))
     return render_template("campana_mkt.html", c=c, filas=filas, tot=tot, estrategias=ESTRATEGIAS, orden=orden)
+
+
+def agregar_productos(id_):
+    """Agrega a la campaña cualquier producto del catálogo, pegando o buscando códigos / números de parte."""
+    volver = redirect(url_for("estrategia_productos.campana", id_=id_))
+    c, _ = cargar_campana(id_)
+    if not c or c["estado"] != "Activa":
+        flash("Solo se pueden agregar productos a una campaña activa.", "warning")
+        return volver
+    codigos, no_encontrados, varios = resolver_codigos(request.form.get("codigos"))
+    if codigos:
+        cat = catalogo(codigos)
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            nuevos = guardar_productos(cursor, id_, codigos, cat, datos_base(), leer_filtros({}))
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
+        flash(f"✅ {nuevos} producto(s) agregados a la campaña" + (f" ({len(codigos) - nuevos} ya estaban)." if nuevos < len(codigos) else "."), "success")
+    if no_encontrados:
+        flash(f"No están en el catálogo: {', '.join(no_encontrados[:30])}{' …' if len(no_encontrados) > 30 else ''}", "warning")
+    if varios:
+        flash("Estos números de parte corresponden a varios códigos; agréguelos por código: " + "; ".join(varios[:15]), "warning")
+    if not (codigos or no_encontrados or varios):
+        flash("Escriba o pegue al menos un código o número de parte.", "warning")
+    return volver
 
 
 @estrategia_bp.route("/campanas_mkt/<int:id_>/ventas/<path:codigo>")

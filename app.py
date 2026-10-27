@@ -50,7 +50,7 @@ from router.cargar_recuperacion import cargar_recuperacion_bp
 from router.analisis_cartera import analisis_cartera_bp
 from router.cheques import cheques_bp
 from router.cargar_armados import cargar_armados_bp
-from router.reporte_armados import reporte_armados_bp
+from router.reporte_armados import reporte_armados_bp, armados_del_dia
 from router.menu import contexto_menu
 
 app = Flask(__name__)
@@ -704,7 +704,8 @@ def rep_vend_totales():
         dia = fecha_param("dia", fecha_fin if request.args.get("fecha_fin") else ultima)
         anterior, siguiente = vv.dias_vecinos(dia)
         return render_template("RepVendDia.html", dia=dia, ultima_fecha=ultima, vendedor=vendedor,
-                               anterior=anterior, siguiente=siguiente, r=vv.resumen_dia(dia, obtener_reporte_ventas))
+                               anterior=anterior, siguiente=siguiente, r=vv.resumen_dia(dia, obtener_reporte_ventas),
+                               armados=armados_del_dia(dia))
 
     datos = obtener_reporte_ventas(fecha_inicio.isoformat(), fecha_fin.isoformat())
     vendedores = vv.ranking_vendedores(datos)
