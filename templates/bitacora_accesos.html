@@ -12,7 +12,9 @@
   .bit .ev { display: inline-block; padding: 0 7px; border-radius: 8px; font-size: .7rem; font-weight: 600; background: #f1f0ec; color: var(--ink-2); }
   .bit .ev.login { background: #e6f1ef; color: var(--credito); }
   .bit .ev.accion, .bit .ev.descarga { background: #fff1e8; color: #9a3412; }
-  .bit .ev.fallido, .bit .ev.denegado { background: #fde8e8; color: #b42318; }
+  .bit .ev.fallido, .bit .ev.denegado, .bit .ev.inexistente, .bit .ev.bloqueado { background: #fde8e8; color: #b42318; }
+  .bit .ev.externo { background: #3a3a37; color: #fff; }
+  .bit td.rutas { white-space: normal; min-width: 240px; font-size: .72rem; color: var(--ink-2); font-family: monospace; word-break: break-all; }
   .bit .ev.salida { background: #f1f0ec; color: var(--ink-3); }
   .bit .alerta { color: #b42318; font-weight: 700; }
   .bit td.ruta { font-size: .72rem; color: var(--ink-3); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
@@ -51,6 +53,9 @@
           {% for k, t in eventos.items() %}<option value="{{ k }}" {{ 'selected' if k == f.evento }}>{{ t }}</option>{% endfor %}
         </select></div>
       <div class="col-6 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+      {% if f.ip %}<input type="hidden" name="ip" value="{{ f.ip }}">
+      <div class="col-12 small">Solo la IP <strong>{{ f.ip }}</strong> ·
+        <a href="{{ url_for('bitacora.reporte', desde=f.desde.isoformat(), hasta=f.hasta.isoformat()) }}">quitar filtro</a></div>{% endif %}
       <div class="col-12 small text-muted">Períodos:
         {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('bitacora.reporte', desde=i.isoformat(), hasta=fin.isoformat(), usuario=f.usuario or None) }}">{{ nombre }}</a>{% endfor %}
       </div>
@@ -70,8 +75,11 @@
       <div class="etiqueta">Guardados / cargas</div><div class="valor">{{ "{:,}".format(e.accion) }}</div>
       <div class="sub">+ {{ e.descarga }} descargas de Excel o PDF</div></div></div>
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: #b42318"></div>
-      <div class="etiqueta">Alertas</div><div class="valor {{ 'alerta' if e.fallido or e.denegado }}">{{ e.fallido + e.denegado }}</div>
-      <div class="sub">{{ e.fallido }} clave incorrecta · {{ e.denegado }} sin permiso</div></div></div>
+      <div class="etiqueta">Intentos externos</div>
+      <div class="valor {{ 'alerta' if d.intentos_externos }}">{{ "{:,}".format(d.intentos_externos) }}</div>
+      <div class="sub">desde {{ d.ips_externas }} IP · {{ e.inexistente }} usuario no existe · {{ e.fallido }} clave mala
+        · {{ e.bloqueado }} bloqueados · {{ e.denegado }} sin permiso (personal)</div>
+      {% if d.externos %}<div class="sub"><a href="#externos">Ver intentos externos</a></div>{% endif %}</div></div>
   </div>
 
   {% if not d.jornadas %}
@@ -125,6 +133,34 @@
       <div class="card-header">Uso por hora del día</div>
       <div class="card-body"><canvas id="graficoHoras" height="220" aria-label="Pantallas abiertas por hora del día" role="img"></canvas></div>
     </div></div>
+  </div>
+  {% endif %}
+
+  {# ---------- Intentos externos ---------- #}
+  {% if d.externos %}
+  <div class="card mb-3" id="externos" style="border-color: #f3c7c3">
+    <div class="card-header">Intentos externos por IP
+      <small>· quien entró sin sesión o probó claves; con {{ intentos_max }} claves incorrectas en {{ minutos_bloqueo }} min la IP queda bloqueada para el login</small></div>
+    <div class="table-responsive scroll"><table class="tabla table table-sm mb-0">
+      <thead><tr><th>IP</th><th class="num">Intentos</th><th class="num">Sin sesión</th><th class="num">Claves malas</th><th class="num">Bloqueos</th>
+        <th>Usuarios que probaron</th><th>Rutas que pidieron</th><th>Primera vez</th><th>Última vez</th></tr></thead>
+      <tbody>
+      {% for x in d.externos %}
+        <tr>
+          <td><a href="{{ url_for('bitacora.reporte', desde=f.desde.isoformat(), hasta=f.hasta.isoformat(), ip=x.ip) }}#detalle">{{ x.ip }}</a></td>
+          <td class="num {{ 'alerta' if x.intentos >= 20 }}">{{ x.intentos }}</td>
+          <td class="num">{{ x.sin_sesion|int or '' }}</td>
+          <td class="num {{ 'alerta' if x.claves|int >= intentos_max }}">{{ x.claves|int or '' }}</td>
+          <td class="num {{ 'alerta' if x.bloqueos|int }}">{{ x.bloqueos|int or '' }}</td>
+          <td class="mods" style="min-width: 140px">{{ x.usuarios or '' }}{% if x.inexistentes|int %} <span class="alerta">· {{ x.inexistentes|int }} con usuario que no existe</span>{% endif %}</td>
+          <td class="rutas">{{ x.rutas or '' }}</td>
+          <td>{{ x.primero.strftime('%d/%m %H:%M') }}</td><td>{{ x.ultimo.strftime('%d/%m %H:%M') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <div class="card-footer small text-muted">Rutas como <code>/.env</code>, <code>/wp-admin</code> o <code>/phpmyadmin</code> son robots que buscan fallas; no ven datos.
+      Lo que importa: muchas claves malas desde una misma IP o intentos con usuarios reales de su personal.</div>
   </div>
   {% endif %}
 

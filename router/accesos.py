@@ -31,7 +31,7 @@ def requiere_acceso(vista):
         def wrapped(*args, **kwargs):
             usuario = session.get("usuario")
             if not usuario:
-                return redirect(url_for("login"))
+                return redirect(url_for("usuarios.login"))
 
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)

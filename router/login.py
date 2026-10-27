@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, session
 from werkzeug.security import check_password_hash
-from router.bitacora import registrar
+from router.bitacora import INTENTOS_MAX, MINUTOS_BLOQUEO, ip_bloqueada, registrar
 from utils.db import get_connection
 
 login_bp = Blueprint("login", __name__)
@@ -10,6 +10,10 @@ def login():
     if request.method == "POST":
         usuario = request.form["usuario"]
         password = request.form["password"]
+        if ip_bloqueada():
+            registrar("bloqueado", usuario=usuario.strip() or "(vacío)")
+            return render_template("login.html", error=f"Demasiados intentos fallidos ({INTENTOS_MAX}). "
+                                                       f"Espere {MINUTOS_BLOQUEO} minutos y vuelva a intentar.")
 
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
@@ -24,7 +28,7 @@ def login():
             registrar("login")
             return redirect(url_for("inicio"))
         else:
-            registrar("fallido", usuario=usuario.strip() or "(vacío)")
+            registrar("fallido" if user else "inexistente", usuario=usuario.strip() or "(vacío)")
             return render_template("login.html", error="Usuario o contraseña incorrectos")
 
     return render_template("login.html")

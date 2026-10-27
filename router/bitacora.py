@@ -3,6 +3,8 @@
 Se registra sola: iniciar_bitacora(app) engancha un after_request que anota cada pantalla abierta, cada formulario enviado
 (guardar, cargar, eliminar) y cada descarga de un usuario con sesión. El login, los intentos fallidos, la salida y los
 accesos denegados los anotan login.py y requiere_acceso. El nombre del módulo sale del menú (router/menu.py).
+Quien no tiene sesión y pide cualquier ruta (una pantalla directa, /.env, /wp-admin...) queda como "externo" con su IP, y
+una IP con muchas claves incorrectas seguidas no puede intentar entrar por un rato (ip_bloqueada).
 El reporte está en /bitacora_accesos."""
 import io
 from datetime import date, datetime, timedelta
@@ -25,9 +27,17 @@ EVENTOS = {
     "salida": "Cerró sesión",
     "denegado": "Sin permiso",
     "fallido": "Clave incorrecta",
+    "inexistente": "Usuario no existe",
+    "bloqueado": "IP bloqueada",
+    "externo": "Externo sin sesión",
 }
+EXTERNOS = ("externo", "inexistente", "bloqueado", "fallido")   # lo que se cuenta en "Intentos externos"
+SIN_SESION = "(sin sesión)"
 NO_REGISTRAR = ("/static/", "/favicon")
 LIMITE_DETALLE = 1000
+# Bloqueo: con INTENTOS_MAX claves incorrectas en MINUTOS_BLOQUEO minutos, esa IP no puede intentar entrar hasta que pasen
+INTENTOS_MAX = 5
+MINUTOS_BLOQUEO = 15
 
 
 def _modulos():
@@ -50,6 +60,8 @@ def modulo_actual():
         return "Inicio", ""
     if request.path in ("/login", "/logout"):
         return "Ingreso al sistema", ""
+    if request.url_rule is None or request.path.startswith(("/.", "/env", "/config", "/etc", "/git")):
+        return "Ruta que no existe", ""
     por_url, por_vista = _modulos()
     if request.path in por_url:
         return por_url[request.path]
@@ -59,6 +71,28 @@ def modulo_actual():
     return (request.endpoint or request.path).split(".")[-1].replace("_", " ").capitalize(), ""
 
 
+def ip_cliente():
+    # remote_addr y no X-Forwarded-For: ese encabezado lo puede inventar cualquiera para saltarse el bloqueo.
+    # Si algún día la app queda detrás de un proxy (nginx, IIS), usar werkzeug.middleware.proxy_fix.ProxyFix.
+    return request.remote_addr or ""
+
+
+def ip_bloqueada():
+    """True si la IP actual acumuló INTENTOS_MAX claves incorrectas en los últimos MINUTOS_BLOQUEO minutos."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT COUNT(*) FROM bitacora_accesos WHERE ip = %s AND evento IN ('fallido','inexistente') "
+                           "AND fecha_hora >= %s", (ip_cliente(), datetime.now() - timedelta(minutes=MINUTOS_BLOQUEO)))
+            return cursor.fetchone()[0] >= INTENTOS_MAX
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception:
+        return False
+
+
 def registrar(evento, usuario=None):
     """Anota un evento. Nunca interrumpe la pantalla: si la base falla, se ignora."""
     usuario = usuario or session.get("usuario")
@@ -66,7 +100,7 @@ def registrar(evento, usuario=None):
         return
     try:
         modulo, area = modulo_actual()
-        ip = (request.headers.get("X-Forwarded-For") or request.remote_addr or "").split(",")[0].strip()
+        ip = ip_cliente()
         conn = get_connection()
         cursor = conn.cursor()
         try:
@@ -84,7 +118,11 @@ def registrar(evento, usuario=None):
 
 
 def _despues(respuesta):
-    if "usuario" not in session or request.path.startswith(NO_REGISTRAR) or request.path in ("/login", "/logout"):
+    if request.path.startswith(NO_REGISTRAR) or request.path in ("/login", "/logout"):
+        return respuesta
+    if "usuario" not in session:
+        if request.path != "/":   # la portada sin sesión solo manda al login
+            registrar("externo", usuario=SIN_SESION)
         return respuesta
     if request.method == "POST":
         registrar("accion")
@@ -115,13 +153,13 @@ def leer_filtros(args):
     if hasta < desde:
         desde, hasta = hasta, desde
     return {"desde": desde, "hasta": hasta, "usuario": args.get("usuario", ""), "modulo": args.get("modulo", ""),
-            "evento": args.get("evento", "") if args.get("evento") in EVENTOS else ""}
+            "evento": args.get("evento", "") if args.get("evento") in EVENTOS else "", "ip": args.get("ip", "")}
 
 
 def _where(f):
     sql = ["fecha_hora >= %s AND fecha_hora < %s"]
     valores = [f["desde"], f["hasta"] + timedelta(days=1)]
-    for campo in ("usuario", "modulo", "evento"):
+    for campo in ("usuario", "modulo", "evento", "ip"):
         if f[campo]:
             sql.append(f"{campo} = %s")
             valores.append(f[campo])
@@ -135,6 +173,16 @@ def calcular(f):
     try:
         cursor.execute(f"SELECT evento, COUNT(*) n, COUNT(DISTINCT usuario) usuarios FROM bitacora_accesos WHERE {where} GROUP BY evento", valores)
         por_evento = {r["evento"]: r for r in cursor.fetchall()}
+        cursor.execute(f"""
+            SELECT ip, COUNT(*) intentos, MIN(fecha_hora) primero, MAX(fecha_hora) ultimo,
+                   SUM(evento = 'externo') sin_sesion, SUM(evento IN ('fallido','inexistente')) claves, SUM(evento = 'bloqueado') bloqueos,
+                   GROUP_CONCAT(DISTINCT CASE WHEN evento <> 'externo' THEN usuario END ORDER BY usuario SEPARATOR ', ') usuarios,
+                   SUBSTRING_INDEX(GROUP_CONCAT(DISTINCT CASE WHEN evento = 'externo' THEN ruta END ORDER BY ruta SEPARATOR '  '), '  ', 12) rutas,
+                   SUM(evento = 'inexistente') inexistentes
+            FROM bitacora_accesos WHERE {where} AND evento IN ('externo','fallido','inexistente','bloqueado')
+            GROUP BY ip ORDER BY intentos DESC LIMIT 200""", valores)
+        externos = cursor.fetchall()
+
         cursor.execute(f"SELECT COUNT(DISTINCT usuario) usuarios, COUNT(DISTINCT modulo) modulos FROM bitacora_accesos "
                        f"WHERE {where} AND evento IN ('login','vista','accion','descarga')", valores)
         totales = cursor.fetchone()
@@ -146,7 +194,7 @@ def calcular(f):
                    SUM(evento = 'descarga') descargas, SUM(evento IN ('fallido','denegado')) alertas,
                    GROUP_CONCAT(DISTINCT CASE WHEN evento IN ('vista','accion','descarga') AND modulo NOT IN ('Inicio','Ingreso al sistema')
                                 THEN modulo END ORDER BY modulo SEPARATOR ' · ') modulos
-            FROM bitacora_accesos WHERE {where}
+            FROM bitacora_accesos WHERE {where} AND evento NOT IN ('externo','inexistente','bloqueado')
             GROUP BY usuario, DATE(fecha_hora) ORDER BY dia DESC, entrada""", valores)
         jornadas = cursor.fetchall()
         for j in jornadas:
@@ -175,7 +223,7 @@ def calcular(f):
             GROUP BY u.usuario, u.rol ORDER BY u.usuario""")
         todos = cursor.fetchall()
 
-        cursor.execute("SELECT DISTINCT usuario FROM bitacora_accesos ORDER BY usuario")
+        cursor.execute("SELECT DISTINCT usuario FROM bitacora_accesos WHERE evento NOT IN ('externo','inexistente','bloqueado')")
         lista_usuarios = sorted({r["usuario"] for r in cursor.fetchall()} | {u["usuario"] for u in todos}, key=str.lower)
         cursor.execute("SELECT DISTINCT modulo FROM bitacora_accesos WHERE modulo IS NOT NULL ORDER BY modulo")
         lista_modulos = [r["modulo"] for r in cursor.fetchall()]
@@ -184,11 +232,12 @@ def calcular(f):
         conn.close()
 
     activos = {j["usuario"].lower() for j in jornadas}
-    sin_entrar = [u for u in todos if u["usuario"].lower() not in activos] if not (f["modulo"] or f["evento"]) else []
+    sin_entrar = [u for u in todos if u["usuario"].lower() not in activos] if not (f["modulo"] or f["evento"] or f["ip"]) else []
     return {
         "eventos": {k: por_evento.get(k, {}).get("n", 0) for k in EVENTOS},
         "usuarios_activos": totales["usuarios"] or 0, "modulos_usados": totales["modulos"] or 0,
-        "jornadas": jornadas, "modulos": modulos, "detalle": detalle, "sin_entrar": sin_entrar,
+        "jornadas": jornadas, "modulos": modulos, "externos": externos,
+        "ips_externas": len(externos), "intentos_externos": sum(int(x["intentos"]) for x in externos), "detalle": detalle, "sin_entrar": sin_entrar,
         "horas": [por_hora.get(h, 0) for h in range(24)],
         "lista_usuarios": lista_usuarios, "lista_modulos": lista_modulos,
     }
@@ -203,7 +252,8 @@ def reporte():
     rangos = [("Hoy", hoy, hoy), ("Ayer", hoy - timedelta(days=1), hoy - timedelta(days=1)),
               ("Últimos 7 días", hoy - timedelta(days=6), hoy), ("Mes en curso", hoy.replace(day=1), hoy)]
     params = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in f.items() if v}
-    return render_template("bitacora_accesos.html", f=f, d=d, eventos=EVENTOS, rangos=rangos, params=params, limite=LIMITE_DETALLE)
+    return render_template("bitacora_accesos.html", f=f, d=d, eventos=EVENTOS, rangos=rangos, params=params, limite=LIMITE_DETALLE,
+                           intentos_max=INTENTOS_MAX, minutos_bloqueo=MINUTOS_BLOQUEO)
 
 
 @bitacora_bp.route("/bitacora_accesos/excel")
@@ -225,7 +275,7 @@ def descargar_excel():
     ws.title = "Bitácora"
     ws["A1"] = "Bitácora de accesos al sistema"
     ws["A1"].font = Font(bold=True, size=14, color="027266")
-    ws["A2"] = f"Del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}" + "".join(f" · {k}: {f[k]}" for k in ("usuario", "modulo") if f[k])
+    ws["A2"] = f"Del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}" + "".join(f" · {k}: {f[k]}" for k in ("usuario", "modulo", "ip") if f[k])
     ws["A2"].font = Font(size=9, color="52514E")
     encabezados = ["Fecha", "Hora", "Usuario", "Evento", "Módulo", "Área", "Ruta", "IP", "Navegador"]
     for i, t in enumerate(encabezados, start=1):

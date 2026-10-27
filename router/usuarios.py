@@ -3,7 +3,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from utils.db import get_connection
 from router.accesos import requiere_acceso, vistas_validas
-from router.bitacora import registrar
+from router.bitacora import INTENTOS_MAX, MINUTOS_BLOQUEO, ip_bloqueada, registrar
 
 usuarios_bp = Blueprint("usuarios", __name__)
 
@@ -70,6 +70,10 @@ def login():
     if request.method == "POST":
         usuario = request.form["usuario"]
         password = request.form["password"]
+        if ip_bloqueada():
+            registrar("bloqueado", usuario=usuario.strip() or "(vacío)")
+            return render_template("login.html", error=f"Demasiados intentos fallidos ({INTENTOS_MAX}). "
+                                                       f"Espere {MINUTOS_BLOQUEO} minutos y vuelva a intentar.")
 
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
@@ -83,7 +87,7 @@ def login():
             session["rol"] = user["rol"]
             registrar("login")
             return redirect(url_for("inicio"))
-        registrar("fallido", usuario=usuario.strip() or "(vacío)")
+        registrar("fallido" if user else "inexistente", usuario=usuario.strip() or "(vacío)")
         return render_template("login.html", error="Usuario o contraseña incorrectos.")
 
     return render_template("login.html")
