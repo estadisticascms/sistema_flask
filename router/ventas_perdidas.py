@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 from utils.db import get_connection
 from router.accesos import requiere_acceso
 from router.ventas_bodegas import en_cache
+from router.reporte_armados import nombre_limpio
 
 ventas_perdidas_bp = Blueprint("ventas_perdidas", __name__)
 
@@ -25,6 +26,8 @@ PALABRAS_CLAVE = ["RODAMIENTO", "RETENEDOR", "CORREA", "FILTRO", "MANGUERA", "FI
 LARGOS = {"nomb_vendedor": 50, "nomb_cliente": 100, "numero_parte": 100, "codigo_producto": 30,
           "descripcion": 100, "marca": 100, "motivo": 50}
 MINUTOS_DESHACER = 15
+DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+EMOJI_MOTIVO = {"Sin existencia": "📦", "No lo manejamos": "🚫", "Precio": "💲", "Tiempo de entrega": "⏱️", "Otro": "📝"}
 VERDE, NARANJA = "027266", "FE6412"
 
 
@@ -273,6 +276,87 @@ def resumen_productos(registros):
     return sorted(grupos.values(), key=lambda g: (-len(g["clientes"]), -g["unidades"]))
 
 
+def volver_seguro(url):
+    """Solo se regresa a una pantalla de ventas perdidas (evita redirigir a otro sitio)."""
+    return url if url and url.startswith("/ventas_perdidas") else url_for("ventas_perdidas.ventas_perdidas", vista="registros")
+
+
+def periodo_txt(f):
+    if f["desde"] == f["hasta"]:
+        return f"{DIAS[f['desde'].weekday()].capitalize()} {f['desde']:%d/%m/%Y}"
+    return f"Del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}"
+
+
+def nombre_producto(r):
+    """Número de parte · descripción · marca, del catálogo si está ligado."""
+    p = r.get("producto") or {}
+    parte = (p.get("parte") or r["numero_parte"] or "").strip()
+    desc = (p.get("nombre") or r["descripcion"] or "").strip()
+    marca = (p.get("marca") or r["marca"] or "").strip()
+    return parte, desc, marca
+
+
+def nota_util(r):
+    """La nota solo si aporta: los registros viejos traen '-' o repiten la marca."""
+    nota = (r["nota"] or "").strip()
+    _, _, marca = nombre_producto(r)
+    if len(re.sub(r"[^A-Za-z0-9]", "", nota)) < 2 or nota.upper() == marca.upper():
+        return ""
+    return nota
+
+
+def reporte_dia(registros):
+    """Para compartir: vendedor -> cliente -> productos, más totales por motivo."""
+    vendedores = {}
+    for r in sorted(registros, key=lambda x: (x["fecha"], x["id"])):
+        r["nota_ver"] = nota_util(r)
+        v = vendedores.setdefault(nombre_limpio((r["nomb_vendedor"] or "Sin vendedor").strip()), {"clientes": {}, "unidades": 0.0, "registros": 0})
+        cliente = " ".join((r["nomb_cliente"] or "Sin cliente").split())
+        v["clientes"].setdefault(cliente.upper(), {"nombre": cliente, "items": []})["items"].append(r)
+        v["unidades"] += float(r["cantidad"] or 0)
+        v["registros"] += 1
+    motivos = {}
+    for r in registros:
+        if r["motivo"]:
+            motivos[r["motivo"]] = motivos.get(r["motivo"], 0) + 1
+    return {"vendedores": [{"nombre": k, **v, "clientes": list(v["clientes"].values())} for k, v in sorted(vendedores.items())],
+            "motivos": sorted(motivos.items(), key=lambda x: -x[1]),
+            "clientes": len({" ".join((r["nomb_cliente"] or "").split()).upper() for r in registros}),
+            "unidades": sum(float(r["cantidad"] or 0) for r in registros), "registros": len(registros)}
+
+
+def texto_whatsapp(rep_, f):
+    """Mensaje listo para pegar en el grupo (WhatsApp: *negrita*, _cursiva_)."""
+    def n(v):
+        return f"{v:,.0f}" if float(v) == int(v) else f"{v:,.2f}"
+    lineas = ["📉 *VENTAS PERDIDAS*", f"📅 {periodo_txt(f)}"]
+    if f["vendedor"]:
+        lineas.append(f"👤 {nombre_limpio(f['vendedor'])}")
+    if not rep_["registros"]:
+        return "\n".join(lineas + ["", "Sin ventas perdidas registradas. ✅"])
+    for v in rep_["vendedores"]:
+        lineas.append("")
+        if not f["vendedor"]:
+            lineas.append(f"👤 *{v['nombre']}* ({v['registros']})")
+        for c in v["clientes"]:
+            lineas.append(f"🏪 *{c['nombre']}*")
+            for r in c["items"]:
+                parte, desc, marca = nombre_producto(r)
+                producto = " – ".join(x for x in (parte, desc[:45]) if x) + (f" ({marca})" if marca else "")
+                fecha = f"{r['fecha']:%d/%m} " if f["desde"] != f["hasta"] else ""
+                linea = f"   • {fecha}{n(float(r['cantidad'] or 0))} × {producto}"
+                if r["motivo"]:
+                    linea += f" · _{r['motivo']}_"
+                lineas.append(linea)
+                if r["nota_ver"]:
+                    lineas.append(f"      ↳ {r['nota_ver']}")
+    lineas += ["", f"*Total:* {rep_['registros']} producto{'s' if rep_['registros'] != 1 else ''} · {n(rep_['unidades'])} unidades · "
+                   f"{rep_['clientes']} cliente{'s' if rep_['clientes'] != 1 else ''}"]
+    if rep_["motivos"]:
+        lineas.append(" · ".join(f"{EMOJI_MOTIVO.get(m, '•')} {m}: {c}" for m, c in rep_["motivos"]))
+    return "\n".join(lineas)
+
+
 # -----------------------------
 # Vistas
 # -----------------------------
@@ -300,11 +384,16 @@ def ventas_perdidas():
 
     vista = request.args.get("vista") if request.args.get("vista") in ("registrar", "registros", "resumen") else "registrar"
     f = leer_filtros(request.args)
-    registros, resumen = [], []
+    if vista == "registros" and not request.args.get("desde") and not request.args.get("hasta"):
+        f["desde"] = f["hasta"] = date.today()   # el reporte se pasa a diario: por defecto, hoy
+    registros, resumen, reporte, texto = [], [], None, ""
     if vista in ("registros", "resumen"):
         registros = consultar(f)
         if vista == "resumen":
             resumen = resumen_productos(registros)
+        else:
+            reporte = reporte_dia(registros)
+            texto = texto_whatsapp(reporte, f)
     vendedores = lista_vendedores()
     # Vendedores de registros anteriores escritos a mano (solo para filtrar)
     conn = get_connection()
@@ -317,7 +406,8 @@ def ventas_perdidas():
         conn.close()
     return render_template("ventas_perdidas.html", vista=vista, f=f, registros=registros, resumen=resumen,
                            vendedores=vendedores, vendedores_filtro=vendedores_filtro, motivos=MOTIVOS,
-                           palabras_clave=PALABRAS_CLAVE, hoy=date.today(),
+                           palabras_clave=PALABRAS_CLAVE, hoy=date.today(), reporte=reporte, texto=texto,
+                           periodo=periodo_txt(f), emoji_motivo=EMOJI_MOTIVO, nombre_limpio=nombre_limpio, dias=DIAS, timedelta=timedelta,
                            ligados=sum(1 for r in registros if r["codigo_ligado"]),
                            unidades=sum(float(r["cantidad"] or 0) for r in registros))
 
@@ -494,7 +584,7 @@ def editar_venta_perdida(id):
         if errores:
             for e in errores:
                 flash(f"⚠️ {e}", "warning")
-            return redirect(url_for("ventas_perdidas.editar_venta_perdida", id=id))
+            return redirect(url_for("ventas_perdidas.editar_venta_perdida", id=id, volver=request.form.get("volver")))
         conn = get_connection()
         cursor = conn.cursor()
         try:
@@ -505,7 +595,7 @@ def editar_venta_perdida(id):
             cursor.close()
             conn.close()
         flash("✅ Registro actualizado correctamente", "success")
-        return redirect(url_for("ventas_perdidas.ventas_perdidas", vista="registros"))
+        return redirect(volver_seguro(request.form.get("volver")))
 
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -518,7 +608,7 @@ def editar_venta_perdida(id):
     if not registro:
         flash("El registro no existe.", "warning")
         return redirect(url_for("ventas_perdidas.ventas_perdidas", vista="registros"))
-    return render_template("ventas_perdidas_edit.html", registro=registro, motivos=MOTIVOS)
+    return render_template("ventas_perdidas_edit.html", registro=registro, motivos=MOTIVOS, volver=volver_seguro(request.args.get("volver")))
 
 
 # -----------------------------
@@ -536,7 +626,7 @@ def eliminar_venta_perdida(id):
         cursor.close()
         conn.close()
     flash("🗑️ Registro eliminado correctamente", "success")
-    return redirect(url_for("ventas_perdidas.ventas_perdidas", vista="registros"))
+    return redirect(volver_seguro(request.form.get("volver") or request.args.get("volver")))
 
 
 # -----------------------------

@@ -52,6 +52,40 @@
   .liga { font-size: .72rem; font-weight: 600; border-radius: 8px; padding: 1px 6px; white-space: nowrap; }
   .liga.si { background: #e3f3f1; color: var(--credito); }
   .liga.no { background: #eeede8; color: #52514e; }
+  /* ---------- Reporte del día (se comparte en WhatsApp) ---------- */
+  .dias-rapidos { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+  .dias-rapidos .btn { min-height: 36px; }
+  .rep-wa { background: #fff; border: 1px solid var(--grid); border-radius: 14px; overflow: hidden; max-width: 640px; }
+  .rep-wa .cabeza { background: var(--credito); color: #fff; padding: .8rem 1rem; }
+  .rep-wa .cabeza .t { font-weight: 800; font-size: 1.15rem; letter-spacing: .02em; }
+  .rep-wa .cabeza .f { font-size: .95rem; opacity: .95; }
+  .rep-wa .totales { display: flex; border-bottom: 1px solid var(--grid); }
+  .rep-wa .totales div { flex: 1; text-align: center; padding: .55rem .25rem; }
+  .rep-wa .totales div + div { border-left: 1px solid var(--grid); }
+  .rep-wa .totales b { display: block; font-size: 1.35rem; color: var(--ink); line-height: 1.1; }
+  .rep-wa .totales span { font-size: .72rem; color: var(--ink-3); text-transform: uppercase; }
+  .rep-wa .vend { padding: .55rem 1rem .2rem; font-weight: 800; color: var(--contado); font-size: .95rem; border-top: 1px solid var(--grid); }
+  .rep-wa .vend:first-of-type { border-top: 0; }
+  .rep-wa .cli { padding: .25rem 1rem .5rem; }
+  .rep-wa .cli .nom { font-weight: 700; color: var(--ink); font-size: .9rem; }
+  .rep-wa .it { display: flex; gap: .55rem; align-items: flex-start; padding: .3rem 0 .3rem .25rem; border-bottom: 1px dashed var(--grid); }
+  .rep-wa .it:last-child { border-bottom: 0; }
+  .rep-wa .cant { min-width: 34px; text-align: center; background: #f6f5f1; border-radius: 8px; font-weight: 800; color: var(--ink); padding: 2px 4px; }
+  .rep-wa .prod { flex: 1; font-size: .85rem; color: var(--ink); line-height: 1.3; }
+  .rep-wa .prod .parte { font-weight: 700; }
+  .rep-wa .prod .det { color: var(--ink-2); font-size: .78rem; }
+  .rep-wa .prod .nota { color: var(--ink-3); font-size: .76rem; font-style: italic; }
+  .motivo { display: inline-block; font-size: .7rem; font-weight: 700; border-radius: 8px; padding: 1px 7px; white-space: nowrap; background: #f1f0ec; color: var(--ink-2); }
+  .motivo.m-sin-existencia { background: #fff1e8; color: #9a3412; }
+  .motivo.m-no-lo-manejamos { background: #eef0f6; color: #3b4a7a; }
+  .motivo.m-precio { background: #e6f1ef; color: var(--credito); }
+  .motivo.m-tiempo-de-entrega { background: #fdf6e3; color: #7a5b00; }
+  .rep-wa .pie { background: #f6f5f1; padding: .55rem 1rem; display: flex; flex-wrap: wrap; gap: .35rem .6rem; font-size: .8rem; }
+  .rep-wa .vacio { padding: 1.4rem 1rem; text-align: center; color: var(--ink-2); }
+  .acciones-wa .btn { min-height: 46px; font-weight: 700; }
+  .btn-wa { background: #25D366; border-color: #25D366; color: #fff; }
+  .btn-wa:hover, .btn-wa:focus-visible { background: #1da851; border-color: #1da851; color: #fff; }
+  .texto-wa { white-space: pre-wrap; font-size: .8rem; background: #f6f5f1; border-radius: 10px; padding: .6rem .75rem; max-height: 320px; overflow-y: auto; margin: 0; }
   @media (max-width: 767.98px) {   /* en celular cada registro es una tarjeta */
     .tabla-vp thead { display: none; }
     .tabla-vp tr { display: block; border: 1px solid var(--grid); border-radius: 10px; margin-bottom: .6rem; background: #fff; padding: .35rem .5rem; }
@@ -62,14 +96,15 @@
 </style>
 
 {% set filtros = {'vendedor': f.vendedor, 'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'q': f.q, 'motivo': f.motivo, 'liga': f.liga} %}
+{% set filtros_tab = filtros if vista != 'registrar' else {} %}
 <div class="dash vp container-fluid px-3 mt-2 mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
     <h4 class="mb-0"><i class="bi bi-graph-down-arrow" aria-hidden="true"></i> Ventas perdidas</h4>
   </div>
   <ul class="nav tabs-vp border-bottom mb-3">
     <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'registrar' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas') }}" {% if vista == 'registrar' %}aria-current="page"{% endif %}><i class="bi bi-plus-circle" aria-hidden="true"></i> Registrar</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'registros' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='registros', **filtros) }}" {% if vista == 'registros' %}aria-current="page"{% endif %}><i class="bi bi-list-ul" aria-hidden="true"></i> Registros</a></li>
-    <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'resumen' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='resumen', **filtros) }}" {% if vista == 'resumen' %}aria-current="page"{% endif %}><i class="bi bi-bar-chart" aria-hidden="true"></i> Por producto</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'registros' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='registros', **filtros_tab) }}" {% if vista == 'registros' %}aria-current="page"{% endif %}><i class="bi bi-whatsapp" aria-hidden="true"></i> Reporte del día y registros</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if vista == 'resumen' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='resumen', **filtros_tab) }}" {% if vista == 'resumen' %}aria-current="page"{% endif %}><i class="bi bi-bar-chart" aria-hidden="true"></i> Por producto</a></li>
   </ul>
 
 {% if vista == 'registrar' %}
@@ -185,13 +220,25 @@
           <option value="si" {% if f.liga == 'si' %}selected{% endif %}>Ligados</option><option value="no" {% if f.liga == 'no' %}selected{% endif %}>Sin ligar</option></select></div>
       <div class="col-12 col-md-2"><label class="form-label small mb-1" for="f-q">Buscar</label>
         <input type="search" id="f-q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Cliente, parte, marca…"></div>
-      <div class="col-12 d-flex flex-wrap gap-2">
+      <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
         <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button>
+        {% if vista == 'registros' %}
+        {% set dia = f.desde %}
+        {% set base = {'vista': 'registros', 'vendedor': f.vendedor, 'motivo': f.motivo, 'q': f.q, 'liga': f.liga} %}
+        <div class="dias-rapidos" role="group" aria-label="Elegir día">
+          <a class="btn btn-sm btn-outline-secondary" aria-label="Día anterior" href="{{ url_for('ventas_perdidas.ventas_perdidas', desde=(dia - timedelta(days=1)).isoformat(), hasta=(dia - timedelta(days=1)).isoformat(), **base) }}"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+          {% for nombre, d in [('Hoy', hoy), ('Ayer', hoy - timedelta(days=1))] %}
+          <a class="btn btn-sm {{ 'btn-secondary' if f.desde == d and f.hasta == d else 'btn-outline-secondary' }}" href="{{ url_for('ventas_perdidas.ventas_perdidas', desde=d.isoformat(), hasta=d.isoformat(), **base) }}">{{ nombre }}</a>
+          {% endfor %}
+          {% if dia < hoy %}<a class="btn btn-sm btn-outline-secondary" aria-label="Día siguiente" href="{{ url_for('ventas_perdidas.ventas_perdidas', desde=(dia + timedelta(days=1)).isoformat(), hasta=(dia + timedelta(days=1)).isoformat(), **base) }}"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>{% endif %}
+        </div>
+        {% endif %}
         <a class="btn btn-verde btn-sm" href="{{ url_for('ventas_perdidas.descargar_excel', **filtros) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
       </div>
     </div>
   </form>
 
+  {% if vista == 'resumen' %}
   <div class="row g-2 mb-3">
     <div class="col-6 col-md-3"><div class="card kpi"><div class="etiqueta">Registros</div><div class="valor">{{ "{:,}".format(registros|length) }}</div></div></div>
     <div class="col-6 col-md-3"><div class="card kpi"><div class="etiqueta">Unidades perdidas</div><div class="valor">{{ num(unidades) }}</div></div></div>
@@ -200,8 +247,72 @@
     <div class="col-6 col-md-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div><div class="etiqueta">No están en catálogo</div>
       <div class="valor">{{ "{:,}".format(registros|length - ligados) }}</div><div class="sub">productos que no manejamos</div></div></div>
   </div>
+  {% endif %}
 
   {% if vista == 'registros' %}
+  {% set R = reporte %}
+  <div class="row g-3 mb-4">
+    <div class="col-lg-7">
+      <div class="rep-wa mx-auto mx-lg-0" id="reporte-img">
+        <div class="cabeza">
+          <div class="t">📉 VENTAS PERDIDAS</div>
+          <div class="f">📅 {{ periodo }}{% if f.vendedor %} · 👤 {{ nombre_limpio(f.vendedor) }}{% endif %}</div>
+        </div>
+        {% if R.registros %}
+        <div class="totales">
+          <div><b>{{ R.registros }}</b><span>productos</span></div>
+          <div><b>{{ num(R.unidades) }}</b><span>unidades</span></div>
+          <div><b>{{ R.clientes }}</b><span>clientes</span></div>
+          {% if not f.vendedor %}<div><b>{{ R.vendedores|length }}</b><span>vendedores</span></div>{% endif %}
+        </div>
+        {% for v in R.vendedores %}
+          {% if not f.vendedor %}<div class="vend">👤 {{ v.nombre }} <span class="fw-normal text-muted small">· {{ v.registros }} producto{{ 's' if v.registros != 1 }}</span></div>{% endif %}
+          {% for c in v.clientes %}
+          <div class="cli">
+            <div class="nom">🏪 {{ c.nombre }}</div>
+            {% for r in c['items'] %}
+            {% set p = r.producto or {} %}
+            <div class="it">
+              <span class="cant">{{ num(r.cantidad) }}</span>
+              <div class="prod">
+                <span class="parte">{{ p.parte or r.numero_parte or '' }}</span>
+                {% if f.desde != f.hasta %}<span class="det">· {{ r.fecha.strftime('%d/%m') }}</span>{% endif %}
+                <div class="det">{{ (p.nombre or r.descripcion or '')[:70] }}{% if p.marca or r.marca %} · <strong>{{ p.marca or r.marca }}</strong>{% endif %}</div>
+                {% if r.nota_ver %}<div class="nota">↳ {{ r.nota_ver }}</div>{% endif %}
+              </div>
+              {% if r.motivo %}<span class="motivo m-{{ r.motivo|lower|replace(' ', '-') }}">{{ emoji_motivo.get(r.motivo, '') }} {{ r.motivo }}</span>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% endfor %}
+        {% endfor %}
+        {% if R.motivos %}<div class="pie">{% for m, n in R.motivos %}<span><span class="motivo m-{{ m|lower|replace(' ', '-') }}">{{ emoji_motivo.get(m, '') }} {{ m }}</span> <strong>{{ n }}</strong></span>{% endfor %}</div>{% endif %}
+        {% else %}
+        <div class="vacio">✅ Sin ventas perdidas registradas{{ ' por este vendedor' if f.vendedor }}.</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="card card-body acciones-wa">
+        <div class="fw-semibold mb-1" style="color: var(--credito)">Pasar al grupo de WhatsApp</div>
+        <div class="small text-muted mb-2">Elija el día y el vendedor arriba. Luego copie el texto y péguelo en el grupo, o envíe la imagen.</div>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-wa" id="btn-copiar"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Copiar texto para WhatsApp</button>
+          <a class="btn btn-outline-success" id="btn-abrir-wa" href="https://wa.me/?text={{ texto|urlencode }}" target="_blank" rel="noopener"><i class="bi bi-whatsapp" aria-hidden="true"></i> Abrir WhatsApp con el mensaje</a>
+          <button type="button" class="btn btn-outline-secondary" id="btn-imagen"><i class="bi bi-image" aria-hidden="true"></i> Descargar como imagen</button>
+        </div>
+        <div id="msg-wa" class="small mt-2" role="status" aria-live="polite"></div>
+        <details class="mt-2"><summary class="small">Ver el texto que se copia</summary>
+          <pre class="texto-wa mt-2" id="texto-wa">{{ texto }}</pre></details>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-1">
+    <div class="fw-semibold" style="color: var(--ink)"><i class="bi bi-pencil-square" aria-hidden="true"></i> Registros para revisar, editar o eliminar
+      <span class="small text-muted fw-normal">· {{ registros|length }}</span></div>
+    <div class="small text-muted">Corrija aquí antes de pasar el reporte: los cambios se ven arriba al guardar.</div>
+  </div>
   <div class="table-responsive border rounded-3 bg-white p-md-0 p-2" style="max-height: 70vh">
     <table class="tabla-vp">
       <thead><tr><th>Fecha</th><th>Vendedor</th><th>Cliente</th><th>Producto</th><th>Marca</th><th class="num">Cant.</th><th>Motivo</th><th>Nota</th><th>Catálogo</th><th></th></tr></thead>
@@ -220,9 +331,10 @@
               {% if r.producto %}<div class="small text-muted">exist. {{ num(r.producto.existencia) }}</div>{% endif %}
             {% else %}<span class="liga no">{{ r.liga }}</span>{% endif %}</td>
           <td data-t="" class="text-nowrap">
-            <a href="{{ url_for('ventas_perdidas.editar_venta_perdida', id=r.id) }}" class="btn btn-sm btn-outline-secondary" aria-label="Editar"><i class="bi bi-pencil" aria-hidden="true"></i></a>
-            <form method="post" action="{{ url_for('ventas_perdidas.eliminar_venta_perdida', id=r.id) }}" class="d-inline" onsubmit="return confirm('¿Eliminar este registro?');">
-              <button class="btn btn-sm btn-outline-danger" aria-label="Eliminar"><i class="bi bi-trash" aria-hidden="true"></i></button></form>
+            <a href="{{ url_for('ventas_perdidas.editar_venta_perdida', id=r.id, volver=request.full_path) }}" class="btn btn-sm btn-outline-secondary" aria-label="Editar registro de {{ r.nomb_cliente }}"><i class="bi bi-pencil" aria-hidden="true"></i> Editar</a>
+            <form method="post" action="{{ url_for('ventas_perdidas.eliminar_venta_perdida', id=r.id) }}" class="d-inline" onsubmit="return confirm('¿Eliminar este registro de {{ (r.nomb_cliente or '')|replace("'", '') }}?');">
+              <input type="hidden" name="volver" value="{{ request.full_path }}">
+              <button class="btn btn-sm btn-outline-danger" aria-label="Eliminar registro de {{ r.nomb_cliente }}"><i class="bi bi-trash" aria-hidden="true"></i></button></form>
           </td>
         </tr>
         {% else %}
@@ -266,6 +378,40 @@
   {% endif %}
 {% endif %}
 </div>
+
+{% if vista == 'registros' %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+(() => {
+  const msg = document.getElementById('msg-wa');
+  const texto = document.getElementById('texto-wa').textContent;
+  const avisar = (t, ok = true) => { msg.innerHTML = `<span class="${ok ? 'text-success' : 'text-danger'} fw-semibold">${t}</span>`; };
+  document.getElementById('btn-copiar').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(texto); }
+    catch {   // sin HTTPS el portapapeles moderno no está disponible
+      const t = document.createElement('textarea'); t.value = texto; document.body.appendChild(t); t.select();
+      const ok = document.execCommand('copy'); t.remove();
+      if (!ok) { avisar('No se pudo copiar. Abra «Ver el texto que se copia» y cópielo a mano.', false); return; }
+    }
+    avisar('✅ Copiado. Péguelo en el grupo de WhatsApp.');
+  });
+  document.getElementById('btn-imagen').addEventListener('click', async () => {
+    if (!window.html2canvas) { avisar('No se pudo cargar el generador de imagen.', false); return; }
+    const canvas = await html2canvas(document.getElementById('reporte-img'), { scale: 2, backgroundColor: '#ffffff' });
+    const nombre = 'ventas_perdidas_{{ f.desde.isoformat() }}{{ "_" ~ f.vendedor|replace(" ", "_")|replace(".", "") if f.vendedor }}.png';
+    canvas.toBlob(async (blob) => {
+      const archivo = new File([blob], nombre, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [archivo] })) {   // en celular: compartir directo a WhatsApp
+        try { await navigator.share({ files: [archivo], title: 'Ventas perdidas' }); return; } catch (e) { if (e.name === 'AbortError') return; }
+      }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      avisar('✅ Imagen descargada.');
+    }, 'image/png');
+  });
+})();
+</script>
+{% endif %}
 
 {% if vista == 'registrar' %}
 <script>
