@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+{% block title %}Bitácora de Cheques{% endblock %}
+{% block content %}
+<style>
+  .chb h4 { color: #027266; }
+  .chb .form-label { font-size: .78rem; color: #52514e; margin-bottom: 2px; }
+  .chb .acc { font-size: .72rem; font-weight: 700; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+  .chb .acc.Creado { background: #e3f3f1; color: #027266; } .chb .acc.Editado { background: #fff1e8; color: #9a3412; }
+  .chb .acc.Impreso { background: #f1f0ec; color: #52514e; } .chb .acc.Anulado { background: #fde8e8; color: #b42318; }
+  .tabla-chb.table { font-size: .8rem; width: 100%; margin: 0; }
+  .tabla-chb th { white-space: nowrap; font-weight: 600; color: #52514e; background: #f6f5f1; text-align: left; }
+  .tabla-chb td { text-align: left; vertical-align: top; }
+  .tabla-chb td.cambios { white-space: normal; min-width: 320px; }
+  .cambio { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 4px; margin-bottom: 3px; }
+  .cambio .c { font-weight: 600; color: #52514e; }
+  .cambio .a { background: #fdf0ef; color: #7a1d14; border-radius: 4px; padding: 1px 5px; white-space: pre-line; text-decoration: line-through; text-decoration-color: rgba(122,29,20,.4); }
+  .cambio .d { background: #ecf6f4; color: #01564d; border-radius: 4px; padding: 1px 5px; white-space: pre-line; }
+  .chb .meta { font-size: .74rem; color: #6b6a66; }
+  .chb .btn:focus-visible, .chb a:focus-visible { outline: 3px solid #FE6412; outline-offset: 2px; }
+</style>
+<div class="chb container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-clock-history" aria-hidden="true"></i> Bitácora de cheques</h4>
+      <div class="small text-muted">Quién creó, modificó, imprimió o anuló cada cheque, desde qué equipo e IP y qué cambió.</div>
+    </div>
+    <a href="{{ url_for('cheques.lista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-journal-check" aria-hidden="true"></i> Cheques</a>
+  </div>
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label><input type="date" id="desde" name="desde" value="{{ f.desde }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label><input type="date" id="hasta" name="hasta" value="{{ f.hasta }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="usuario">Usuario</label>
+        <select id="usuario" name="usuario" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for u in usuarios %}<option {% if u == f.usuario %}selected{% endif %}>{{ u }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="accion">Acción</label>
+        <select id="accion" name="accion" class="form-select form-select-sm"><option value="">Todas</option>
+          {% for a in acciones %}<option {% if a == f.accion %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></div>
+      <div class="col-12 col-lg-3"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="No. cheque, beneficiario, motivo, equipo o IP"></div>
+      <div class="col-12 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+  </form>
+
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="tabla-chb table table-sm table-hover mb-0">
+      <thead><tr><th>Fecha y hora</th><th>Cheque</th><th>Acción</th><th>Usuario</th><th>Equipo · IP</th><th>Motivo</th><th>Qué cambió (antes → después)</th></tr></thead>
+      <tbody>
+      {% for h in filas %}
+        <tr>
+          <td class="text-nowrap">{{ h.fecha_hora.strftime('%d/%m/%Y') }}<div class="meta">{{ h.fecha_hora.strftime('%I:%M:%S %p').lower() }}</div></td>
+          <td class="text-nowrap"><a href="{{ url_for('cheques.imprimir', id_=h.cheque_id) }}">No. {{ h.numero }}</a>
+            <div class="meta text-truncate" style="max-width: 200px">{{ h.beneficiario or '' }}</div></td>
+          <td><span class="acc {{ h.accion }}">{{ h.accion }}</span>{% if h.estado_antes and h.accion == 'Editado' %}<div class="meta">estaba {{ h.estado_antes|lower }}</div>{% endif %}</td>
+          <td>{{ h.usuario }}</td>
+          <td>{{ h.equipo or '—' }}{% if h.equipo_red %}<div class="meta">red: {{ h.equipo_red }}</div>{% endif %}<div class="meta">IP {{ h.ip or '—' }}</div></td>
+          <td style="white-space: normal; min-width: 160px">{{ h.motivo or '' }}</td>
+          <td class="cambios">
+            {% if h.accion == 'Editado' %}
+              {% for x in h.cambios %}<div class="cambio"><span class="c">{{ x.campo }}</span><span class="a">{{ x.antes or '—' }}</span><span class="d">{{ x.despues or '—' }}</span></div>{% endfor %}
+            {% elif h.cambios %}<span class="meta">{% for x in h.cambios %}{{ x.campo }}: {{ x.despues }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No hay movimientos con estos filtros.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if filas|length >= 1000 %}<div class="small text-muted mt-1">Se muestran los 1,000 más recientes; acote las fechas.</div>{% endif %}
+</div>
+{% endblock %}

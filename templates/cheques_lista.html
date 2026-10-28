@@ -15,6 +15,7 @@
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
     <h4 class="mb-0"><i class="bi bi-journal-check" aria-hidden="true"></i> Cheques</h4>
     <div class="d-flex flex-wrap gap-2">
+      <a href="{{ url_for('cheques.bitacora') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-clock-history" aria-hidden="true"></i> Bitácora de cambios</a>
       <a href="{{ url_for('cheques.bancos_vista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-bank" aria-hidden="true"></i> Bancos y consecutivos</a>
       <a href="{{ url_for('cheques.cuentas_vista') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-diagram-3" aria-hidden="true"></i> Cuentas contables</a>
       <a href="{{ url_for('cheques.nuevo') }}" class="btn btn-success btn-sm"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nuevo cheque</a>
@@ -51,7 +52,7 @@
           <td><span class="estado {{ ch.estado }}">{{ ch.estado }}</span></td>
           <td class="text-nowrap">
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cheques.imprimir', id_=ch.id) }}" aria-label="Ver e imprimir cheque {{ ch.numero }}"><i class="bi bi-printer" aria-hidden="true"></i></a>
-            {% if ch.estado == 'Emitido' %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cheques.editar', id_=ch.id) }}" aria-label="Editar cheque {{ ch.numero }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>{% endif %}
+            {% if ch.estado != 'Anulado' %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('cheques.editar', id_=ch.id) }}" aria-label="Editar cheque {{ ch.numero }}"{% if ch.estado == 'Impreso' %} title="Ya impreso: pide motivo y queda en la bitácora"{% endif %}><i class="bi bi-pencil" aria-hidden="true"></i></a>{% endif %}
           </td>
         </tr>
         {% else %}

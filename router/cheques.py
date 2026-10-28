@@ -6,9 +6,14 @@
 - La partida contable (cheq_partidas) es de partida doble: cada línea va al Debe o al Haber y los totales deben cuadrar.
   La cuenta del banco debe quedar al Haber por el monto del cheque (el formulario la propone sola).
 - La partida siempre va en córdobas: en cheques en dólares el banco va al Haber por monto × tasa de cambio.
-- Catálogos editables por el usuario: bancos (cheq_bancos) y cuentas contables (cheq_cuentas)."""
+- Catálogos editables por el usuario: bancos (cheq_bancos) y cuentas contables (cheq_cuentas).
+- Un cheque impreso se puede editar indicando el motivo. Todo queda en la bitácora (cheq_bitacora): quién, cuándo, desde qué
+  equipo e IP y qué cambió (campo, antes y después). Solo los anulados ya no se modifican."""
 import csv
 import io
+import json
+import socket
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as Tiempo
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -16,6 +21,7 @@ from flask import Blueprint, flash, jsonify, redirect, render_template, request,
 
 from utils.db import get_connection
 from router.accesos import requiere_acceso
+from router.bitacora import ip_cliente
 
 cheques_bp = Blueprint("cheques", __name__)
 
@@ -120,6 +126,90 @@ def descripcion_cuenta(nombre):
 
 def usuario():
     return session.get("usuario") or ""
+
+
+# -----------------------------
+# Bitácora de cambios
+# -----------------------------
+_nombres_red = {}
+_dns = ThreadPoolExecutor(max_workers=2)
+
+
+def nombre_en_red(ip):
+    """Nombre del equipo según la red (DNS inverso). En la oficina suele dar el nombre de la PC; se espera máximo 1.5 s."""
+    if not ip:
+        return None
+    if ip not in _nombres_red:
+        try:
+            nombre = _dns.submit(socket.gethostbyaddr, ip).result(timeout=1.5)[0]
+        except (Tiempo, OSError):
+            nombre = None
+        _nombres_red[ip] = nombre if nombre and nombre != ip else None
+    return _nombres_red[ip]
+
+
+def origen():
+    """Desde dónde se hace el cambio. Se calcula antes de abrir la transacción (el DNS puede tardar)."""
+    ip = ip_cliente()
+    return {"ip": ip[:45], "equipo": " ".join((request.form.get("equipo") or "").split())[:100] or None,
+            "equipo_red": (nombre_en_red(ip) or "")[:255] or None, "navegador": (request.headers.get("User-Agent") or "")[:255]}
+
+
+def registrar_cambio(cursor, cheque_id, numero, accion, quien, estado_antes=None, motivo=None, cambios=None):
+    cursor.execute("""INSERT INTO cheq_bitacora (cheque_id, numero, fecha_hora, usuario, accion, estado_antes, motivo, cambios,
+                                                 ip, equipo, equipo_red, navegador)
+                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   (cheque_id, numero, datetime.now().replace(microsecond=0), usuario() or "?", accion, estado_antes,
+                    (motivo or "")[:255] or None, json.dumps(cambios, ensure_ascii=False) if cambios else None,
+                    quien["ip"], quien["equipo"], quien["equipo_red"], quien["navegador"]))
+
+
+def leer_bitacora(cursor, cheque_id=None, where="", params=()):
+    cursor.execute(f"""SELECT b.*, ch.beneficiario, ch.estado FROM cheq_bitacora b LEFT JOIN cheq_cheques ch ON ch.id = b.cheque_id
+                       WHERE {'b.cheque_id = %s' if cheque_id else '1=1'} {where} ORDER BY b.fecha_hora DESC, b.id DESC LIMIT 1000""",
+                   ((cheque_id,) if cheque_id else ()) + tuple(params))
+    filas = cursor.fetchall()
+    for f in filas:
+        f["cambios"] = json.loads(f["cambios"]) if f["cambios"] else []
+    return filas
+
+
+def _dinero(moneda, v):
+    return f"{moneda} {Decimal(v):,.2f}"
+
+
+def _lineas_partida(lineas):
+    """Cada línea de la partida como texto comparable: 'cuenta · descripción · Debe/Haber monto [ref]'."""
+    textos = []
+    for p in lineas:
+        lado = f"Debe {Decimal(p['debe']):,.2f}" if p["debe"] else f"Haber {Decimal(p['haber']):,.2f}"
+        desc = (p["descripcion"] or "").strip()
+        desc = desc if len(desc) <= 60 else desc[:57] + "…"
+        textos.append(" · ".join(x for x in (p["codigo"], desc, lado, p.get("referencia") or "") if x))
+    return textos
+
+
+def diferencias(anterior, nuevo, partida_antes, partida_nueva):
+    """Lista de {campo, antes, despues} con lo que cambió."""
+    cambios = []
+    campos = [("Banco", anterior["banco_nombre"], nuevo["banco_nombre"]),
+              ("Número", anterior["numero"], nuevo["numero"]),
+              ("Fecha", anterior["fecha"].strftime("%d/%m/%Y"), nuevo["fecha"].strftime("%d/%m/%Y")),
+              ("Beneficiario", anterior["beneficiario"], nuevo["beneficiario"]),
+              ("Monto", _dinero(anterior["moneda"], anterior["monto"]), _dinero(nuevo["moneda"], nuevo["monto"])),
+              ("Concepto", anterior["concepto"] or "", nuevo["concepto"] or "")]
+    if "U$" in (anterior["moneda"], nuevo["moneda"]):
+        campos.append(("Tasa de cambio", f"{Decimal(anterior['tasa_cambio'] or 0):.4f}", f"{Decimal(nuevo['tasa_cambio'] or 0):.4f}"))
+    for campo, antes, despues in campos:
+        if str(antes) != str(despues):
+            cambios.append({"campo": campo, "antes": str(antes), "despues": str(despues)})
+    viejas, nuevas = _lineas_partida(partida_antes), _lineas_partida(partida_nueva)
+    quitadas = [x for x in viejas if x not in nuevas or viejas.count(x) > nuevas.count(x)]
+    agregadas = [x for x in nuevas if x not in viejas or nuevas.count(x) > viejas.count(x)]
+    if quitadas or agregadas:
+        cambios.append({"campo": "Partida contable", "antes": "\n".join(dict.fromkeys(quitadas)) or "—",
+                        "despues": "\n".join(dict.fromkeys(agregadas)) or "—"})
+    return cambios
 
 
 def bancos(cursor, solo_activos=False):
@@ -260,8 +350,10 @@ def leer_formulario(form):
     return datos, partidas, errores
 
 
-def guardar(datos, partidas, id_=None):
-    """Inserta o actualiza el cheque y su partida en una transacción. Devuelve (id, numero) o lanza ValueError."""
+def guardar(datos, partidas, id_=None, quien=None, motivo=None):
+    """Inserta o actualiza el cheque y su partida en una transacción, y lo anota en la bitácora.
+    Devuelve (id, numero) o lanza ValueError."""
+    quien = quien or {"ip": None, "equipo": None, "equipo_red": None, "navegador": None}
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
     try:
@@ -273,8 +365,10 @@ def guardar(datos, partidas, id_=None):
         if not banco["cuenta_id"]:
             raise ValueError(f"El banco {banco['nombre']} no tiene cuenta contable asignada (configúrela en Bancos).")
         anterior = cargar_cheque(cursor, id_) if id_ else None
-        if anterior and anterior["estado"] != "Emitido":
-            raise ValueError(f"El cheque está {anterior['estado'].lower()}; ya no se puede modificar.")
+        if anterior and anterior["estado"] == "Anulado":
+            raise ValueError("El cheque está anulado; ya no se puede modificar.")
+        if anterior and anterior["estado"] == "Impreso" and not (motivo or "").strip():
+            raise ValueError("El cheque ya fue impreso: escriba el motivo del cambio.")
 
         # Número de cheque
         mismo_banco = anterior and anterior["banco_id"] == banco["id"]
@@ -330,6 +424,19 @@ def guardar(datos, partidas, id_=None):
                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                            (id_, orden, cuenta["id"], cuenta["codigo"], p["descripcion"] or descripcion_cuenta(cuenta["nombre"])[:255],
                             p["debe"], p["haber"], p["referencia"], p["es_banco"]))
+
+        if anterior:
+            nuevo = {"banco_nombre": banco["nombre"], "numero": numero, "fecha": datos["fecha"], "beneficiario": datos["beneficiario"],
+                     "monto": datos["monto"], "moneda": banco["moneda"], "tasa_cambio": datos["tasa_cambio"], "concepto": datos["concepto"] or None}
+            partida_nueva = [{"codigo": cuentas[p["cuenta_id"]]["codigo"], "debe": p["debe"], "haber": p["haber"], "referencia": p["referencia"],
+                              "descripcion": p["descripcion"] or descripcion_cuenta(cuentas[p["cuenta_id"]]["nombre"])[:255]} for p in lineas]
+            cambios = diferencias(anterior, nuevo, anterior["partidas"], partida_nueva)
+            if cambios:
+                registrar_cambio(cursor, id_, numero, "Editado", quien, anterior["estado"], motivo, cambios)
+        else:
+            registrar_cambio(cursor, id_, numero, "Creado", quien, None, None,
+                             [{"campo": "Monto", "antes": "", "despues": _dinero(banco["moneda"], datos["monto"])},
+                              {"campo": "Beneficiario", "antes": "", "despues": datos["beneficiario"]}])
         conn.commit()
         return id_, numero
     except Exception:
@@ -384,16 +491,20 @@ def formulario(id_):
     if id_ and not cheque:
         flash("El cheque no existe.", "warning")
         return redirect(url_for("cheques.lista"))
-    if cheque and cheque["estado"] != "Emitido":
-        flash(f"El cheque No. {cheque['numero']} está {cheque['estado'].lower()}: solo se puede consultar o reimprimir.", "info")
+    if cheque and cheque["estado"] == "Anulado":
+        flash(f"El cheque No. {cheque['numero']} está anulado: solo se puede consultar.", "info")
         return redirect(url_for("cheques.imprimir", id_=id_))
 
     if request.method == "POST":
         datos, partidas, errores = leer_formulario(request.form)
         if not errores:
             try:
-                nuevo_id, numero = guardar(datos, partidas, id_)
-                flash(f"✅ Cheque No. {numero} guardado.", "success")
+                motivo = " ".join((request.form.get("motivo_cambio") or "").split())
+                nuevo_id, numero = guardar(datos, partidas, id_, origen(), motivo)
+                if cheque and cheque["estado"] == "Impreso":
+                    flash(f"✅ Cheque No. {numero} modificado y anotado en la bitácora. Ya estaba impreso: vuelva a imprimirlo.", "success")
+                else:
+                    flash(f"✅ Cheque No. {numero} guardado.", "success")
                 return redirect(url_for("cheques.imprimir", id_=nuevo_id))
             except ValueError as e:
                 errores.append(str(e))
@@ -457,28 +568,39 @@ def imprimir(id_):
     cursor = conn.cursor(dictionary=True)
     try:
         cheque = cargar_cheque(cursor, id_)
+        historial = leer_bitacora(cursor, id_) if cheque else []
     finally:
         cursor.close()
         conn.close()
     if not cheque:
         flash("El cheque no existe.", "warning")
         return redirect(url_for("cheques.lista"))
+    # Editado después de la última impresión: lo impreso ya no coincide con lo guardado
+    ultimo = next((h["accion"] for h in historial if h["accion"] in ("Editado", "Impreso")), None)
+    cheque["reimprimir"] = ultimo == "Editado" and bool(cheque["veces_impreso"])
     for p in cheque["partidas"]:
         p["cta"], p["scta"], p["sscta"] = niveles(p["codigo"])
     return render_template("cheque_imprimir.html", c=cheque, empresa=EMPRESA, mes=MESES[cheque["fecha"].month - 1],
                            ahora=datetime.now(), total_debe=sum(p["debe"] for p in cheque["partidas"]),
                            total_haber=sum(p["haber"] for p in cheque["partidas"]),
-                           total_haber_banco=sum(p["haber"] for p in cheque["partidas"] if p["es_banco"]))
+                           total_haber_banco=sum(p["haber"] for p in cheque["partidas"] if p["es_banco"]), historial=historial)
 
 
 @cheques_bp.route("/cheques/<int:id_>/impreso", methods=["POST"])
 @requiere_acceso("cheques")
 def marcar_impreso(id_):
+    quien = origen()
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     try:
+        cursor.execute("SELECT numero, estado, veces_impreso FROM cheq_cheques WHERE id = %s", (id_,))
+        antes = cursor.fetchone()
         cursor.execute("UPDATE cheq_cheques SET veces_impreso = veces_impreso + 1, impreso_en = NOW(), "
                        "estado = IF(estado = 'Anulado', estado, 'Impreso') WHERE id = %s", (id_,))
+        if antes:
+            modo = "solo cheque" if request.args.get("modo") == "cheque" else "completo"
+            registrar_cambio(cursor, id_, antes["numero"], "Impreso", quien, antes["estado"],
+                             f"{'Reimpresión' if antes['veces_impreso'] else 'Primera impresión'} ({modo})")
         conn.commit()
     finally:
         cursor.close()
@@ -493,19 +615,53 @@ def anular(id_):
     if not motivo:
         flash("Indique el motivo de la anulación.", "warning")
         return redirect(url_for("cheques.imprimir", id_=id_))
+    quien = origen()
     conn = get_connection()
-    cursor = conn.cursor()
+    cursor = conn.cursor(dictionary=True)
     try:
+        cursor.execute("SELECT numero, estado FROM cheq_cheques WHERE id = %s", (id_,))
+        antes = cursor.fetchone()
         cursor.execute("UPDATE cheq_cheques SET estado = 'Anulado', motivo_anulacion = %s, actualizado_por = %s, actualizado_en = NOW() "
                        "WHERE id = %s AND estado <> 'Anulado'", (motivo[:255], usuario(), id_))
-        conn.commit()
         ok = cursor.rowcount
+        if ok:
+            registrar_cambio(cursor, id_, antes["numero"], "Anulado", quien, antes["estado"], motivo,
+                             [{"campo": "Estado", "antes": antes["estado"], "despues": "Anulado"}])
+        conn.commit()
     finally:
         cursor.close()
         conn.close()
     flash("🚫 Cheque anulado. El número queda registrado como anulado y no se vuelve a usar." if ok else "El cheque ya estaba anulado.",
           "success" if ok else "info")
     return redirect(url_for("cheques.imprimir", id_=id_))
+
+
+@cheques_bp.route("/cheques/bitacora")
+@requiere_acceso("cheques")
+def bitacora():
+    f = {"desde": request.args.get("desde") or date.today().replace(day=1).isoformat(), "hasta": request.args.get("hasta") or date.today().isoformat(),
+         "usuario": request.args.get("usuario", ""), "accion": request.args.get("accion", ""), "q": (request.args.get("q") or "").strip()}
+    where, params = " AND b.fecha_hora >= %s AND b.fecha_hora < DATE_ADD(%s, INTERVAL 1 DAY)", [f["desde"], f["hasta"]]
+    if f["usuario"]:
+        where += " AND b.usuario = %s"; params.append(f["usuario"])
+    if f["accion"] in ACCIONES:
+        where += " AND b.accion = %s"; params.append(f["accion"])
+    if f["q"]:
+        where += " AND (b.numero = %s OR ch.beneficiario LIKE %s OR b.motivo LIKE %s OR b.equipo LIKE %s OR b.ip LIKE %s)"
+        params += [f["q"] if f["q"].isdigit() else -1, f"%{f['q']}%", f"%{f['q']}%", f"%{f['q']}%", f"{f['q']}%"]
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        filas = leer_bitacora(cursor, None, where, params)
+        cursor.execute("SELECT DISTINCT usuario FROM cheq_bitacora ORDER BY usuario")
+        usuarios = [r["usuario"] for r in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conn.close()
+    return render_template("cheques_bitacora.html", filas=filas, f=f, usuarios=usuarios, acciones=ACCIONES)
+
+
+ACCIONES = ["Creado", "Editado", "Impreso", "Anulado"]
 
 
 # -----------------------------

@@ -108,6 +108,25 @@
       </div>
     </div>
 
+    {% if cheque and cheque.estado == 'Impreso' %}
+    <div class="card card-body mb-3" style="border: 2px solid #FE6412; background: #fff8f3">
+      <div class="fw-bold mb-1" style="color: #9a3412"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+        Este cheque ya fue impreso{% if cheque.veces_impreso %} ({{ cheque.veces_impreso }} vez{{ 'es' if cheque.veces_impreso > 1 }}){% endif %}</div>
+      <div class="small mb-2">Puede modificarlo, pero el cambio queda en la bitácora con su usuario, la fecha y hora, el equipo, la IP
+        y lo que cambió (antes y después). Después de guardar, vuelva a imprimirlo.</div>
+      <div class="row g-2">
+        <div class="col-md-8"><label class="form-label" for="motivo_cambio">Motivo del cambio <span class="text-danger">*</span></label>
+          <textarea id="motivo_cambio" name="motivo_cambio" rows="2" maxlength="255" class="form-control" required
+            placeholder="Ej.: el beneficiario estaba mal escrito; el proveedor pidió cambiar la fecha…">{{ form.get('motivo_cambio', '') if form else '' }}</textarea></div>
+        <div class="col-md-4"><label class="form-label" for="equipo">Nombre de este equipo</label>
+          <input id="equipo" name="equipo" maxlength="100" class="form-control" placeholder="Ej.: PC Contabilidad 2" value="{{ form.get('equipo', '') if form else '' }}">
+          <div class="form-text">Se recuerda en este equipo. La IP y el nombre en la red se toman solos.</div></div>
+      </div>
+    </div>
+    {% else %}
+    <input type="hidden" id="equipo" name="equipo" value="{{ form.get('equipo', '') if form else '' }}">
+    {% endif %}
+
     <div class="d-flex flex-wrap gap-2">
       <button class="btn btn-success" id="guardar"><i class="bi bi-check2-circle" aria-hidden="true"></i> Guardar y ver para imprimir</button>
       <a href="{{ url_for('cheques.lista') }}" class="btn btn-outline-secondary">Cancelar</a>
@@ -261,7 +280,13 @@
   });
 
   // Antes de guardar: avisar si no cuadra o falta cuenta (el servidor valida igual)
+  // Nombre del equipo: se recuerda en el navegador para la bitácora
+  const equipo = $('equipo');
+  try { if (!equipo.value) equipo.value = localStorage.getItem('nombre_equipo') || ''; } catch {}
   $('form-cheque').addEventListener('submit', e => {
+    const motivo = $('motivo_cambio');
+    if (motivo && !motivo.value.trim()) { e.preventDefault(); alert('El cheque ya fue impreso: escriba el motivo del cambio.'); motivo.focus(); return; }
+    try { if (equipo.value.trim()) localStorage.setItem('nombre_equipo', equipo.value.trim()); } catch {}
     const sinCuenta = [...document.querySelectorAll('.linea')].some(tr => (val(tr.querySelector('.debe').value) || val(tr.querySelector('.haber').value)) && !tr.querySelector('input[name=cuenta_id]').value);
     if (sinCuenta) { e.preventDefault(); alert('Seleccione la cuenta contable de cada línea de la lista de sugerencias.'); return; }
     if (cuadrar() !== 0) { e.preventDefault(); alert('La partida no cuadra: revise la diferencia.'); return; }

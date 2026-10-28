@@ -48,9 +48,24 @@
   .recibi td { border: 1px solid #000; height: 11mm; }
   .recibi .etq { background: #ddd; width: 22mm; text-align: center; }
   .pie { position: absolute; bottom: 8mm; left: 12mm; font-size: 9pt; }
+  /* Historial de cambios (solo en pantalla) */
+  .aviso-reimp { max-width: 8.5in; margin: 1rem auto 0; background: #fff1e8; border: 2px solid #FE6412; color: #9a3412; border-radius: 8px;
+                 padding: .6rem 1rem; font-family: 'Segoe UI', Arial, sans-serif; font-weight: 600; }
+  .historial { max-width: 8.5in; margin: 0 auto 2rem; background: #fff; border-radius: 8px; padding: 1rem 1.2rem; font-family: 'Segoe UI', Arial, sans-serif;
+               box-shadow: 0 2px 12px rgba(0,0,0,.1); font-size: 10pt; }
+  .historial h2 { font-size: 12pt; color: #027266; margin: 0 0 .6rem; }
+  .historial .ev { border-left: 4px solid #d9d6ce; padding: .35rem .7rem; margin-bottom: .6rem; }
+  .historial .ev.Editado { border-color: #FE6412; } .historial .ev.Anulado { border-color: #b42318; } .historial .ev.Creado { border-color: #027266; }
+  .historial .cab { font-weight: 700; } .historial .acc { color: #9a3412; }
+  .historial .meta { color: #6b6a66; font-size: 9pt; }
+  .historial .motivo { margin-top: .2rem; } .historial .motivo b { color: #52514e; }
+  .historial table { margin-top: .35rem; font-size: 9pt; }
+  .historial th, .historial td { border: 1px solid #e3e1db; padding: .25rem .45rem; text-align: left; vertical-align: top; white-space: pre-line; }
+  .historial th { background: #f6f5f1; font-weight: 600; }
+  .historial td.antes { background: #fdf0ef; color: #7a1d14; } .historial td.despues { background: #ecf6f4; color: #01564d; }
   @media print {
     body { background: #fff; }
-    .barra { display: none; }
+    .barra, .historial, .aviso-reimp { display: none; }
     .hoja { margin: 0; box-shadow: none; width: auto; min-height: auto; padding: 0; }
     .numero { right: 2mm; top: 14mm; }
     .pie { position: fixed; bottom: 0; left: 0; }
@@ -67,8 +82,9 @@
   {% if c.estado != 'Anulado' %}
     <button type="button" class="naranja imprimir" data-modo="cheque" title="Imprime solo fecha, beneficiario, monto y letras, para el cheque colocado en la hoja"><i class="bi bi-credit-card-2-front" aria-hidden="true"></i> Imprimir solo cheque</button>
     <button type="button" class="naranja imprimir" data-modo="completo" title="Imprime el formato completo: encabezado, cheque, concepto, partida y firmas"><i class="bi bi-printer" aria-hidden="true"></i> {{ 'Reimprimir completo' if c.veces_impreso else 'Imprimir completo' }}</button>
-    {% if c.estado == 'Emitido' %}<a href="{{ url_for('cheques.editar', id_=c.id) }}" class="gris"><i class="bi bi-pencil" aria-hidden="true"></i> Editar</a>{% endif %}
+    <a href="{{ url_for('cheques.editar', id_=c.id) }}" class="gris" {% if c.estado == 'Impreso' %}title="Ya impreso: el cambio pide motivo y queda en la bitácora"{% endif %}><i class="bi bi-pencil" aria-hidden="true"></i> Editar</a>
     <form method="post" action="{{ url_for('cheques.anular', id_=c.id) }}" onsubmit="return confirm('¿Anular el cheque No. {{ c.numero }}? No se puede deshacer.');">
+      <input type="hidden" name="equipo" class="equipo">
       <input name="motivo" placeholder="Motivo de anulación" required aria-label="Motivo de anulación">
       <button class="gris"><i class="bi bi-x-octagon" aria-hidden="true"></i> Anular</button>
     </form>
@@ -78,6 +94,10 @@
     {% if c.estado == 'Anulado' %} · {{ c.motivo_anulacion }}{% endif %}</span>
 </div>
 
+{% if c.reimprimir and c.estado != 'Anulado' %}
+<div class="aviso-reimp" role="alert"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+  Este cheque se modificó después de la última impresión: lo impreso ya no coincide. Vuelva a imprimirlo.</div>
+{% endif %}
 <div class="hoja">
   {% if c.estado == 'Anulado' %}<div class="anulado">ANULADO</div>{% endif %}
   <div class="encabezado">
@@ -126,10 +146,31 @@
   <div class="pie">{{ ahora.strftime('%d/%m/%Y') }} &nbsp;&nbsp; {{ ahora.strftime('%I:%M:%S %p').lower() }}</div>
 </div>
 
+<section class="historial" aria-labelledby="t-historial">
+  <h2 id="t-historial"><i class="bi bi-clock-history" aria-hidden="true"></i> Bitácora de este cheque</h2>
+  {% for h in historial %}
+  <div class="ev {{ h.accion }}">
+    <div class="cab"><span class="acc">{{ h.accion }}</span>{% if h.estado_antes and h.accion == 'Editado' %} <span class="meta">(estaba {{ h.estado_antes|lower }})</span>{% endif %}
+      · {{ h.fecha_hora.strftime('%d/%m/%Y %I:%M %p').lower() }} · {{ h.usuario }}</div>
+    <div class="meta"><i class="bi bi-pc-display" aria-hidden="true"></i> {{ h.equipo or 'equipo sin nombre' }}{% if h.equipo_red %} · red: {{ h.equipo_red }}{% endif %} · IP {{ h.ip or '—' }}</div>
+    {% if h.motivo %}<div class="motivo"><b>{{ 'Motivo' if h.accion in ('Editado', 'Anulado') else 'Detalle' }}:</b> {{ h.motivo }}</div>{% endif %}
+    {% if h.cambios and h.accion == 'Editado' %}
+    <table><thead><tr><th>Campo</th><th>Antes</th><th>Después</th></tr></thead>
+      <tbody>{% for x in h.cambios %}<tr><th scope="row">{{ x.campo }}</th><td class="antes">{{ x.antes or '—' }}</td><td class="despues">{{ x.despues or '—' }}</td></tr>{% endfor %}</tbody></table>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="meta">Sin movimientos registrados: este cheque es anterior a la bitácora.</div>
+  {% endfor %}
+  <div class="meta"><a href="{{ url_for('cheques.bitacora') }}">Ver la bitácora de todos los cheques</a></div>
+</section>
+
 <script>
+  try { document.querySelectorAll('.equipo').forEach(i => i.value = localStorage.getItem('nombre_equipo') || ''); } catch {}
   // Dos modos: "cheque" (solo los datos del cheque, para imprimir sobre el cheque colocado en la hoja) y "completo" (todo el formato)
   document.querySelectorAll('.imprimir').forEach(btn => btn.addEventListener('click', async () => {
-    try { await fetch("{{ url_for('cheques.marcar_impreso', id_=c.id) }}", { method: 'POST' }); } catch {}
+    const datos = new FormData(); try { datos.append('equipo', localStorage.getItem('nombre_equipo') || ''); } catch {}
+    try { await fetch("{{ url_for('cheques.marcar_impreso', id_=c.id) }}?modo=" + btn.dataset.modo, { method: 'POST', body: datos }); } catch {}
     document.body.classList.toggle('solo-cheque', btn.dataset.modo === 'cheque');
     window.print();
     document.body.classList.remove('solo-cheque');
