@@ -80,7 +80,8 @@
         <a class="btn btn-outline-secondary {{ 'disabled' if not siguiente }}" href="{{ url_for('ventas_bodega.reporte_ventas_bodega', dia=siguiente) if siguiente else '#' }}" aria-label="Día siguiente con ventas"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
       </div></div>
     <div class="ms-auto d-flex flex-wrap gap-2">
-      <button type="button" id="btnImagen" class="btn btn-success btn-sm"><i class="bi bi-image" aria-hidden="true"></i> Descargar imagen</button>
+      <button type="button" id="btnWhatsapp" class="btn btn-success btn-sm" title="En partes que WhatsApp no reduce: se ven nítidas"><i class="bi bi-whatsapp" aria-hidden="true"></i> Imagen para WhatsApp</button>
+      <button type="button" id="btnImagen" class="btn btn-outline-success btn-sm" title="Una sola imagen en alta resolución: enviarla en HD o como documento"><i class="bi bi-image" aria-hidden="true"></i> Imagen completa HD</button>
       <button type="button" id="btnCopiar" class="btn btn-outline-success btn-sm" hidden><i class="bi bi-clipboard" aria-hidden="true"></i> Copiar</button>
       <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ventas_bodega.reporte_ventas_bodega', vista='detalle', fecha_inicio=dia, fecha_fin=dia) }}"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Vista detallada</a>
     </div>
@@ -190,34 +191,42 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="{{ url_for('static', filename='imagen_reporte.js') }}"></script>
 <script>
 (function () {
   const nombre = 'ventas_bodega_{{ dia.isoformat() }}.png';
+  const titulo = ['#reporte .cab .t', '#reporte .cab .f'].map(q => document.querySelector(q)?.textContent.trim()).filter(Boolean).join(' · ') || 'Reporte';
+  const tarjeta = document.getElementById('reporte');
   const aviso = document.getElementById('avisoImagen');
-  async function generar() {
+  const avisar = (t, ok = true) => { aviso.className = 'small w-100 text-end ' + (ok ? 'text-success' : 'text-danger'); aviso.textContent = t; };
+  function sellar() {
     document.getElementById('fechaImagen').textContent = new Date().toLocaleString('es-NI', { dateStyle: 'short', timeStyle: 'short' });
-    const canvas = await html2canvas(document.getElementById('reporte'), { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
-    return new Promise((ok) => canvas.toBlob(ok, 'image/png'));
   }
   async function conEspera(btn, accion) {
     const html = btn.innerHTML; btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Generando…'; aviso.textContent = '';
-    try { await accion(); }
-    catch (e) { console.error(e); aviso.className = 'small w-100 text-end text-danger'; aviso.textContent = 'No se pudo generar la imagen'; }
+    try { sellar(); await accion(); }
+    catch (e) { console.error(e); avisar('No se pudo generar la imagen', false); }
     finally { btn.disabled = false; btn.innerHTML = html; }
   }
-  document.getElementById('btnImagen').addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
-    const blob = await generar();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = nombre; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  // Recomendado: partes de máximo 1600 px de alto, WhatsApp las envía sin reducir
+  document.getElementById('btnWhatsapp').addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+    const partes = await ImagenReporte.partes(tarjeta, { titulo });
+    const r = await ImagenReporte.guardar(partes, nombre);
+    if (r === 'descargado') avisar(partes.length > 1 ? `✓ ${partes.length} imágenes descargadas: envíelas juntas en el mismo mensaje` : '✓ Imagen descargada');
   }));
+  // Una sola imagen grande (enviar con HD activado o como documento)
+  document.getElementById('btnImagen').addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+    const r = await ImagenReporte.guardar([await ImagenReporte.una(tarjeta)], nombre);
+    if (r === 'descargado') avisar('✓ Descargada. En WhatsApp actívele «HD» al enviarla, o mándela como documento');
+  }));
+  // Copiar al portapapeles para pegar directo en WhatsApp Web (solo si el navegador lo permite)
   const btnCopiar = document.getElementById('btnCopiar');
   if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
     btnCopiar.hidden = false;
     btnCopiar.addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': generar() })]);
-      aviso.className = 'small w-100 text-end text-success'; aviso.textContent = '✓ Imagen copiada: péguela en WhatsApp con Ctrl+V';
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': ImagenReporte.una(tarjeta) })]);
+      avisar('✓ Imagen copiada: péguela en WhatsApp con Ctrl+V y active «HD» antes de enviar');
     }));
   }
 })();
