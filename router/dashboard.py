@@ -1,6 +1,9 @@
-
+"""Resumen gerencial (gerencia y presidencia): ventas del mes, tendencia contra el año anterior, inventario,
+compras, cartera y taller, con una lectura en frases simples al inicio ("Lo más importante")."""
+from concurrent.futures import ThreadPoolExecutor
 from flask import Blueprint, render_template, request
 from datetime import date, datetime, timedelta
+from werkzeug.datastructures import MultiDict
 from utils.db import get_connection
 from router.accesos import requiere_acceso
 
@@ -13,7 +16,7 @@ def venta_neta(desde, hasta):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT (SELECT COALESCE(SUM(neto), 0) FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s)
+        SELECT (SELECT COALESCE(SUM(neto), 0) FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s AND estado_factura <> 'Anulado')
              - (SELECT COALESCE(SUM(totaldv), 0) / 1.15 FROM devoluciones WHERE fechadv BETWEEN %s AND %s AND estado = 'Cerrado')
     """, (desde, hasta, desde, hasta))
     valor = cursor.fetchone()[0]
@@ -47,7 +50,7 @@ def obtener_ranking_vendedores(desde, hasta):
                    SUM(CASE WHEN v.tipo_venta='Credito' THEN v.neto ELSE 0 END) AS Credito,
                    SUM(CASE WHEN v.tipo_venta='Contado' THEN v.neto ELSE 0 END) AS Contado,
                    0 AS DevCredito, 0 AS DevContado
-            FROM ventas_historicas v WHERE v.fecha BETWEEN %s AND %s GROUP BY v.Vendedor
+            FROM ventas_historicas v WHERE v.fecha BETWEEN %s AND %s AND v.estado_factura <> 'Anulado' GROUP BY v.Vendedor
             UNION ALL
             SELECT r.Vendedor,
                    0 AS Credito, 0 AS Contado,
@@ -131,7 +134,7 @@ def obtener_indicadores_mes(fecha_dia):
                COALESCE(SUM(neto), 0) AS facturado, COALESCE(SUM(utilidad), 0) AS utilidad,
                COALESCE(SUM(CASE WHEN tipo_venta = 'Credito' THEN neto END), 0) AS credito,
                COALESCE(SUM(CASE WHEN tipo_venta = 'Contado' THEN neto END), 0) AS contado
-        FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s
+        FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s AND estado_factura <> 'Anulado'
     """, (inicio, fecha_dia))
     m = {k: float(v or 0) for k, v in cursor.fetchone().items()}
     # Devoluciones cerradas (sin IVA), separadas por tipo de factura
@@ -161,8 +164,11 @@ def obtener_indicadores_mes(fecha_dia):
     for etiqueta, meses_atras in (("mes anterior", 1), ("mismo mes año anterior", 12)):
         desde, hasta = mismo_periodo(fecha_dia, meses_atras)
         valor = venta_neta(desde, hasta)
+        margen = margen_periodo(desde, hasta)
         comparaciones.append({"etiqueta": etiqueta, "desde": desde, "hasta": hasta, "valor": valor,
-                              "variacion": (m["neto"] / valor - 1) * 100 if valor else None})
+                              "variacion": (m["neto"] / valor - 1) * 100 if valor else None,
+                              "margen": margen,
+                              "dif_margen": m["margen"] - margen if margen is not None and m["margen"] is not None else None})
     return m, comparaciones
 
 
@@ -219,7 +225,7 @@ def obtener_resumen_mensual(fecha_inicio, fecha_fin, credito, contado):
     cursor.execute("""
         SELECT DATE_FORMAT(Fecha, '%Y-%m') AS Mes, COUNT(DISTINCT Fecha) AS dias, COUNT(*) AS facturas,
                COALESCE(SUM(neto), 0) AS neto, COALESCE(SUM(utilidad), 0) AS utilidad, MAX(Fecha) AS ultima
-        FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s
+        FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s AND estado_factura <> 'Anulado'
         GROUP BY Mes ORDER BY Mes
     """, (fecha_inicio, fecha_fin))
     datos = {r["Mes"]: r for r in cursor.fetchall()}
@@ -271,7 +277,7 @@ def obtener_totales_vendedor_mes(fecha_inicio, fecha_fin):
                    SUM(CASE WHEN v.tipo_venta='Credito' THEN v.neto ELSE 0 END) AS Credito,
                    SUM(CASE WHEN v.tipo_venta='Contado' THEN v.neto ELSE 0 END) AS Contado,
                    0 AS DevCredito, 0 AS DevContado
-            FROM ventas_historicas v WHERE v.fecha BETWEEN %s AND %s GROUP BY Mes, v.Vendedor
+            FROM ventas_historicas v WHERE v.fecha BETWEEN %s AND %s AND v.estado_factura <> 'Anulado' GROUP BY Mes, v.Vendedor
             UNION ALL
             SELECT DATE_FORMAT(r.fechadv, '%Y-%m') AS Mes, r.Vendedor,
                    0 AS Credito, 0 AS Contado,
@@ -318,7 +324,7 @@ def obtener_ventas_mes(fecha_inicio, fecha_fin):
                    SUM(CASE WHEN v.tipo_venta='Credito' THEN v.neto ELSE 0 END) AS Credito,
                    SUM(CASE WHEN v.tipo_venta='Contado' THEN v.neto ELSE 0 END) AS Contado,
                    0 AS DevCredito, 0 AS DevContado
-            FROM ventas_historicas v WHERE v.fecha BETWEEN %s AND %s GROUP BY Mes, v.Vendedor
+            FROM ventas_historicas v WHERE v.fecha BETWEEN %s AND %s AND v.estado_factura <> 'Anulado' GROUP BY Mes, v.Vendedor
             UNION ALL
             SELECT DATE_FORMAT(r.fechadv, '%Y-%m') AS Mes, r.Vendedor,
                    0 AS Credito, 0 AS Contado,
@@ -369,6 +375,197 @@ def obtener_recuperacion_mes(fecha_inicio, fecha_fin):
     conn.close()
     return rows
 
+def margen_periodo(desde, hasta):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT SUM(utilidad), SUM(neto) FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s AND estado_factura <> 'Anulado'",
+                   (desde, hasta))
+    utilidad, neto = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return float(utilidad) / float(neto) * 100 if neto else None
+
+
+def venta_neta_por_mes(desde, hasta):
+    """{'YYYY-MM': venta neta} (facturado sin anuladas − devoluciones cerradas sin IVA)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT Mes, SUM(v) FROM (
+            SELECT DATE_FORMAT(Fecha, '%Y-%m') AS Mes, SUM(neto) AS v FROM ventas_historicas
+            WHERE Fecha BETWEEN %s AND %s AND estado_factura <> 'Anulado' GROUP BY Mes
+            UNION ALL
+            SELECT DATE_FORMAT(fechadv, '%Y-%m'), -SUM(totaldv) / 1.15 FROM devoluciones
+            WHERE fechadv BETWEEN %s AND %s AND estado = 'Cerrado' GROUP BY 1
+        ) x GROUP BY Mes
+    """, (desde, hasta, desde, hasta))
+    r = {mes: float(v or 0) for mes, v in cursor.fetchall()}
+    cursor.close()
+    conn.close()
+    return r
+
+
+def dias_habiles(desde, hasta):
+    """Lunes a sábado entre dos fechas (incluidas)."""
+    return sum(1 for i in range((hasta - desde).days + 1) if (desde + timedelta(days=i)).weekday() < 6)
+
+
+def proyeccion_mes(m, fecha_dia):
+    """Cierre estimado si se mantiene el promedio por día con venta en los días hábiles (lun–sáb) que faltan."""
+    fin_mes = (fecha_dia.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    restantes = dias_habiles(fecha_dia + timedelta(days=1), fin_mes) if fecha_dia < fin_mes else 0
+    if not m["promedio"]:
+        return None
+    return {"valor": m["neto"] + m["promedio"] * restantes, "restantes": restantes, "fin_mes": fin_mes,
+            "avance": m["dias"] / (m["dias"] + restantes) * 100 if m["dias"] + restantes else 100}
+
+
+# -----------------------------
+# Inventario, compras y operación (lo trabajado en los otros módulos)
+# -----------------------------
+BODEGAS_NO_DISPONIBLES = ("NHE", "CONSUMO", "EJERCITO")
+
+
+def inventario_valor():
+    """Valor del inventario al costo (Monto Final de existencias por bodega) y lo que está en bodegas que no se venden."""
+    cond = " OR ".join(f"UPPER(Bodega) LIKE '%%{b}%%'" for b in BODEGAS_NO_DISPONIBLES)
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(f"""
+        SELECT COALESCE(SUM(`Monto Final`), 0), COALESCE(SUM(CASE WHEN {cond} THEN `Monto Final` END), 0),
+               COUNT(DISTINCT CASE WHEN Cant_Final > 0 THEN Codigo_producto END)
+        FROM existencias_bodega
+    """)
+    total, no_disp, productos = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return {"total": float(total), "no_disponible": float(no_disp), "disponible": float(total) - float(no_disp), "productos": int(productos)}
+
+
+def sin_movimiento(meses=12):
+    from router import productos_sin_movimiento as psm
+    filas, info = psm.calcular(psm.leer_filtros(MultiDict({"meses": str(meses)})))
+    r = psm.resumen(filas, meses)
+    top_marcas = {}
+    for x in filas:
+        top_marcas[x["marca"] or "Sin marca"] = top_marcas.get(x["marca"] or "Sin marca", 0) + x["valor"]
+    return {"productos": r["productos"], "valor": r["valor"], "meses": meses, "grupos": r["grupos"],
+            "marcas": sorted(top_marcas.items(), key=lambda t: -t[1])[:5]}
+
+
+def por_agotarse():
+    from router import productos_agotarse as pa
+    f = pa.leer_filtros(MultiDict())
+    filas, periodo = pa.calcular(f)
+    agotados = [x for x in filas if x["disponible"] <= 0]
+    return {"productos": len(filas), "agotados": len(agotados), "cobertura": f["cobertura"],
+            "costo": sum(x["sugerido"] * x["costo"] for x in filas),
+            "con_equivalente": sum(1 for x in agotados if x["eq_disponible"] > 0),
+            "top": sorted(filas, key=lambda x: (x["disponible"] > 0, -x["promedio"]))[:5]}
+
+
+def ventas_perdidas_mes(desde, hasta):
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT motivo, COUNT(*) AS registros, COALESCE(SUM(cantidad), 0) AS unidades, COUNT(DISTINCT nomb_cliente) AS clientes "
+                   "FROM ventas_perdidas WHERE fecha BETWEEN %s AND %s GROUP BY motivo ORDER BY registros DESC", (desde, hasta))
+    motivos = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return {"registros": sum(m["registros"] for m in motivos), "unidades": sum(float(m["unidades"]) for m in motivos),
+            "motivos": motivos, "sin_existencia": next((m["registros"] for m in motivos if m["motivo"] == "Sin existencia"), 0)}
+
+
+def campanas_activas():
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""SELECT c.id, c.nombre, c.fecha_inicio, COUNT(p.id) AS productos,
+                             COALESCE(SUM(p.existencia_inicial * p.costo), 0) AS valor
+                      FROM mkt_campanas c LEFT JOIN mkt_campana_productos p ON p.campana_id = c.id
+                      WHERE c.estado = 'Activa' GROUP BY c.id ORDER BY c.fecha_inicio DESC""")
+    filas = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return filas
+
+
+def armados_mes(desde, hasta):
+    from router import reporte_armados as ra
+    t = ra.calcular({"desde": desde, "hasta": hasta})["total"]
+    return {k: float(t[k]) if t[k] is not None else None for k in ("facturas", "mangueras", "neto", "mano_obra", "margen", "utilidad")}
+
+
+def con_cache(clave, funcion, segundos=900):
+    """Cálculos pesados (inventario, cartera): se guardan 15 min; los datos cambian solo con la carga diaria."""
+    from router.ventas_bodegas import en_cache   # aquí: ventas_bodegas importa de este módulo
+    return en_cache(f"dash_{clave}", funcion, segundos=segundos)
+
+
+# -----------------------------
+# Lo más importante: frases cortas con semáforo (bien / atención / alerta)
+# -----------------------------
+def millones(v):
+    return f"C$ {v / 1e6:,.2f} M" if abs(v) >= 1e6 else f"C$ {v:,.0f}"
+
+
+def puntos_clave(m, comparaciones, proyeccion, anio, cartera, inv, sinmov, agot, perdidas, ingresos, mes_ant_completo):
+    puntos = []
+    ant = comparaciones[0]
+    if ant["variacion"] is not None:
+        estado = "bien" if ant["variacion"] >= 0 else ("atencion" if ant["variacion"] > -10 else "alerta")
+        puntos.append((estado, "Ventas del mes",
+                       f"Van {millones(m['neto'])}, {abs(ant['variacion']):.0f}% {'arriba' if ant['variacion'] >= 0 else 'abajo'} "
+                       f"del mes anterior al mismo día ({millones(ant['valor'])})."))
+    if proyeccion and proyeccion["restantes"]:
+        texto = f"Al ritmo actual el mes cerraría en unos {millones(proyeccion['valor'])}"
+        estado = "bien"
+        if mes_ant_completo:
+            dif = (proyeccion["valor"] / mes_ant_completo - 1) * 100
+            texto += f" ({'+' if dif >= 0 else ''}{dif:.0f}% vs. el mes anterior completo, {millones(mes_ant_completo)})"
+            estado = "bien" if dif >= 0 else ("atencion" if dif > -10 else "alerta")
+        puntos.append((estado, "Proyección de cierre", texto + f". Faltan {proyeccion['restantes']} días hábiles."))
+    if anio["variacion"] is not None:
+        estado = "bien" if anio["variacion"] >= 0 else ("atencion" if anio["variacion"] > -5 else "alerta")
+        puntos.append((estado, "Acumulado del año",
+                       f"{millones(anio['actual'])} en {anio['actual_desde'].year}, {abs(anio['variacion']):.0f}% "
+                       f"{'más' if anio['variacion'] >= 0 else 'menos'} que el mismo período de {anio['anterior_desde'].year}."))
+    if m["margen"] is not None:
+        dif = ant.get("dif_margen")
+        texto = f"Margen bruto de {m['margen']:.1f}%"
+        if dif is not None:
+            texto += f", {abs(dif):.1f} puntos {'más' if dif >= 0 else 'menos'} que el mes anterior"
+        estado = "bien" if dif is None or dif >= -1 else ("atencion" if dif > -3 else "alerta")
+        puntos.append((estado, "Rentabilidad", texto + "."))
+    if cartera["saldo"]:
+        pct = cartera["pct_vencido"] or 0
+        estado = "bien" if pct < 20 else ("atencion" if pct < 35 else "alerta")
+        texto = f"Cartera de {millones(cartera['saldo'])}; vencido {pct:.0f}% ({millones(cartera['vencido'])})."
+        if cartera["suspender"]:
+            texto += f" {cartera['suspender']} clientes para suspender crédito."
+        puntos.append((estado, "Cobranza", texto))
+    if sinmov and inv["total"]:
+        pct = sinmov["valor"] / inv["total"] * 100
+        estado = "bien" if pct < 15 else ("atencion" if pct < 30 else "alerta")
+        puntos.append((estado, "Inventario detenido",
+                       f"{millones(sinmov['valor'])} ({pct:.0f}% del inventario) no se ha vendido en {sinmov['meses']} meses o más."))
+    if agot:
+        estado = "bien" if agot["agotados"] == 0 else ("atencion" if agot["agotados"] < 50 else "alerta")
+        puntos.append((estado, "Productos que más se venden",
+                       f"{agot['agotados']} ya están agotados y {agot['productos'] - agot['agotados']} se agotan en menos de "
+                       f"{agot['cobertura']} meses: reponer cuesta unos {millones(agot['costo'])}."))
+    if perdidas["registros"]:
+        puntos.append(("atencion", "Ventas perdidas",
+                       f"{perdidas['registros']} registradas en el mes ({perdidas['sin_existencia']} por falta de existencia)."))
+    costo_vendido = m["facturado"] - m["utilidad"]
+    if ingresos["total"] and costo_vendido > 0:
+        rel = ingresos["total"] / costo_vendido
+        estado = "bien" if 0.8 <= rel <= 1.2 else "atencion"
+        puntos.append((estado, "Compras",
+                       f"Ingresó mercadería por {millones(ingresos['total'])}, {rel:.1f} veces el costo de lo vendido "
+                       f"({'el inventario crece' if rel > 1.05 else ('el inventario baja' if rel < 0.95 else 'compras y ventas parejas')})."))
+    return puntos
+
+
 # -----------------------------
 # Ruta principal del dashboard
 # -----------------------------
@@ -387,14 +584,40 @@ def dashboard_view():
 
     # Mes de la fecha elegida (del día 1 a esa fecha)
     inicio_mes = fecha_dia.replace(day=1)
-    mes, comparaciones = obtener_indicadores_mes(fecha_dia)
-    ranking_vendedores_mes = obtener_ranking_vendedores(inicio_mes, fecha_dia)
-    productos_mes = obtener_productos(inicio_mes, fecha_dia)
+    clave = f"{fecha_dia}_{ultima}"
+    # Lo pesado corre en paralelo (cada función abre su propia conexión)
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        t_productos = ex.submit(con_cache, f"productos_{clave}", lambda: obtener_productos(inicio_mes, fecha_dia))
+        t_cartera = ex.submit(cartera_al, fecha_dia)
+        t_sinmov = ex.submit(con_cache, f"sinmov_{ultima}", sin_movimiento)
+        t_agot = ex.submit(con_cache, f"agot_{ultima}", por_agotarse)
+        t_inv = ex.submit(con_cache, f"inv_{ultima}", inventario_valor)
+        t_ingresos = ex.submit(ingresos_por_proveedor, inicio_mes, fecha_dia)
+        mes, comparaciones = obtener_indicadores_mes(fecha_dia)
+        ranking_vendedores_mes = obtener_ranking_vendedores(inicio_mes, fecha_dia)
+        from router.reporte_armados import nombre_limpio   # "GEYCEL . ORTIZ ." -> "Geycel Ortiz"
+        for r in ranking_vendedores_mes:
+            r["Vendedor"] = nombre_limpio(r["Vendedor"]).strip(" .") or "Sin dato"
+        perdidas = ventas_perdidas_mes(inicio_mes, fecha_dia)
+        campanas = campanas_activas()
+        armados = armados_mes(inicio_mes, fecha_dia)
+        # Acumulado del año contra el mismo período del año anterior
+        inicio_anio = fecha_dia.replace(month=1, day=1)
+        _, hasta_ant = mismo_periodo(fecha_dia, 12)
+        anio = {"actual": venta_neta(inicio_anio, fecha_dia), "actual_desde": inicio_anio,
+                "anterior": venta_neta(inicio_anio.replace(year=inicio_anio.year - 1), hasta_ant),
+                "anterior_desde": inicio_anio.replace(year=inicio_anio.year - 1), "anterior_hasta": hasta_ant}
+        anio["variacion"] = (anio["actual"] / anio["anterior"] - 1) * 100 if anio["anterior"] else None
+        fin_mes_ant = inicio_mes - timedelta(days=1)
+        mes_ant_completo = venta_neta(fin_mes_ant.replace(day=1), fin_mes_ant)
+        productos_mes = t_productos.result()
+        cartera = t_cartera.result()
+        sinmov, agot, inv, ingresos = t_sinmov.result(), t_agot.result(), t_inv.result(), t_ingresos.result()
     top_productos = productos_mes[:10]
     ranking_marcas_mes, top_marcas, otras_marcas = ranking_marcas(productos_mes)
     venta_productos_mes = sum(p["venta"] for p in productos_mes)
-    ingresos = ingresos_por_proveedor(inicio_mes, fecha_dia)
-    cartera = cartera_al(fecha_dia)
+    proyeccion = proyeccion_mes(mes, fecha_dia) if mes["facturas"] else None
+    puntos = puntos_clave(mes, comparaciones, proyeccion, anio, cartera, inv, sinmov, agot, perdidas, ingresos, mes_ant_completo)
 
     total_credito = sum(r["Credito"] or 0 for r in ranking_vendedores_mes)
     total_contado = sum(r["Contado"] or 0 for r in ranking_vendedores_mes)
@@ -421,6 +644,16 @@ def dashboard_view():
     recuperacion_mes = obtener_recuperacion_mes(fecha_inicio, fecha_fin)
     total_general = sum(totales_por_mes_credito.values()) + sum(totales_por_mes_contado.values())
     resumen_mensual = obtener_resumen_mensual(fecha_inicio, fecha_fin, totales_por_mes_credito, totales_por_mes_contado)
+    # Mismo mes del año anterior, para la línea de comparación del gráfico mensual
+    ini = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+    anterior_por_mes = venta_neta_por_mes(ini.replace(year=ini.year - 1), date(fecha_dia.year - 1, 12, 31))
+    anio_anterior_mes = {mes_: anterior_por_mes.get(f"{int(mes_[:4]) - 1}{mes_[4:]}") for mes_ in meses_totales}
+    for fila in resumen_mensual:
+        prev = anio_anterior_mes.get(fila["mes"])
+        fila["anterior"] = prev
+        # el mes en curso (incompleto) se compara al mismo día del año anterior
+        fila["vs_anterior"] = (comparaciones[1]["variacion"] if fila["parcial_al"]
+                               else (fila["total"] / prev - 1) * 100 if prev else None)
 
     # Navegación por mes: fin del mes anterior / siguiente (sin pasar la última fecha cargada)
     mes_anterior = inicio_mes - timedelta(days=1)
@@ -445,6 +678,9 @@ def dashboard_view():
                            venta_productos_mes=venta_productos_mes,
                            ingresos=ingresos,
                            cartera=cartera,
+                           puntos=puntos, proyeccion=proyeccion, anio=anio, mes_ant_completo=mes_ant_completo,
+                           inv=inv, sinmov=sinmov, agot=agot, perdidas=perdidas, campanas=campanas, armados=armados,
+                           anio_anterior_mes=anio_anterior_mes,
                            total_general=total_general,
                            resumen_mensual=resumen_mensual,
                            total_credito=total_credito,

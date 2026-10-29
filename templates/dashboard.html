@@ -1,19 +1,47 @@
 {% extends "layout.html" %}
-{% block title %}Resumen de Ventas{% endblock %}
+{% block title %}Resumen Gerencial{% endblock %}
+{% macro mill(v) %}{{ ("C$ {:,.2f} M".format(v / 1000000)) if (v or 0)|abs >= 1000000 else "C$ {:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro delta(v, sufijo='%', dec=1) %}{% if v is not none %}<span class="{{ 'delta-pos' if v >= 0 else 'delta-neg' }}"><i class="bi {{ 'bi-arrow-up-right' if v >= 0 else 'bi-arrow-down-right' }}" aria-hidden="true"></i> {{ ("%+." ~ dec ~ "f")|format(v) }}{{ sufijo }}</span>{% else %}<span class="text-muted">—</span>{% endif %}{% endmacro %}
 {% block content %}
 {% set dias_semana = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo'] %}
 {% set meses_nombre = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
 <link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .dash h4 { color: var(--credito); }
+  .seccion { display: flex; align-items: center; gap: .5rem; margin: 1.4rem 0 .6rem; color: var(--ink); font-weight: 700; font-size: 1.02rem; }
+  .seccion .num-sec { display: inline-flex; width: 26px; height: 26px; border-radius: 50%; background: var(--credito); color: #fff;
+                      align-items: center; justify-content: center; font-size: .8rem; }
+  .seccion small { font-weight: 400; color: var(--ink-3); font-size: .8rem; }
+  /* Lo más importante */
+  .puntos { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: .5rem .9rem; }
+  .punto { display: flex; gap: .6rem; align-items: flex-start; padding: .55rem .7rem; border-radius: 8px; background: #faf9f6; border-left: 4px solid; }
+  .punto i { font-size: 1.15rem; line-height: 1.2; }
+  .punto .tit { font-weight: 700; font-size: .82rem; color: var(--ink); }
+  .punto .estado { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 0 6px; border-radius: 8px; margin-left: 4px; }
+  .punto .txt { font-size: .84rem; color: var(--ink-2); }
+  .punto.bien { border-color: #1a7f37; } .punto.bien i, .punto.bien .estado { color: #1a7f37; } .punto.bien .estado { background: #e7f4ea; }
+  .punto.atencion { border-color: #FE6412; } .punto.atencion i, .punto.atencion .estado { color: #b8480b; } .punto.atencion .estado { background: #fff1e8; }
+  .punto.alerta { border-color: #b42318; } .punto.alerta i, .punto.alerta .estado { color: #b42318; } .punto.alerta .estado { background: #fde8e8; }
+  .kpi .ir { font-size: .74rem; }
+  .kpi .valor.chico { font-size: clamp(1rem, 1.2vw, 1.3rem); }
+  .barra-avance { height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; margin: .35rem 0 .15rem; }
+  .barra-avance span { display: block; height: 100%; background: var(--credito); }
+  .lista-mini { font-size: .76rem; margin: .3rem 0 0; padding: 0; list-style: none; }
+  .lista-mini li { display: flex; justify-content: space-between; gap: .5rem; border-top: 1px dashed var(--grid); padding: .15rem 0; }
+  .lista-mini li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .clave-linea { display: inline-block; width: 16px; border-top: 2px dashed #8a8984; margin-right: 4px; vertical-align: 3px; }
+  .dash a:focus-visible, .dash .btn:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
 
 <div class="dash container-fluid px-3">
 
-  {# ---------- Encabezado y filtros (una sola fila, arriba de todo) ---------- #}
-  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3 pdf-bloque">
+  {# ---------- Encabezado y filtros ---------- #}
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3 mt-2 pdf-bloque">
     <div>
-      <h4 class="mb-0">Resumen de ventas · {{ meses_nombre[fecha_dia.month-1]|capitalize }} {{ fecha_dia.year }}</h4>
+      <h4 class="mb-0"><i class="bi bi-speedometer2" aria-hidden="true"></i> Resumen gerencial · {{ meses_nombre[fecha_dia.month-1]|capitalize }} {{ fecha_dia.year }}</h4>
       <div class="text-muted">
-        Del 1 al {{ fecha_dia.day }} de {{ meses_nombre[fecha_dia.month-1] }} de {{ fecha_dia.year }} ({{ dias_semana[fecha_dia.weekday()] }}, último día incluido)
-        <span class="solo-pdf"> · Grupo Comersa · Mensual desde {{ fecha_inicio }} · Generado el <span id="fecha-generado"></span></span>
+        Del 1 al {{ fecha_dia.day }} de {{ meses_nombre[fecha_dia.month-1] }} de {{ fecha_dia.year }} ({{ dias_semana[fecha_dia.weekday()] }}, último día con datos)
+        <span class="solo-pdf"> · Grupo Comersa · Generado el <span id="fecha-generado"></span></span>
         {% if ultima_fecha and fecha_dia != ultima_fecha %}<span data-html2canvas-ignore> · <a href="{{ url_for('dashboard.dashboard_view', fecha_inicio=fecha_inicio) }}">ir al último día cargado ({{ ultima_fecha.strftime('%d/%m/%Y') }})</a></span>{% endif %}
       </div>
     </div>
@@ -27,36 +55,54 @@
         </div>
       </div>
       <div>
-        <label class="form-label small mb-0">Mensual desde</label>
-        <input type="date" name="fecha_inicio" class="form-control form-control-sm" value="{{ fecha_inicio }}">
+        <label class="form-label small mb-0" for="fecha_inicio">Tendencia mensual desde</label>
+        <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control form-control-sm" value="{{ fecha_inicio }}">
       </div>
-      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel"></i> Aplicar</button>
-      <button type="button" id="btnPDF" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-pdf"></i> Descargar PDF</button>
+      <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Aplicar</button>
+      <button type="button" id="btnPDF" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Descargar PDF</button>
     </form>
   </div>
 
   {% if mes.facturas == 0 %}
     <div class="alert alert-warning" data-html2canvas-ignore>
-      <i class="bi bi-exclamation-triangle"></i> No hay ventas cargadas en este mes hasta esta fecha.
+      <i class="bi bi-exclamation-triangle" aria-hidden="true"></i> No hay ventas cargadas en este mes hasta esta fecha.
       {% if ultima_fecha %}La última fecha con ventas es <a href="{{ url_for('dashboard.dashboard_view', fecha_fin=ultima_fecha, fecha_inicio=fecha_inicio) }}">{{ ultima_fecha }}</a>.{% endif %}
       <a href="/cargar_ventas">Cargar ventas del día</a>
     </div>
   {% endif %}
 
-  {# ---------- Indicadores del mes ---------- #}
+  {# ---------- 1. Lo más importante ---------- #}
+  {% if puntos %}
+  {% set nombres_estado = {'bien': 'Bien', 'atencion': 'Atención', 'alerta': 'Alerta'} %}
+  {% set iconos_estado = {'bien': 'bi-check-circle-fill', 'atencion': 'bi-exclamation-circle-fill', 'alerta': 'bi-x-octagon-fill'} %}
+  <div class="card mb-3 pdf-bloque">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-1">
+      <span><i class="bi bi-lightbulb" aria-hidden="true"></i> Lo más importante del mes</span>
+      <small>{{ puntos | selectattr(0, 'equalto', 'alerta') | list | length }} alertas · {{ puntos | selectattr(0, 'equalto', 'atencion') | list | length }} para atención</small>
+    </div>
+    <div class="card-body p-2">
+      <div class="puntos">
+        {% for orden in ['alerta', 'atencion', 'bien'] %}{% for estado, titulo, texto in puntos if estado == orden %}
+        <div class="punto {{ estado }}">
+          <i class="bi {{ iconos_estado[estado] }}" aria-hidden="true"></i>
+          <div><div class="tit">{{ titulo }} <span class="estado">{{ nombres_estado[estado] }}</span></div><div class="txt">{{ texto }}</div></div>
+        </div>
+        {% endfor %}{% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ---------- 2. Indicadores del mes ---------- #}
   {% set pct_credito = (mes.credito / mes.neto * 100) if mes.neto else 0 %}
-  {% set pct_recup = (mes.recuperacion / mes.credito * 100) if mes.credito else None %}
-  <div class="row g-2 mb-3 pdf-bloque">
+  <div class="row g-2 mb-2 pdf-bloque">
     <div class="col-12 col-lg-4">
       <div class="card kpi kpi-hero">
         <div class="etiqueta">Venta neta del mes</div>
         <div class="valor">{{ mes.neto | cordobas }}</div>
         {% for c in comparaciones %}
         <div class="sub">
-          {% if c.variacion is not none %}
-            <span class="{{ 'delta-pos' if c.variacion >= 0 else 'delta-neg' }}">
-              <i class="bi {{ 'bi-arrow-up-right' if c.variacion >= 0 else 'bi-arrow-down-right' }}" aria-hidden="true"></i> {{ "%+.1f"|format(c.variacion) }}%
-            </span> vs. {{ c.etiqueta }} <span class="text-muted">({{ c.valor | cordobas }} al {{ c.hasta.strftime('%d/%m/%y') }})</span>
+          {% if c.variacion is not none %}{{ delta(c.variacion) }} vs. {{ c.etiqueta }} <span class="text-muted">({{ mill(c.valor) }} al {{ c.hasta.strftime('%d/%m/%y') }})</span>
           {% else %}<span class="text-muted">Sin ventas del {{ c.etiqueta }} para comparar</span>{% endif %}
         </div>
         {% endfor %}
@@ -67,90 +113,151 @@
           <span style="width: {{ 100 - pct_credito }}%; background: var(--contado)"></span>
         </div>
         <div class="sub d-flex justify-content-between">
-          <span><span class="clave" style="background: var(--credito)"></span>Crédito {{ mes.credito | cordobas }} ({{ "%.0f"|format(pct_credito) }}%)</span>
-          <span><span class="clave" style="background: var(--contado)"></span>Contado {{ mes.contado | cordobas }}</span>
+          <span><span class="clave" style="background: var(--credito)"></span>Crédito {{ mill(mes.credito) }} ({{ "%.0f"|format(pct_credito) }}%)</span>
+          <span><span class="clave" style="background: var(--contado)"></span>Contado {{ mill(mes.contado) }} ({{ "%.0f"|format(100 - pct_credito) }}%)</span>
         </div>
         {% endif %}
       </div>
     </div>
     <div class="col-6 col-lg-2">
       <div class="card kpi">
-        <div class="etiqueta">Promedio diario</div>
-        <div class="valor">{{ (mes.promedio or 0) | cordobas }}</div>
-        <div class="sub">{{ mes.dias|int }} días con venta<br>{{ "{:,.0f}".format(mes.facturas) }} facturas · {{ "{:,.0f}".format(mes.clientes) }} clientes</div>
-        <div class="sub">Ticket promedio {{ (mes.ticket or 0) | cordobas }}</div>
+        <div class="franja" style="background: var(--contado)"></div>
+        <div class="etiqueta">Proyección de cierre</div>
+        {% if proyeccion and proyeccion.restantes %}
+          <div class="valor">{{ mill(proyeccion.valor) }}</div>
+          <div class="barra-avance" role="img" aria-label="Avance del mes {{ '%.0f'|format(proyeccion.avance) }}%"><span style="width: {{ proyeccion.avance }}%"></span></div>
+          <div class="sub">{{ mes.dias|int }} de {{ mes.dias|int + proyeccion.restantes }} días hábiles</div>
+          {% if mes_ant_completo %}<div class="sub">{{ delta((proyeccion.valor / mes_ant_completo - 1) * 100, '%', 0) }} vs. mes anterior completo ({{ mill(mes_ant_completo) }})</div>{% endif %}
+          <div class="sub text-muted">Si se mantiene el promedio diario</div>
+        {% else %}
+          <div class="valor">{{ mill(mes.neto) }}</div><div class="sub">Mes completo</div>
+          {% if mes_ant_completo %}<div class="sub">{{ delta((mes.neto / mes_ant_completo - 1) * 100, '%', 0) }} vs. mes anterior</div>{% endif %}
+        {% endif %}
       </div>
     </div>
     <div class="col-6 col-lg-2">
       <div class="card kpi">
+        <div class="franja" style="background: var(--credito)"></div>
+        <div class="etiqueta">Acumulado del año</div>
+        <div class="valor">{{ mill(anio.actual) }}</div>
+        <div class="sub">{{ delta(anio.variacion) }} vs. {{ anio.anterior_desde.year }}</div>
+        <div class="sub text-muted">{{ mill(anio.anterior) }} del 1/1 al {{ anio.anterior_hasta.strftime('%d/%m/%Y') }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg-2">
+      <div class="card kpi">
+        <div class="franja" style="background: var(--credito)"></div>
         <div class="etiqueta">Margen bruto</div>
         <div class="valor">{{ "%.1f"|format(mes.margen) ~ "%" if mes.margen is not none else "—" }}</div>
-        <div class="sub">Utilidad<br>{{ mes.utilidad | cordobas }}</div>
+        <div class="sub">Utilidad {{ mill(mes.utilidad) }}</div>
+        {% if comparaciones[0].dif_margen is not none %}<div class="sub">{{ delta(comparaciones[0].dif_margen, ' pts') }} vs. mes anterior</div>{% endif %}
       </div>
     </div>
     <div class="col-6 col-lg-2">
       <div class="card kpi">
-        <div class="etiqueta">Recuperación del mes</div>
-        <div class="valor">{{ mes.recuperacion | cordobas }}</div>
-        <div class="sub">{{ "{:,}".format(mes.recibos) }} recibos de caja</div>
-        {% if pct_recup is not none %}<div class="sub"><strong>{{ "%.0f"|format(pct_recup) }}%</strong> de lo vendido al crédito en el mes</div>{% endif %}
-      </div>
-    </div>
-    <div class="col-6 col-lg-2">
-      <div class="card kpi">
-        <div class="etiqueta">Cartera de crédito</div>
-        <div class="valor">{{ cartera.saldo | cordobas }}</div>
-        <div class="sub">Vencido <strong class="{{ 'delta-neg' if (cartera.pct_vencido or 0) >= 30 }}">{{ cartera.vencido | cordobas }}
-          ({{ "%.0f"|format(cartera.pct_vencido) if cartera.pct_vencido is not none else 0 }}%)</strong></div>
-        <div class="sub">{% if cartera.dias %}Cobran en {{ cartera.dias|round(0)|int }} días promedio{% endif %}</div>
+        <div class="franja" style="background: var(--contado)"></div>
+        <div class="etiqueta">Promedio por día</div>
+        <div class="valor">{{ mill(mes.promedio or 0) }}</div>
+        <div class="sub">{{ "{:,.0f}".format(mes.facturas) }} facturas · {{ "{:,.0f}".format(mes.clientes) }} clientes</div>
+        <div class="sub">Ticket promedio {{ mill(mes.ticket or 0) }}</div>
       </div>
     </div>
   </div>
+  <div class="small text-muted mb-1">Venta neta = facturado sin IVA y sin anuladas − devoluciones cerradas. El cuadre con IVA para Finanzas está en
+    <a href="{{ url_for('ventas_dia.reporte', fecha_inicio=mes.inicio.isoformat(), fecha_fin=fecha_fin) }}" data-html2canvas-ignore>Ventas por día</a><span class="solo-pdf">Ventas por día</span>.</div>
 
-  {# ---------- Top 10 productos del mes ---------- #}
+  {# ---------- 3. Tendencia mensual ---------- #}
+  <div class="seccion"><span class="num-sec">1</span> Ventas mes a mes <small>contra el mismo mes del año anterior</small></div>
   <div class="card mb-3 pdf-bloque">
-    <div class="card-header d-flex justify-content-between">
-      <span><i class="bi bi-trophy"></i> Top 10 productos del mes</span>
-      <small>por venta neta · {{ "{:,}".format(total_productos_mes) }} productos vendidos · C$ {{ "{:,.2f}".format(venta_productos_mes) }}</small>
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-1">
+      <span><i class="bi bi-bar-chart" aria-hidden="true"></i> Ventas netas por mes <small>{{ fecha_inicio }} a {{ fecha_fin }}</small></span>
+      <span class="small fw-normal">
+        <span class="clave" style="background: var(--credito)"></span>Crédito
+        <span class="clave ms-2" style="background: var(--contado)"></span>Contado
+        <span class="clave-linea ms-2"></span>Mismo mes año anterior
+      </span>
     </div>
     <div class="card-body p-2">
-      {% if top_productos %}
-      {% set max_venta = top_productos[0].venta or 1 %}
-      <div class="table-responsive">
+      <div class="grafico" style="height: 300px"><canvas id="graficoVentasMensuales" aria-label="Ventas netas por mes, crédito y contado, con el año anterior" role="img"></canvas></div>
+      <div class="table-responsive mt-3">
         <table class="table table-sm table-hover tabla">
           <thead><tr>
-            <th>#</th><th>Segmento</th><th>Nº de parte</th><th>Descripción</th><th>Marca</th>
-            <th class="num">Unid.</th><th>Venta neta</th><th class="num">Margen</th><th class="num">% del mes</th>
+            <th>Mes</th><th class="num">Días</th><th class="num">Facturas</th>
+            <th class="num"><span class="clave" style="background: var(--credito)"></span>Crédito</th>
+            <th class="num"><span class="clave" style="background: var(--contado)"></span>Contado</th>
+            <th class="num">Total neto</th><th class="num">% crédito</th>
+            <th class="num">Prom. diario</th><th class="num" title="Variación del promedio diario contra el mes anterior">vs. mes ant.</th>
+            <th class="num">Año anterior</th><th class="num" title="Contra el mismo mes del año anterior (el mes en curso, al mismo día)">vs. año ant.</th>
+            <th class="num">Margen bruto</th>
           </tr></thead>
           <tbody>
-            {% for p in top_productos %}
+            {% for m in resumen_mensual %}
+            {% set anio_m, num_mes = m.mes.split('-') %}
             <tr>
-              <td><span class="rank {{ 'top3' if loop.index <= 3 }}">{{ loop.index }}</span></td>
-              <td>{% if p.segmento %}<span class="segmento">{{ p.segmento }}</span>{% else %}<span class="text-muted small" title="Sin clasificación">—</span>{% endif %}</td>
-              <td><strong>{{ p.numero_parte or "—" }}</strong><div class="small text-muted">{{ p.codigo }}</div></td>
-              <td class="desc">{{ p.descripcion }}{% if p.familia %}<div class="small text-muted">{{ p.familia }}</div>{% endif %}</td>
-              <td>{{ p.marca or "" }}</td>
-              <td class="num">{{ "{:,.0f}".format(p.unidades) if p.unidades == p.unidades|int else "{:,.2f}".format(p.unidades) }}</td>
-              <td class="barra-celda"><span class="barra" style="width: {{ (p.venta / max_venta * 100)|round(1) }}%"></span><span class="txt">{{ p.venta | cordobas }}</span></td>
-              <td class="num">{{ "%.1f"|format(p.margen) ~ "%" if p.margen is not none else "—" }}</td>
-              <td class="num">{{ "%.1f"|format(p.venta / venta_productos_mes * 100) if venta_productos_mes else 0 }}%</td>
+              <td>{{ meses_nombre[num_mes|int - 1]|capitalize }} {{ anio_m }}{% if m.parcial_al %} <span class="text-muted small">(al {{ m.parcial_al }})</span>{% endif %}</td>
+              <td class="num">{{ m.dias }}</td>
+              <td class="num">{{ "{:,}".format(m.facturas) }}</td>
+              <td class="num">{{ m.credito | cordobas }}</td>
+              <td class="num">{{ m.contado | cordobas }}</td>
+              <td class="num fw-bold">{{ m.total | cordobas }}</td>
+              <td class="num">{{ "%.0f"|format(m.pct_credito) ~ "%" if m.pct_credito is not none else "—" }}</td>
+              <td class="num">{{ m.promedio | cordobas if m.promedio else "—" }}</td>
+              <td class="num">{{ delta(m.variacion) }}</td>
+              <td class="num text-muted">{{ m.anterior | cordobas if m.anterior else "—" }}</td>
+              <td class="num">{{ delta(m.vs_anterior) }}</td>
+              <td class="num">{{ "%.1f"|format(m.margen) ~ "%" if m.margen is not none else "—" }}</td>
             </tr>
             {% endfor %}
+            {% set t_dias = resumen_mensual | sum(attribute='dias') %}
+            {% set t_cred = resumen_mensual | sum(attribute='credito') %}
+            {% set t_total = resumen_mensual | sum(attribute='total') %}
+            <tr class="total">
+              <td>Total</td>
+              <td class="num">{{ t_dias }}</td>
+              <td class="num">{{ "{:,}".format(resumen_mensual | sum(attribute='facturas')) }}</td>
+              <td class="num">{{ t_cred | cordobas }}</td>
+              <td class="num">{{ resumen_mensual | sum(attribute='contado') | cordobas }}</td>
+              <td class="num">{{ t_total | cordobas }}</td>
+              <td class="num">{{ "%.0f"|format(t_cred / t_total * 100) ~ "%" if t_total else "—" }}</td>
+              <td class="num">{{ (t_total / t_dias) | cordobas if t_dias else "—" }}</td>
+              <td colspan="4"></td>
+            </tr>
           </tbody>
         </table>
+        <div class="small text-muted">Crédito, contado y total son netos de devoluciones. «vs. mes ant.» compara el promedio diario, para que el mes en curso sea comparable aunque esté incompleto; «vs. año ant.» del mes en curso compara al mismo día del año anterior.</div>
       </div>
-      {% else %}
-        <div class="vacio">Sin ventas por producto cargadas para este mes.</div>
-      {% endif %}
+      <details data-html2canvas-ignore class="mt-2">
+        <summary class="small">Ver detalle por vendedor y mes</summary>
+        <div class="table-responsive mt-1">
+          <table class="table table-sm table-hover tabla">
+            <thead><tr><th>Vendedor</th>{% for mes_ in meses_totales %}<th class="num">{{ mes_ }}</th>{% endfor %}<th class="num">Total</th></tr></thead>
+            <tbody>
+              {% for vendedor in vendedores_ordenados %}
+              <tr>
+                <td>{{ vendedor }}</td>
+                {% for mes_ in meses_totales %}<td class="num">{{ (ventas_totales[vendedor][mes_] if mes_ in ventas_totales[vendedor] else 0) | cordobas }}</td>{% endfor %}
+                <td class="num fw-bold">{{ ventas_totales[vendedor].values() | sum | cordobas }}</td>
+              </tr>
+              {% endfor %}
+              <tr class="total">
+                <td>Total</td>
+                {% for mes_ in meses_totales %}<td class="num">{{ (totales_por_mes_credito[mes_] + totales_por_mes_contado[mes_]) | cordobas }}</td>{% endfor %}
+                <td class="num">{{ total_general | cordobas }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   </div>
 
-  {# ---------- Vendedores y marcas del mes ---------- #}
+  {# ---------- 4. Vendedores, marcas y productos ---------- #}
+  <div class="seccion"><span class="num-sec">2</span> Quién y qué vende <small>mes en curso</small></div>
   <div class="row g-3 mb-3 pdf-bloque">
     <div class="col-lg-7">
       <div class="card h-100">
         <div class="card-header d-flex justify-content-between align-items-center">
-          <span><i class="bi bi-people"></i> Ranking de vendedores del mes</span>
+          <span><i class="bi bi-people" aria-hidden="true"></i> Ranking de vendedores</span>
           <span class="small fw-normal">
             <span class="clave" style="background: var(--credito)"></span>Crédito
             <span class="clave ms-2" style="background: var(--contado)"></span>Contado
@@ -164,13 +271,14 @@
           <details data-html2canvas-ignore class="mt-2">
             <summary class="small">Ver tabla</summary>
             <table class="table table-sm tabla mt-1">
-              <thead><tr><th>#</th><th>Vendedor</th><th class="num">Crédito</th><th class="num">Contado</th><th class="num">Total neto</th></tr></thead>
+              <thead><tr><th>#</th><th>Vendedor</th><th class="num">Crédito</th><th class="num">Contado</th><th class="num">Total neto</th><th class="num">%</th></tr></thead>
               <tbody>
                 {% for r in ranking_vendedores_mes %}
                 <tr><td>{{ loop.index }}</td><td>{{ r.Vendedor }}</td><td class="num">{{ r.Credito | cordobas }}</td>
-                    <td class="num">{{ r.Contado | cordobas }}</td><td class="num">{{ r.Neto_Ajustado | cordobas }}</td></tr>
+                    <td class="num">{{ r.Contado | cordobas }}</td><td class="num">{{ r.Neto_Ajustado | cordobas }}</td>
+                    <td class="num">{{ "%.1f"|format(r.Neto_Ajustado / total_neto * 100) if total_neto else 0 }}%</td></tr>
                 {% endfor %}
-                <tr class="total"><td></td><td>Total</td><td class="num">{{ total_credito | cordobas }}</td><td class="num">{{ total_contado | cordobas }}</td><td class="num">{{ total_neto | cordobas }}</td></tr>
+                <tr class="total"><td></td><td>Total</td><td class="num">{{ total_credito | cordobas }}</td><td class="num">{{ total_contado | cordobas }}</td><td class="num">{{ total_neto | cordobas }}</td><td></td></tr>
               </tbody>
             </table>
           </details>
@@ -181,7 +289,7 @@
     <div class="col-lg-5">
       <div class="card h-100">
         <div class="card-header d-flex justify-content-between">
-          <span><i class="bi bi-award"></i> Ranking de marcas del mes</span>
+          <span><i class="bi bi-award" aria-hidden="true"></i> Marcas que más venden</span>
           <small>top 10 de {{ ranking_marcas_mes|length }}</small>
         </div>
         <div class="card-body p-2">
@@ -216,13 +324,102 @@
     </div>
   </div>
 
-  {# ---------- Ingresos de mercadería y cartera ---------- #}
+  <div class="card mb-3 pdf-bloque">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-1">
+      <span><i class="bi bi-trophy" aria-hidden="true"></i> Top 10 productos del mes</span>
+      <small>por venta neta · {{ "{:,}".format(total_productos_mes) }} productos vendidos · {{ venta_productos_mes | cordobas }}</small>
+    </div>
+    <div class="card-body p-2">
+      {% if top_productos %}
+      {% set max_venta = top_productos[0].venta or 1 %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover tabla">
+          <thead><tr>
+            <th>#</th><th>Segmento</th><th>Nº de parte</th><th>Descripción</th><th>Marca</th>
+            <th class="num">Unid.</th><th>Venta neta</th><th class="num">Margen</th><th class="num">% del mes</th>
+          </tr></thead>
+          <tbody>
+            {% for p in top_productos %}
+            <tr>
+              <td><span class="rank {{ 'top3' if loop.index <= 3 }}">{{ loop.index }}</span></td>
+              <td>{% if p.segmento %}<span class="segmento">{{ p.segmento }}</span>{% else %}<span class="text-muted small" title="Sin clasificación">—</span>{% endif %}</td>
+              <td><strong>{{ p.numero_parte or "—" }}</strong><div class="small text-muted">{{ p.codigo }}</div></td>
+              <td class="desc">{{ p.descripcion }}{% if p.familia %}<div class="small text-muted">{{ p.familia }}</div>{% endif %}</td>
+              <td>{{ p.marca or "" }}</td>
+              <td class="num">{{ "{:,.0f}".format(p.unidades) if p.unidades == p.unidades|int else "{:,.2f}".format(p.unidades) }}</td>
+              <td class="barra-celda"><span class="barra" style="width: {{ (p.venta / max_venta * 100)|round(1) }}%"></span><span class="txt">{{ p.venta | cordobas }}</span></td>
+              <td class="num">{{ "%.1f"|format(p.margen) ~ "%" if p.margen is not none else "—" }}</td>
+              <td class="num">{{ "%.1f"|format(p.venta / venta_productos_mes * 100) if venta_productos_mes else 0 }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="vacio">Sin ventas por producto cargadas para este mes.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- 5. Inventario y compras ---------- #}
+  <div class="seccion"><span class="num-sec">3</span> Inventario y compras <small>existencias al último día cargado</small></div>
+  <div class="row g-2 mb-3 pdf-bloque">
+    <div class="col-6 col-lg">
+      <div class="card kpi">
+        <div class="franja" style="background: var(--credito)"></div>
+        <div class="etiqueta">Inventario al costo</div>
+        <div class="valor">{{ mill(inv.total) }}</div>
+        <div class="sub">{{ "{:,}".format(inv.productos) }} productos con existencia</div>
+        <div class="sub">Para vender {{ mill(inv.disponible) }} · en NHE, consumo y ejército {{ mill(inv.no_disponible) }}</div>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="card kpi">
+        <div class="franja" style="background: #b42318"></div>
+        <div class="etiqueta">Sin vender en {{ sinmov.meses }}+ meses</div>
+        <div class="valor">{{ mill(sinmov.valor) }}</div>
+        <div class="sub"><strong>{{ "%.0f"|format(sinmov.valor / inv.total * 100) if inv.total else 0 }}%</strong> del inventario · {{ "{:,}".format(sinmov.productos) }} productos</div>
+        <ul class="lista-mini">{% for marca, valor in sinmov.marcas[:3] %}<li><span>{{ marca }}</span><span>{{ mill(valor) }}</span></li>{% endfor %}</ul>
+        <a class="ir" href="/productos_sin_movimiento?meses={{ sinmov.meses }}" data-html2canvas-ignore>Ver productos y precios</a>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="card kpi">
+        <div class="franja" style="background: var(--contado)"></div>
+        <div class="etiqueta">Buen movimiento por agotarse</div>
+        <div class="valor">{{ "{:,}".format(agot.productos) }} <span class="fs-6 fw-normal text-muted">productos</span></div>
+        <div class="sub"><strong class="delta-neg">{{ agot.agotados }}</strong> ya agotados{% if agot.con_equivalente %} ({{ agot.con_equivalente }} con equivalente disponible){% endif %}</div>
+        <div class="sub">Reponer {{ agot.cobertura }} meses ≈ {{ mill(agot.costo) }}</div>
+        <div data-html2canvas-ignore><a class="ir" href="/productos_agotarse">Ver cuáles</a> · <a class="ir" href="/sugerido_compras">Sugerido de compras</a></div>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="card kpi">
+        <div class="franja" style="background: var(--contado)"></div>
+        <div class="etiqueta">Ventas perdidas del mes</div>
+        <div class="valor">{{ "{:,}".format(perdidas.registros) }} <span class="fs-6 fw-normal text-muted">registros</span></div>
+        <div class="sub">{{ "{:,.0f}".format(perdidas.unidades) }} unidades que el cliente pidió</div>
+        <ul class="lista-mini">{% for m in perdidas.motivos[:3] %}<li><span>{{ m.motivo or 'Sin motivo' }}</span><span>{{ m.registros }}</span></li>{% endfor %}</ul>
+        <a class="ir" href="/ventas_perdidas" data-html2canvas-ignore>Ver registros</a>
+      </div>
+    </div>
+    <div class="col-6 col-lg">
+      <div class="card kpi">
+        <div class="franja" style="background: var(--credito)"></div>
+        <div class="etiqueta">Campañas de marketing activas</div>
+        <div class="valor">{{ campanas|length }}</div>
+        <ul class="lista-mini">{% for c in campanas[:3] %}<li><span>{{ c.nombre }}</span><span>{{ c.productos }} prod.</span></li>{% else %}<li><span class="text-muted">Ninguna activa</span><span></span></li>{% endfor %}</ul>
+        <a class="ir" href="/campanas_mkt" data-html2canvas-ignore>Ver resultados</a>
+      </div>
+    </div>
+  </div>
+
   {% set costo_vendido = mes.facturado - mes.utilidad %}
   <div class="row g-3 mb-3 pdf-bloque">
     <div class="col-lg-7">
       <div class="card h-100">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-1">
-          <span><i class="bi bi-box-arrow-in-down"></i> Ingresos de mercadería del mes por proveedor</span>
+          <span><i class="bi bi-box-arrow-in-down" aria-hidden="true"></i> Compras que ingresaron en el mes, por proveedor</span>
           <small>{{ ingresos.documentos }} documentos · {{ "{:,}".format(ingresos.productos) }} productos · {{ ingresos.total | cordobas }} al costo</small>
         </div>
         <div class="card-body p-2">
@@ -262,10 +459,50 @@
     <div class="col-lg-5">
       <div class="card h-100">
         <div class="card-header d-flex justify-content-between">
-          <span><i class="bi bi-hourglass-split"></i> Cartera de crédito al {{ fecha_dia.strftime('%d/%m/%Y') }}</span>
+          <span><i class="bi bi-hourglass-split" aria-hidden="true"></i> Lo que más se vende y se está acabando</span>
+          <small>top 5</small>
+        </div>
+        <div class="card-body p-2">
+          {% if agot.top %}
+          <table class="table table-sm tabla">
+            <thead><tr><th>Producto</th><th class="num">Vende/mes</th><th class="num">Disponible</th><th class="num">Alcanza</th></tr></thead>
+            <tbody>
+              {% for x in agot.top %}
+              <tr>
+                <td class="desc"><strong>{{ x.numero_parte or x.codigo }}</strong> · {{ x.marca }}<div class="small text-muted">{{ x.nombre[:46] }}</div></td>
+                <td class="num">{{ "{:,.0f}".format(x.promedio) }}</td>
+                <td class="num">{{ "{:,.0f}".format([x.disponible, 0]|max) }}</td>
+                <td class="num">{% if x.disponible <= 0 %}<span class="delta-neg">Agotado</span>{% else %}{{ "%.1f"|format(x.cobertura) }} m{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <div class="small text-muted">Productos que se venden casi todos los meses, ordenados primero los agotados y luego por lo que más se vende.</div>
+          {% else %}<div class="vacio">No hay productos de buen movimiento por agotarse.</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- 6. Cobranza ---------- #}
+  {% set pct_recup = (mes.recuperacion / mes.credito * 100) if mes.credito else None %}
+  <div class="seccion"><span class="num-sec">4</span> Cobranza <small>cartera de crédito y recuperación</small></div>
+  <div class="row g-3 mb-3 pdf-bloque">
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between">
+          <span><i class="bi bi-wallet2" aria-hidden="true"></i> Cartera al {{ fecha_dia.strftime('%d/%m/%Y') }}</span>
           <small>{{ cartera.saldo | cordobas }}</small>
         </div>
         <div class="card-body p-2">
+          <div class="row g-2 mb-2">
+            <div class="col-6"><div class="kpi p-0"><div class="etiqueta">Vencido</div>
+              <div class="valor chico {{ 'delta-neg' if (cartera.pct_vencido or 0) >= 30 }}">{{ mill(cartera.vencido) }} ({{ "%.0f"|format(cartera.pct_vencido or 0) }}%)</div>
+              <div class="sub">{% if cartera.dias %}Cobran en {{ cartera.dias|round(0)|int }} días promedio{% endif %}</div></div></div>
+            <div class="col-6"><div class="kpi p-0"><div class="etiqueta">Recuperación del mes</div>
+              <div class="valor chico">{{ mill(mes.recuperacion) }}</div>
+              <div class="sub">{{ "{:,}".format(mes.recibos) }} recibos{% if pct_recup is not none %} · {{ "%.0f"|format(pct_recup) }}% de lo vendido al crédito{% endif %}</div></div></div>
+          </div>
           {% set max_tramo = (cartera.tramos | map(attribute='monto') | max) or 1 %}
           <table class="table table-sm tabla mb-2">
             <thead><tr><th>Antigüedad</th><th class="num">Facturas</th><th>Saldo</th><th class="num">%</th></tr></thead>
@@ -286,111 +523,40 @@
         </div>
       </div>
     </div>
-  </div>
-
-  {# ---------- Ventas mensuales ---------- #}
-  <div class="card mb-3 pdf-bloque">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <span><i class="bi bi-bar-chart"></i> Ventas mensuales <small>{{ fecha_inicio }} a {{ fecha_fin }}</small></span>
-      <span class="small fw-normal">
-        <span class="clave" style="background: var(--credito)"></span>Crédito
-        <span class="clave ms-2" style="background: var(--contado)"></span>Contado
-      </span>
-    </div>
-    <div class="card-body p-2">
-      <div class="grafico" style="height: 300px"><canvas id="graficoVentasMensuales" aria-label="Ventas netas por mes, crédito y contado" role="img"></canvas></div>
-
-      {# Tabla de ventas por mes (netas de devoluciones) #}
-      <div class="table-responsive mt-3">
-        <table class="table table-sm table-hover tabla">
-          <thead><tr>
-            <th>Mes</th><th class="num">Días</th><th class="num">Facturas</th>
-            <th class="num"><span class="clave" style="background: var(--credito)"></span>Crédito</th>
-            <th class="num"><span class="clave" style="background: var(--contado)"></span>Contado</th>
-            <th class="num">Total neto</th><th class="num">% crédito</th>
-            <th class="num">Prom. diario</th><th class="num" title="Variación del promedio diario contra el mes anterior">vs. mes ant.</th>
-            <th class="num">Margen bruto</th>
-          </tr></thead>
-          <tbody>
-            {% for m in resumen_mensual %}
-            {% set anio, num_mes = m.mes.split('-') %}
-            <tr>
-              <td>{{ meses_nombre[num_mes|int - 1]|capitalize }} {{ anio }}{% if m.parcial_al %} <span class="text-muted small">(al {{ m.parcial_al }})</span>{% endif %}</td>
-              <td class="num">{{ m.dias }}</td>
-              <td class="num">{{ "{:,}".format(m.facturas) }}</td>
-              <td class="num">{{ m.credito | cordobas }}</td>
-              <td class="num">{{ m.contado | cordobas }}</td>
-              <td class="num fw-bold">{{ m.total | cordobas }}</td>
-              <td class="num">{{ "%.0f"|format(m.pct_credito) ~ "%" if m.pct_credito is not none else "—" }}</td>
-              <td class="num">{{ m.promedio | cordobas if m.promedio else "—" }}</td>
-              <td class="num">
-                {% if m.variacion is not none %}
-                  <span class="{{ 'delta-pos' if m.variacion >= 0 else 'delta-neg' }}"><i class="bi {{ 'bi-arrow-up-right' if m.variacion >= 0 else 'bi-arrow-down-right' }}"></i> {{ "%+.1f"|format(m.variacion) }}%</span>
-                {% else %}—{% endif %}
-              </td>
-              <td class="num">{{ "%.1f"|format(m.margen) ~ "%" if m.margen is not none else "—" }}</td>
-            </tr>
-            {% endfor %}
-            {% set t_dias = resumen_mensual | sum(attribute='dias') %}
-            {% set t_cred = resumen_mensual | sum(attribute='credito') %}
-            {% set t_total = resumen_mensual | sum(attribute='total') %}
-            <tr class="total">
-              <td>Total</td>
-              <td class="num">{{ t_dias }}</td>
-              <td class="num">{{ "{:,}".format(resumen_mensual | sum(attribute='facturas')) }}</td>
-              <td class="num">{{ t_cred | cordobas }}</td>
-              <td class="num">{{ resumen_mensual | sum(attribute='contado') | cordobas }}</td>
-              <td class="num">{{ t_total | cordobas }}</td>
-              <td class="num">{{ "%.0f"|format(t_cred / t_total * 100) ~ "%" if t_total else "—" }}</td>
-              <td class="num">{{ (t_total / t_dias) | cordobas if t_dias else "—" }}</td>
-              <td></td><td></td>
-            </tr>
-          </tbody>
-        </table>
-        <div class="small text-muted">Crédito, contado y total son netos de devoluciones. La variación compara el promedio diario, para que el mes en curso sea comparable aunque esté incompleto. El margen bruto es sobre lo facturado.</div>
-      </div>
-      <details data-html2canvas-ignore class="mt-2">
-        <summary class="small">Ver detalle por vendedor y mes</summary>
-        <div class="table-responsive mt-1">
-          <table class="table table-sm table-hover tabla">
-            <thead><tr><th>Vendedor</th>{% for mes_ in meses_totales %}<th class="num">{{ mes_ }}</th>{% endfor %}<th class="num">Total</th></tr></thead>
-            <tbody>
-              {% for vendedor in vendedores_ordenados %}
-              <tr>
-                <td>{{ vendedor }}</td>
-                {% for mes_ in meses_totales %}<td class="num">{{ (ventas_totales[vendedor][mes_] if mes_ in ventas_totales[vendedor] else 0) | cordobas }}</td>{% endfor %}
-                <td class="num fw-bold">{{ ventas_totales[vendedor].values() | sum | cordobas }}</td>
-              </tr>
-              {% endfor %}
-              <tr class="total">
-                <td>Total</td>
-                {% for mes_ in meses_totales %}<td class="num">{{ (totales_por_mes_credito[mes_] + totales_por_mes_contado[mes_]) | cordobas }}</td>{% endfor %}
-                <td class="num">{{ total_general | cordobas }}</td>
-              </tr>
-            </tbody>
-          </table>
+    <div class="col-lg-7">
+      <div class="card h-100">
+        <div class="card-header"><i class="bi bi-cash-stack" aria-hidden="true"></i> Recuperación por mes <small>recibos de caja</small></div>
+        <div class="card-body p-2">
+          <div class="grafico" style="height: 240px"><canvas id="graficoRecuperacionMensual" aria-label="Recuperación por mes" role="img"></canvas></div>
+          <details data-html2canvas-ignore class="mt-2">
+            <summary class="small">Ver tabla</summary>
+            <table class="table table-sm tabla">
+              <thead><tr><th>Mes</th><th class="num">Recibos</th><th class="num">Total</th></tr></thead>
+              <tbody>
+                {% for r in recuperacion_mes %}
+                <tr><td>{{ r.Mes }}</td><td class="num">{{ r.Cantidad }}</td><td class="num">{{ r.TotalCordobas | cordobas }}</td></tr>
+                {% endfor %}
+                <tr class="total"><td>Total</td><td class="num">{{ recuperacion_mes | sum(attribute='Cantidad') }}</td><td class="num">{{ recuperacion_mes | sum(attribute='TotalCordobas') | cordobas }}</td></tr>
+              </tbody>
+            </table>
+          </details>
         </div>
-      </details>
+      </div>
     </div>
   </div>
 
-  {# ---------- Recuperación mensual ---------- #}
-  <div class="card mb-4 pdf-bloque">
-    <div class="card-header"><i class="bi bi-cash-stack"></i> Recuperación mensual <small>recibos de caja</small></div>
-    <div class="card-body p-2 row g-2">
-      <div class="col-lg-8"><div class="grafico" style="height: 260px"><canvas id="graficoRecuperacionMensual" aria-label="Recuperación por mes" role="img"></canvas></div></div>
-      <div class="col-lg-4">
-        <table class="table table-sm tabla">
-          <thead><tr><th>Mes</th><th class="num">Recibos</th><th class="num">Total</th></tr></thead>
-          <tbody>
-            {% for r in recuperacion_mes %}
-            <tr><td>{{ r.Mes }}</td><td class="num">{{ r.Cantidad }}</td><td class="num">{{ r.TotalCordobas | cordobas }}</td></tr>
-            {% endfor %}
-            <tr class="total"><td>Total</td><td class="num">{{ recuperacion_mes | sum(attribute='Cantidad') }}</td><td class="num">{{ recuperacion_mes | sum(attribute='TotalCordobas') | cordobas }}</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+  {# ---------- 7. Taller ---------- #}
+  <div class="seccion"><span class="num-sec">5</span> Taller de mangueras <small>armados del mes</small></div>
+  <div class="row g-2 mb-4 pdf-bloque">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Mangueras armadas</div>
+      <div class="valor">{{ "{:,.0f}".format(armados.mangueras or 0) }}</div><div class="sub">en {{ "{:,.0f}".format(armados.facturas or 0) }} facturas</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Venta de armados</div>
+      <div class="valor">{{ mill(armados.neto or 0) }}</div><div class="sub">{{ "%.1f"|format((armados.neto or 0) / mes.neto * 100) if mes.neto else 0 }}% de la venta del mes</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Mano de obra cobrada</div>
+      <div class="valor">{{ mill(armados.mano_obra or 0) }}</div><div class="sub">{% if armados.mangueras %}{{ mill(armados.mano_obra / armados.mangueras) }} por manguera{% endif %}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Margen de armados</div>
+      <div class="valor">{{ "%.1f"|format(armados.margen) ~ "%" if armados.margen is not none else "—" }}</div>
+      <div class="sub">Utilidad {{ mill(armados.utilidad or 0) }} · <a href="/reporte_armados" data-html2canvas-ignore>Ver detalle</a></div></div></div>
   </div>
 </div>
 {% endblock %}
@@ -424,10 +590,10 @@ document.getElementById('btnPDF').addEventListener('click', async (e) => {
     const paginas = pdf.getNumberOfPages();
     for (let i = 1; i <= paginas; i++) {
       pdf.setPage(i); pdf.setFontSize(8); pdf.setTextColor(140);
-      pdf.text('Grupo Comersa · Resumen de ventas {{ fecha_dia.strftime("%m/%Y") }} (al {{ fecha_dia.strftime("%d/%m/%Y") }})', M, H - 12);
+      pdf.text('Grupo Comersa · Resumen gerencial {{ fecha_dia.strftime("%m/%Y") }} (al {{ fecha_dia.strftime("%d/%m/%Y") }})', M, H - 12);
       pdf.text(`Página ${i} de ${paginas}`, W - M, H - 12, { align: 'right' });
     }
-    pdf.save('resumen_ventas_{{ fecha_fin }}.pdf');
+    pdf.save('resumen_gerencial_{{ fecha_fin }}.pdf');
   } catch (err) {
     console.error(err);
     btn.insertAdjacentHTML('afterend', '<span class="text-danger small ms-2">No se pudo generar el PDF</span>');
@@ -444,7 +610,6 @@ document.getElementById('btnPDF').addEventListener('click', async (e) => {
   const C = { credito: v('--credito'), contado: v('--contado'), neutro: v('--neutro'), grid: v('--grid'),
               ink2: v('--ink-2'), ink3: v('--ink-3'), surface: v('--surface') };
 
-  const cordobas = new Intl.NumberFormat('es-NI', { style: 'currency', currency: 'NIO', currencyDisplay: 'code', maximumFractionDigits: 2 });
   const fmt = (n) => 'C$ ' + new Intl.NumberFormat('es-NI', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
   const compacto = (n) => 'C$ ' + new Intl.NumberFormat('es-NI', { notation: 'compact', maximumFractionDigits: 1 }).format(n);
 
@@ -454,11 +619,11 @@ document.getElementById('btnPDF').addEventListener('click', async (e) => {
   Chart.defaults.plugins.legend.display = false;   // la leyenda va en el encabezado de cada tarjeta
   Chart.defaults.plugins.tooltip.callbacks.label = (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed[ctx.chart.options.indexAxis === 'y' ? 'x' : 'y'])}`;
   Chart.defaults.maintainAspectRatio = false;
+  Chart.defaults.animation = false;                // el PDF captura los gráficos completos
 
   const ejeValor = { beginAtZero: true, grid: { color: C.grid, drawTicks: false }, border: { display: false },
                      ticks: { callback: (n) => compacto(n), color: C.ink3, padding: 6 } };
   const ejeCategoria = { grid: { display: false }, border: { color: C.grid }, ticks: { color: C.ink2 } };
-  // Barra: ≤ 24px, extremo redondeado 4px, 2px de separación en color de superficie
   const barra = (label, data, color, extra = {}) => Object.assign({
     label, data, backgroundColor: color, maxBarThickness: 24, borderColor: C.surface, borderWidth: 0,
     borderRadius: 4, borderSkipped: 'start'
@@ -468,7 +633,8 @@ document.getElementById('btnPDF').addEventListener('click', async (e) => {
     afterDatasetsDraw(chart, _a, opts) {
       if (!opts || !opts.totales) return;
       const { ctx } = chart, horizontal = chart.options.indexAxis === 'y';
-      const ultimo = chart.getDatasetMeta(chart.data.datasets.length - 1);
+      const indice = opts.dataset != null ? opts.dataset : chart.data.datasets.length - 1;
+      const ultimo = chart.getDatasetMeta(indice);
       ctx.save(); ctx.fillStyle = C.ink2; ctx.font = "600 11px 'Segoe UI', Arial";
       ultimo.data.forEach((el, i) => {
         const t = opts.totales[i]; if (t == null) return;
@@ -502,7 +668,7 @@ document.getElementById('btnPDF').addEventListener('click', async (e) => {
   });
   {% endif %}
 
-  // ---- Marcas del mes: una serie, un color (el resto de marcas va en la nota y en la tabla) ----
+  // ---- Marcas del mes ----
   {% if top_marcas %}
   const marcas = {
     nombres: {{ top_marcas | map(attribute='Marca') | list | tojson }},
@@ -518,7 +684,7 @@ document.getElementById('btnPDF').addEventListener('click', async (e) => {
   });
   {% endif %}
 
-  // ---- Ingresos del mes por proveedor: una serie (el resto en "Otros") ----
+  // ---- Ingresos del mes por proveedor ----
   {% if ingresos.top %}
   const ingresos = {
     nombres: {{ (ingresos.top | map(attribute='proveedor') | list + ([ingresos.otros.proveedor] if ingresos.otros else [])) | tojson }},
@@ -534,32 +700,37 @@ document.getElementById('btnPDF').addEventListener('click', async (e) => {
   });
   {% endif %}
 
-  // ---- Ventas mensuales: columnas apiladas crédito + contado ----
+  // ---- Ventas mensuales: columnas apiladas crédito + contado y línea del año anterior ----
   const meses = {{ meses_totales | tojson }};
+  const nombresMes = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   const mesCredito = meses.map(m => ({{ totales_por_mes_credito | tojson }})[m] || 0);
   const mesContado = meses.map(m => ({{ totales_por_mes_contado | tojson }})[m] || 0);
+  const anioAnterior = meses.map(m => ({{ anio_anterior_mes | tojson }})[m] ?? null);
   new Chart(document.getElementById('graficoVentasMensuales'), {
     type: 'bar',
-    data: { labels: meses, datasets: [
-      barra('Crédito', mesCredito, C.credito, { borderRadius: 0, maxBarThickness: 40 }),
-      barra('Contado', mesContado, C.contado, { borderWidth: { bottom: 2 }, maxBarThickness: 40 }),
+    data: { labels: meses.map(m => nombresMes[+m.slice(5) - 1] + ' ' + m.slice(2, 4)), datasets: [
+      barra('Crédito', mesCredito, C.credito, { borderRadius: 0, maxBarThickness: 40, order: 2 }),
+      barra('Contado', mesContado, C.contado, { borderWidth: { bottom: 2 }, maxBarThickness: 40, order: 2 }),
+      { type: 'line', label: 'Mismo mes año anterior', data: anioAnterior, borderColor: C.ink3, backgroundColor: C.ink3,
+        borderDash: [5, 4], borderWidth: 2, pointRadius: 3, tension: 0, spanGaps: true, order: 1, stack: 'anterior' },
     ]},
     options: { layout: { padding: { top: 20 } },
       scales: { x: Object.assign({ stacked: true }, ejeCategoria), y: Object.assign({ stacked: true }, ejeValor) },
       interaction: { mode: 'index', intersect: false },
-      plugins: { totalAlFinal: { totales: mesCredito.map((c, i) => c + mesContado[i]) },
-                 tooltip: { callbacks: { footer: (items) => 'Total: ' + fmt(items.reduce((s, it) => s + it.parsed.y, 0)) } } } },
+      plugins: { totalAlFinal: { totales: mesCredito.map((c, i) => c + mesContado[i]), dataset: 1 },
+                 tooltip: { callbacks: { footer: (items) => 'Total: ' + fmt(items.filter(it => it.dataset.type !== 'line').reduce((s, it) => s + it.parsed.y, 0)) } } } },
     plugins: [totalAlFinal]
   });
 
-  // ---- Recuperación mensual: una serie ----
+  // ---- Recuperación mensual ----
   const recup = {
     meses: {{ recuperacion_mes | map(attribute='Mes') | list | tojson }},
     total: {{ recuperacion_mes | map(attribute='TotalCordobas') | map('float') | list | tojson }},
   };
   new Chart(document.getElementById('graficoRecuperacionMensual'), {
     type: 'bar',
-    data: { labels: recup.meses, datasets: [barra('Recuperación', recup.total, C.credito, { maxBarThickness: 40 })] },
+    data: { labels: recup.meses.map(m => nombresMes[+m.slice(5) - 1] + ' ' + m.slice(2, 4)),
+            datasets: [barra('Recuperación', recup.total, C.credito, { maxBarThickness: 40 })] },
     options: { layout: { padding: { top: 20 } }, scales: { x: ejeCategoria, y: ejeValor },
       plugins: { totalAlFinal: { totales: recup.total } } },
     plugins: [totalAlFinal]
