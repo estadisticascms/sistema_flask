@@ -225,7 +225,8 @@
     btn.disabled = true; aviso.className = 'small text-muted'; aviso.textContent = 'Generando PDF…';
     try {
       const [d, img] = await Promise.all([
-        fetch("{{ url_for('listado_existencias.datos') }}?{{ params|urlencode }}").then(r => { if (!r.ok) throw r; return r.json(); }),
+        // tojson: dentro de <script> el "&" no se debe escapar como &amp; (se perdían las marcas desde la segunda)
+        fetch({{ (url_for('listado_existencias.datos') ~ '?' ~ (params|urlencode))|tojson }}).then(r => { if (!r.ok) throw r; return r.json(); }),
         logo()]);
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
