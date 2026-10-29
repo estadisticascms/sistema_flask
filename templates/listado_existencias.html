@@ -31,6 +31,8 @@
   .btn-naranja { background: #FE6412; border-color: #FE6412; color: #fff; }
   .btn-naranja:hover, .btn-naranja:focus-visible { background: #d9520b; border-color: #d9520b; color: #fff; }
   .le .btn:focus-visible, .le a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .lista-seg { min-width: 240px; max-height: 320px; overflow-y: auto; }
+  .lista-seg .form-check { padding-top: .15rem; padding-bottom: .15rem; }
   .vacio-grande { text-align: center; padding: 2.5rem 1rem; color: var(--ink-3); }
 </style>
 
@@ -61,11 +63,20 @@
           <button type="button" class="btn btn-outline-secondary" id="btn-agregar-marca">Agregar</button>
         </div>
       </div>
-      <div class="col-6 col-lg-2"><label class="form-label" for="segmento">Segmento</label>
-        <select id="segmento" name="segmento" class="form-select form-select-sm">
-          <option value="">Todos</option>
-          {% for s in segmentos %}<option value="{{ s }}" {% if s == f.segmento %}selected{% endif %}>{{ s }}</option>{% endfor %}
-        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="btn-segmentos">Segmentos <span class="text-muted">(uno o varios)</span></label>
+        <div class="dropdown">
+          <button type="button" id="btn-segmentos" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown"
+                  data-bs-auto-close="outside" aria-expanded="false">{{ f.segmentos|join(', ') if f.segmentos else 'Todos' }}</button>
+          <div class="dropdown-menu p-2 shadow-sm lista-seg" aria-labelledby="btn-segmentos">
+            {% for s in segmentos %}
+            <div class="form-check">
+              <input class="form-check-input chk-seg" type="checkbox" name="segmento" value="{{ s }}" id="seg-{{ loop.index }}" {% if s in f.segmentos %}checked{% endif %}>
+              <label class="form-check-label small" for="seg-{{ loop.index }}">{{ s }}</label>
+            </div>
+            {% endfor %}
+            <div class="border-top mt-1 pt-1"><button type="button" class="btn btn-link btn-sm p-0" id="seg-ninguno">Quitar selección (todos)</button></div>
+          </div>
+        </div></div>
       <div class="col-6 col-lg-2"><label class="form-label" for="familia">Familia</label>
         <select id="familia" name="familia" class="form-select form-select-sm">
           <option value="">Todas</option>
@@ -199,6 +210,13 @@
   entrada.addEventListener('input', () => entrada.setCustomValidity(''));
   document.getElementById('btn-agregar-marca').addEventListener('click', agregarMarca);
   document.getElementById('form-filtros').addEventListener('submit', () => { if (entrada.value.trim()) agregarMarca(); });
+
+  // ---- Segmentos (varios): el botón muestra lo elegido ----
+  const btnSeg = document.getElementById('btn-segmentos');
+  const chkSeg = [...document.querySelectorAll('.chk-seg')];
+  function textoSeg() { const v = chkSeg.filter(c => c.checked).map(c => c.value); btnSeg.textContent = v.length ? v.join(', ') : 'Todos'; }
+  chkSeg.forEach(c => c.addEventListener('change', textoSeg));
+  document.getElementById('seg-ninguno').addEventListener('click', () => { chkSeg.forEach(c => c.checked = false); textoSeg(); });
 
   // ---- Subfamilias de la familia elegida ----
   const familia = document.getElementById('familia'), sub = document.getElementById('subfamilia');

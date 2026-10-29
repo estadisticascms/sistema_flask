@@ -34,7 +34,7 @@ def leer_filtros(fuente):
         precio = 0
     return {
         "marcas": sorted({m.strip() for m in fuente.getlist("marca") if m.strip()}),
-        "segmento": (fuente.get("segmento") or "").strip(),
+        "segmentos": sorted({s.strip() for s in fuente.getlist("segmento") if s.strip()}),
         "familia": (fuente.get("familia") or "").strip(),
         "subfamilia": (fuente.get("subfamilia") or "").strip(),
         "q": (fuente.get("q") or "").strip(),
@@ -46,13 +46,13 @@ def leer_filtros(fuente):
 
 
 def hay_filtro(f):
-    return bool(f["marcas"] or f["segmento"] or f["familia"] or f["subfamilia"] or f["q"])
+    return bool(f["marcas"] or f["segmentos"] or f["familia"] or f["subfamilia"] or f["q"])
 
 
 def params_url(f):
     """Filtros para armar los enlaces de Excel / PDF (marca va repetida)."""
-    p = [("marca", m) for m in f["marcas"]]
-    p += [(k, f[k]) for k in ("segmento", "familia", "subfamilia", "q", "agrupar") if f[k]]
+    p = [("marca", m) for m in f["marcas"]] + [("segmento", s) for s in f["segmentos"]]
+    p += [(k, f[k]) for k in ("familia", "subfamilia", "q", "agrupar") if f[k]]
     p += [("precio", f["precio"]), ("solo_con_existencia", "1" if f["solo_con_existencia"] else "0")]
     return p
 
@@ -61,7 +61,9 @@ def descripcion_filtros(f):
     partes = []
     if f["marcas"]:
         partes.append(("Marca" if len(f["marcas"]) == 1 else "Marcas") + ": " + ", ".join(f["marcas"]))
-    for k, t in (("segmento", "Segmento"), ("familia", "Familia"), ("subfamilia", "Subfamilia")):
+    if f["segmentos"]:
+        partes.append(("Segmento" if len(f["segmentos"]) == 1 else "Segmentos") + ": " + ", ".join(f["segmentos"]))
+    for k, t in (("familia", "Familia"), ("subfamilia", "Subfamilia")):
         if f[k]:
             partes.append(f"{t}: {f[k]}")
     if f["q"]:
@@ -96,7 +98,10 @@ def calcular(f):
     if f["marcas"]:
         where.append(f"p.Marca IN ({', '.join(['%s'] * len(f['marcas']))})")
         params += f["marcas"]
-    for campo in ("segmento", "familia", "subfamilia"):
+    if f["segmentos"]:
+        where.append(f"c.segmento IN ({', '.join(['%s'] * len(f['segmentos']))})")
+        params += f["segmentos"]
+    for campo in ("familia", "subfamilia"):
         if f[campo]:
             where.append(f"c.{campo} = %s")
             params.append(f[campo])
@@ -157,9 +162,9 @@ def resumen(filas):
 
 
 def titulo_listado(f):
-    if len(f["marcas"]) == 1 and not (f["segmento"] or f["familia"] or f["subfamilia"]):
+    if len(f["marcas"]) == 1 and not (f["segmentos"] or f["familia"] or f["subfamilia"]):
         return f"Existencias {f['marcas'][0]}"
-    detalle = f["subfamilia"] or f["familia"] or f["segmento"]
+    detalle = f["subfamilia"] or f["familia"] or (" y ".join(f["segmentos"]) if 0 < len(f["segmentos"]) <= 2 else "")
     return f"Existencias {detalle}" if detalle else "Listado de existencias"
 
 
