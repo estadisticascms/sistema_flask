@@ -151,7 +151,7 @@
       <div class="armados">
         <i class="bi bi-tools ico" aria-hidden="true"></i>
         <div class="flex-grow-1">
-          <div class="e">Mangueras armadas hoy</div>
+          <div class="e">Mangueras armadas del dia</div>
           {% if armados.pendiente %}<div class="n" style="font-size: 1rem">Pendiente de cargar</div>
           {% else %}<div class="n">{{ "{:,.0f}".format(armados.dia) }} <small>{% if armados.dia %}en {{ armados.facturas }} facturas · <span style="color: #027266">Cr {{ "{:,.0f}".format(armados.credito) }}</span> · <span style="color: #c2410c">Co {{ "{:,.0f}".format(armados.contado) }}</span>{% endif %}</small></div>{% endif %}
         </div>
