@@ -191,7 +191,7 @@ def datos():
     filas = calcular(f) if hay_filtro(f) else []
     return jsonify({"titulo": titulo_listado(f), "filtros": descripcion_filtros(f), "archivo": nombre_archivo(f, "pdf"),
                     "precio": PRECIOS.get(f["precio"]), "agrupar": f["agrupar"], "generado": f"{datetime.now():%d/%m/%Y %H:%M}",
-                    "filas": [{k: x[k] for k in ("codigo", "numero_parte", "nombre", "aplicacion", "medida", "marca", "uom", "grupo",
+                    "filas": [{k: x[k] for k in ("codigo", "numero_parte", "nombre", "aplicacion", "marca", "uom", "grupo",
                                                   "existencia", "precio", "moneda")} for x in filas]})
 
 
@@ -208,7 +208,7 @@ def excel():
     ws["A2"] = f"{descripcion_filtros(f)} · Existencias al {datetime.now():%d/%m/%Y %H:%M}"
     ws["A2"].font = Font(size=9, color="52514E")
 
-    columnas = [("Código", 12), ("Nº parte", 20), ("Descripción", 40), ("Aplicación", 50), ("Medida", 16), ("Marca", 16),
+    columnas = [("Código", 12), ("Nº parte", 20), ("Descripción", 40), ("Aplicación", 50), ("Marca", 16),
                 ("Segmento", 16), ("Familia", 20), ("Subfamilia", 22), ("Unidad", 8), ("Existencia", 11)]
     if f["precio"]:
         columnas.append((f"{PRECIOS[f['precio']]} U$", 12))
@@ -221,20 +221,20 @@ def excel():
         ws.column_dimensions[get_column_letter(i)].width = ancho
     ws.row_dimensions[ft].height = 22
     for n, x in enumerate(filas, start=ft + 1):
-        valores = [x["codigo"], x["numero_parte"] or None, x["nombre"], x["aplicacion"] or None, x["medida"] or None, x["marca"], x["segmento"],
+        valores = [x["codigo"], x["numero_parte"] or None, x["nombre"], x["aplicacion"] or None, x["marca"], x["segmento"],
                    x["familia"], x["subfamilia"] or None, x["uom"] or None, x["existencia"]]
         if f["precio"]:
             valores.append(round(x["precio"], 2) if x["precio"] is not None else None)
         for i, v in enumerate(valores, start=1):
             ws.cell(row=n, column=i, value=v)
         ws.cell(row=n, column=4).alignment = Alignment(wrap_text=True, vertical="top")
-        ws.cell(row=n, column=11).number_format = "#,##0.##"
+        ws.cell(row=n, column=10).number_format = "#,##0.##"
         if f["precio"]:
-            ws.cell(row=n, column=12).number_format = "#,##0.00"
+            ws.cell(row=n, column=11).number_format = "#,##0.00"
     if filas:
         tot = ft + len(filas) + 1
         ws.cell(row=tot, column=1, value=f"{len(filas):,} productos").font = Font(bold=True)
-        c = ws.cell(row=tot, column=11, value=f"=SUM(K{ft + 1}:K{tot - 1})")
+        c = ws.cell(row=tot, column=10, value=f"=SUM(J{ft + 1}:J{tot - 1})")
         c.font = Font(bold=True)
         c.number_format = "#,##0.##"
     ws.freeze_panes = ws.cell(row=ft + 1, column=4)

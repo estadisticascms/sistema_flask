@@ -135,7 +135,7 @@
     <table class="tabla-le">
       <caption class="visually-hidden">Existencias disponibles por producto</caption>
       <thead><tr>
-        <th scope="col">Producto y aplicación</th><th scope="col">Medida</th><th scope="col">Marca</th>
+        <th scope="col">Producto y aplicación</th><th scope="col">Marca</th>
         <th scope="col" class="num">Existencia</th>
         {% if f.precio %}<th scope="col" class="num">{{ precios[f.precio] }} U$</th>{% endif %}
       </tr></thead>
@@ -144,7 +144,7 @@
         {% for x in filas %}
           {% if f.agrupar != 'ninguno' and x.grupo != ns.grupo %}
             {% set ns.grupo = x.grupo %}
-            <tr class="grupo"><td colspan="{{ 5 if f.precio else 4 }}">{{ x.grupo }}</td></tr>
+            <tr class="grupo"><td colspan="{{ 4 if f.precio else 3 }}">{{ x.grupo }}</td></tr>
           {% endif %}
           <tr>
             <td class="prod">
@@ -152,7 +152,6 @@
               <div class="meta">{{ x.codigo }}{% if x.numero_parte %} · Nº {{ x.numero_parte }}{% endif %}{% if f.agrupar != 'familia' and x.familia != 'Sin clasificar' %} · {{ x.familia }}{% if x.subfamilia %} / {{ x.subfamilia }}{% endif %}{% endif %}</div>
               {% if x.aplicacion %}<div class="aplic"><i class="bi bi-truck" aria-hidden="true"></i> {{ x.aplicacion }}</div>{% endif %}
             </td>
-            <td>{{ x.medida }}</td>
             <td>{{ x.marca }}</td>
             <td class="num"><span class="exist">{{ cant(x.existencia) }}</span>{% if x.uom and x.uom != 'UNI' %} <span class="small text-muted">{{ x.uom }}</span>{% endif %}
               {% if x.excluida > 0 %}<div class="excl" title="Unidades en NHE, consumo o ejército que no se ofrecen">−{{ cant(x.excluida) }} no disp.</div>{% endif %}</td>
@@ -217,7 +216,7 @@
   const VERDE = [2, 114, 102], NARANJA = [254, 100, 18], TINTA = [40, 40, 38], GRIS = [110, 109, 104];
   const cant = v => v.toLocaleString('es-NI', { maximumFractionDigits: 2 });
   function logo() {
-    return fetch("{{ url_for('static', filename='logo.png') }}").then(r => r.blob()).then(b => new Promise(ok => {
+    return fetch("{{ url_for('static', filename='logo_repuestos.jpg') }}").then(r => r.blob()).then(b => new Promise(ok => {
       const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b);
     })).catch(() => null);
   }
@@ -234,20 +233,20 @@
       const conPrecio = !!d.precio;
 
       const encabezado = () => {
-        if (img) pdf.addImage(img, 'PNG', M, 22, 34, 34, 'logo', 'FAST');   // con alias el logo se guarda una sola vez
-        const x = img ? M + 44 : M;
+        if (img) pdf.addImage(img, 'JPEG', M, 22, 132, 36, 'logo', 'FAST');   // Comersa Repuestos (900×245); con alias se guarda una sola vez
+        const x = img ? M + 146 : M;
         pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.setTextColor(...VERDE);
         pdf.text(d.titulo, x, 36);
         pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(...GRIS);
         pdf.text(pdf.splitTextToSize(d.filtros, W - x - M - 120)[0], x, 50);
         pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...TINTA); pdf.setFontSize(9);
-        pdf.text('Grupo Comersa', W - M, 34, { align: 'right' });
+        pdf.text('Comersa Repuestos', W - M, 34, { align: 'right' });
         pdf.setFont('helvetica', 'normal'); pdf.setTextColor(...GRIS); pdf.setFontSize(8);
         pdf.text('Existencias al ' + d.generado, W - M, 46, { align: 'right' });
         pdf.setDrawColor(...NARANJA); pdf.setLineWidth(1.5); pdf.line(M, 62, W - M, 62);
       };
 
-      const cabeza = ['Código / Nº parte', 'Descripción y aplicación', 'Medida', 'Marca', 'Existencia'];
+      const cabeza = ['Código / Nº parte', 'Descripción y aplicación', 'Marca', 'Existencia'];
       if (conPrecio) cabeza.push(d.precio + ' U$');
       const cuerpo = [];
       let grupo = null;
@@ -260,13 +259,13 @@
         const fila = [
           { content: x.codigo + (x.numero_parte ? '\nNº ' + x.numero_parte : '') },
           x.nombre + (x.aplicacion ? '\nAplicación: ' + x.aplicacion : ''),
-          x.medida || '', x.marca,
+          x.marca,
           { content: cant(x.existencia) + (x.uom && x.uom !== 'UNI' ? ' ' + x.uom : ''), styles: { halign: 'right', fontStyle: 'bold' } }];
         if (conPrecio) fila.push({ content: x.precio != null ? x.precio.toFixed(2) : '', styles: { halign: 'right' } });
         cuerpo.push(fila);
       });
-      const anchos = conPrecio ? { 0: { cellWidth: 82 }, 2: { cellWidth: 62 }, 3: { cellWidth: 64 }, 4: { cellWidth: 52 }, 5: { cellWidth: 48 } }
-                               : { 0: { cellWidth: 86 }, 2: { cellWidth: 70 }, 3: { cellWidth: 72 }, 4: { cellWidth: 56 } };
+      const anchos = conPrecio ? { 0: { cellWidth: 86 }, 2: { cellWidth: 72 }, 3: { cellWidth: 56 }, 4: { cellWidth: 52 } }
+                               : { 0: { cellWidth: 90 }, 2: { cellWidth: 80 }, 3: { cellWidth: 60 } };
 
       pdf.autoTable({
         head: [cabeza], body: cuerpo, startY: 72, margin: { top: 72, left: M, right: M, bottom: 36 },
@@ -274,7 +273,7 @@
         headStyles: { fillColor: VERDE, textColor: 255, fontStyle: 'bold', fontSize: 8 },
         alternateRowStyles: { fillColor: [248, 247, 244] },
         columnStyles: anchos, rowPageBreak: 'avoid',
-        didParseCell: (h) => { if (h.section === 'head' && h.column.index >= 4) h.cell.styles.halign = 'right'; },
+        didParseCell: (h) => { if (h.section === 'head' && h.column.index >= 3) h.cell.styles.halign = 'right'; },
         didDrawPage: () => {
           encabezado();
           pdf.setFontSize(7); pdf.setTextColor(...GRIS);
