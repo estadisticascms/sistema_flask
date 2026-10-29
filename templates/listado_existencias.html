@@ -1,0 +1,298 @@
+{% extends "layout.html" %}
+{% block title %}Listado de Existencias{% endblock %}
+{% macro cant(v) %}{{ "{:,.0f}".format(v) if v == v|round|int else "{:,.2f}".format(v) }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .le h4 { color: var(--credito); }
+  .le .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .le .form-control-sm, .le .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .chip { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .3rem .15rem .6rem; border-radius: 999px;
+          background: #e6f2f0; border: 1px solid #b7d9d4; color: var(--ink); font-size: .78rem; }
+  .chip button { border: 0; background: transparent; width: 22px; height: 22px; border-radius: 50%; line-height: 1; color: var(--ink-2); }
+  .chip button:hover, .chip button:focus-visible { background: #b7d9d4; color: var(--ink); }
+  .tabla-le { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; min-width: 760px; }
+  .tabla-le thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem .5rem; white-space: nowrap; }
+  .tabla-le td { padding: .4rem .5rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: top; }
+  .tabla-le tbody tr:hover td { background: #faf9f6; }
+  .tabla-le .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-le .grupo td { background: #e6f2f0 !important; color: var(--credito); font-weight: 700; padding-top: .5rem; }
+  .tabla-le .grupo .n { font-weight: 500; color: var(--ink-3); font-size: .74rem; }
+  .prod .desc { font-weight: 600; }
+  .prod .meta { font-size: .72rem; color: var(--ink-3); }
+  .prod .aplic { font-size: .74rem; color: var(--ink-2); margin-top: 1px; }
+  .prod .aplic i { color: var(--credito); }
+  .exist { font-weight: 700; font-size: .88rem; }
+  .excl { font-size: .7rem; color: #9a3412; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .btn-naranja { background: #FE6412; border-color: #FE6412; color: #fff; }
+  .btn-naranja:hover, .btn-naranja:focus-visible { background: #d9520b; border-color: #d9520b; color: #fff; }
+  .le .btn:focus-visible, .le a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .vacio-grande { text-align: center; padding: 2.5rem 1rem; color: var(--ink-3); }
+</style>
+
+<div class="dash le container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-card-checklist" aria-hidden="true"></i> Listado de existencias para clientes</h4>
+      <div class="text-muted small">Existencia disponible para vender, con la aplicación de cada producto. No incluye las bodegas
+        <span title="{{ excluidas|join(', ') }}" style="text-decoration: underline dotted; cursor: help">NHE, Consumo y Ejército</span>.</div>
+    </div>
+    {% if filas %}
+    <div class="d-flex gap-2 flex-wrap align-items-center">
+      <a class="btn btn-verde btn-sm" href="{{ url_for('listado_existencias.excel') }}?{{ params|urlencode }}">
+        <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+      <button type="button" id="btnPDF" class="btn btn-naranja btn-sm"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Descargar PDF</button>
+      <span id="avisoPDF" class="small" role="status"></span>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ---------- Filtros ---------- #}
+  <form method="get" id="form-filtros" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-lg-3">
+        <label class="form-label" for="marca-input">Marcas <span class="text-muted">(una o varias)</span></label>
+        <div class="input-group input-group-sm">
+          <input id="marca-input" list="dl-marcas" class="form-control" placeholder="Escriba una marca y presione Enter" autocomplete="off">
+          <button type="button" class="btn btn-outline-secondary" id="btn-agregar-marca">Agregar</button>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="segmento">Segmento</label>
+        <select id="segmento" name="segmento" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for s in segmentos %}<option value="{{ s }}" {% if s == f.segmento %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="familia">Familia</label>
+        <select id="familia" name="familia" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          {% for fam in arbol %}<option value="{{ fam }}" {% if fam == f.familia %}selected{% endif %}>{{ fam }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="subfamilia">Subfamilia</label>
+        <select id="subfamilia" name="subfamilia" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          {% for fam, subs in arbol.items() %}{% for s in subs %}
+            <option value="{{ s }}" data-familia="{{ fam }}" {% if s == f.subfamilia and (not f.familia or fam == f.familia) %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Producto, Nº, aplicación"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="precio">Precio</label>
+        <select id="precio" name="precio" class="form-select form-select-sm" title="Precio de lista en U$ que se muestra al cliente">
+          <option value="0">No mostrar</option>
+          {% for k, t in precios.items() %}<option value="{{ k }}" {% if k == f.precio %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="agrupar">Agrupar</label>
+        <select id="agrupar" name="agrupar" class="form-select form-select-sm">
+          {% for k, t in agrupar.items() %}<option value="{{ k }}" {% if k == f.agrupar %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select></div>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+      <div id="chips-marcas" class="d-flex flex-wrap gap-1" aria-label="Marcas seleccionadas">
+        {% for m in f.marcas %}
+          <span class="chip">{{ m }}<input type="hidden" name="marca" value="{{ m }}">
+            <button type="button" aria-label="Quitar marca {{ m }}"><i class="bi bi-x" aria-hidden="true"></i></button></span>
+        {% endfor %}
+      </div>
+      <div class="form-check ms-lg-auto mb-0">
+        <input class="form-check-input" type="checkbox" name="solo_con_existencia" value="1" id="solo_con_existencia" {% if f.solo_con_existencia %}checked{% endif %}>
+        <input type="hidden" name="solo_con_existencia" value="0">
+        <label class="form-check-label small" for="solo_con_existencia">Solo productos con existencia</label>
+      </div>
+      <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Generar listado</button>
+    </div>
+  </form>
+
+  {% if not buscado %}
+    <div class="card vacio-grande">
+      <i class="bi bi-card-checklist fs-1" aria-hidden="true"></i>
+      <p class="mt-2 mb-1 fw-semibold" style="color: var(--ink)">Elija una marca, segmento, familia o subfamilia y presione <em>Generar listado</em>.</p>
+      <p class="small mb-0">Después descárguelo en Excel o PDF para enviárselo al cliente.</p>
+    </div>
+  {% elif not filas %}
+    <div class="card vacio-grande"><p class="mb-0">No hay productos {{ 'con existencia ' if f.solo_con_existencia }}con esos filtros.</p></div>
+  {% else %}
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">{{ titulo }}</div>
+      <div class="valor">{{ "{:,}".format(r.productos) }}</div><div class="sub">{{ filtros_txt }}</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Unidades disponibles</div><div class="valor">{{ cant(r.unidades) }}</div>
+      <div class="sub">{{ r.marcas }} marca{{ 's' if r.marcas != 1 }}{% if f.agrupar != 'ninguno' %} · {{ r.grupos }} grupo{{ 's' if r.grupos != 1 }}{% endif %}</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">No se ofrece (NHE, consumo, ejército)</div><div class="valor">{{ cant(r.excluida) }}</div>
+      <div class="sub">unidades descontadas de la existencia</div></div></div>
+  </div>
+  {% if total_filas > filas|length %}
+    <div class="small text-danger mb-1">Se muestran los primeros {{ "{:,}".format(filas|length) }} de {{ "{:,}".format(total_filas) }} productos; el Excel y el PDF los incluyen todos.</div>
+  {% endif %}
+
+  {# ---------- Tabla ---------- #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-le">
+      <caption class="visually-hidden">Existencias disponibles por producto</caption>
+      <thead><tr>
+        <th scope="col">Producto y aplicación</th><th scope="col">Medida</th><th scope="col">Marca</th>
+        <th scope="col" class="num">Existencia</th>
+        {% if f.precio %}<th scope="col" class="num">{{ precios[f.precio] }} U$</th>{% endif %}
+      </tr></thead>
+      <tbody>
+        {% set ns = namespace(grupo=None) %}
+        {% for x in filas %}
+          {% if f.agrupar != 'ninguno' and x.grupo != ns.grupo %}
+            {% set ns.grupo = x.grupo %}
+            <tr class="grupo"><td colspan="{{ 5 if f.precio else 4 }}">{{ x.grupo }}</td></tr>
+          {% endif %}
+          <tr>
+            <td class="prod">
+              <div class="desc">{{ x.nombre }}</div>
+              <div class="meta">{{ x.codigo }}{% if x.numero_parte %} · Nº {{ x.numero_parte }}{% endif %}{% if f.agrupar != 'familia' and x.familia != 'Sin clasificar' %} · {{ x.familia }}{% if x.subfamilia %} / {{ x.subfamilia }}{% endif %}{% endif %}</div>
+              {% if x.aplicacion %}<div class="aplic"><i class="bi bi-truck" aria-hidden="true"></i> {{ x.aplicacion }}</div>{% endif %}
+            </td>
+            <td>{{ x.medida }}</td>
+            <td>{{ x.marca }}</td>
+            <td class="num"><span class="exist">{{ cant(x.existencia) }}</span>{% if x.uom and x.uom != 'UNI' %} <span class="small text-muted">{{ x.uom }}</span>{% endif %}
+              {% if x.excluida > 0 %}<div class="excl" title="Unidades en NHE, consumo o ejército que no se ofrecen">−{{ cant(x.excluida) }} no disp.</div>{% endif %}</td>
+            {% if f.precio %}<td class="num">{{ "{:,.2f}".format(x.precio) if x.precio is not none else '' }}</td>{% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+<datalist id="dl-marcas">{% for m, n in marcas %}<option value="{{ m }}">{{ n }} productos</option>{% endfor %}</datalist>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+(function () {
+  // ---- Selector de marcas (chips) ----
+  const marcasValidas = new Set([...document.querySelectorAll('#dl-marcas option')].map(o => o.value));
+  const entrada = document.getElementById('marca-input');
+  const chips = document.getElementById('chips-marcas');
+  function quitarChip(e) { e.target.closest('.chip').remove(); }
+  chips.querySelectorAll('.chip button').forEach(b => b.addEventListener('click', quitarChip));
+  function agregarMarca() {
+    const valor = entrada.value.trim();
+    if (!valor) return;
+    const marca = [...marcasValidas].find(m => m.toUpperCase() === valor.toUpperCase());
+    entrada.setCustomValidity(marca ? '' : 'Elija una marca de la lista');
+    if (!marca) { entrada.reportValidity(); return; }
+    if (![...chips.querySelectorAll('input')].some(i => i.value === marca)) {
+      const chip = document.createElement('span'); chip.className = 'chip';
+      chip.append(marca);
+      const oculto = Object.assign(document.createElement('input'), { type: 'hidden', name: 'marca', value: marca });
+      const boton = Object.assign(document.createElement('button'), { type: 'button', innerHTML: '<i class="bi bi-x" aria-hidden="true"></i>' });
+      boton.setAttribute('aria-label', 'Quitar marca ' + marca);
+      boton.addEventListener('click', quitarChip);
+      chip.append(oculto, boton); chips.append(chip);
+    }
+    entrada.value = '';
+  }
+  entrada.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); agregarMarca(); } });
+  entrada.addEventListener('change', () => { if (marcasValidas.has(entrada.value)) agregarMarca(); });
+  entrada.addEventListener('input', () => entrada.setCustomValidity(''));
+  document.getElementById('btn-agregar-marca').addEventListener('click', agregarMarca);
+  document.getElementById('form-filtros').addEventListener('submit', () => { if (entrada.value.trim()) agregarMarca(); });
+
+  // ---- Subfamilias de la familia elegida ----
+  const familia = document.getElementById('familia'), sub = document.getElementById('subfamilia');
+  function filtrarSubs() {
+    sub.querySelectorAll('option[data-familia]').forEach(o => {
+      o.hidden = o.disabled = !!familia.value && o.dataset.familia !== familia.value;
+      if (o.hidden && o.selected) sub.value = '';
+    });
+  }
+  familia.addEventListener('change', filtrarSubs); filtrarSubs();
+
+  // ---- PDF para el cliente ----
+  const btn = document.getElementById('btnPDF');
+  if (!btn) return;
+  const VERDE = [2, 114, 102], NARANJA = [254, 100, 18], TINTA = [40, 40, 38], GRIS = [110, 109, 104];
+  const cant = v => v.toLocaleString('es-NI', { maximumFractionDigits: 2 });
+  function logo() {
+    return fetch("{{ url_for('static', filename='logo.png') }}").then(r => r.blob()).then(b => new Promise(ok => {
+      const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b);
+    })).catch(() => null);
+  }
+  btn.addEventListener('click', async () => {
+    const aviso = document.getElementById('avisoPDF');
+    btn.disabled = true; aviso.className = 'small text-muted'; aviso.textContent = 'Generando PDF…';
+    try {
+      const [d, img] = await Promise.all([
+        fetch("{{ url_for('listado_existencias.datos') }}?{{ params|urlencode }}").then(r => { if (!r.ok) throw r; return r.json(); }),
+        logo()]);
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
+      const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight(), M = 32;
+      const conPrecio = !!d.precio;
+
+      const encabezado = () => {
+        if (img) pdf.addImage(img, 'PNG', M, 22, 34, 34, 'logo', 'FAST');   // con alias el logo se guarda una sola vez
+        const x = img ? M + 44 : M;
+        pdf.setFont('helvetica', 'bold'); pdf.setFontSize(15); pdf.setTextColor(...VERDE);
+        pdf.text(d.titulo, x, 36);
+        pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5); pdf.setTextColor(...GRIS);
+        pdf.text(pdf.splitTextToSize(d.filtros, W - x - M - 120)[0], x, 50);
+        pdf.setFont('helvetica', 'bold'); pdf.setTextColor(...TINTA); pdf.setFontSize(9);
+        pdf.text('Grupo Comersa', W - M, 34, { align: 'right' });
+        pdf.setFont('helvetica', 'normal'); pdf.setTextColor(...GRIS); pdf.setFontSize(8);
+        pdf.text('Existencias al ' + d.generado, W - M, 46, { align: 'right' });
+        pdf.setDrawColor(...NARANJA); pdf.setLineWidth(1.5); pdf.line(M, 62, W - M, 62);
+      };
+
+      const cabeza = ['Código / Nº parte', 'Descripción y aplicación', 'Medida', 'Marca', 'Existencia'];
+      if (conPrecio) cabeza.push(d.precio + ' U$');
+      const cuerpo = [];
+      let grupo = null;
+      const nCol = cabeza.length;
+      d.filas.forEach(x => {
+        if (d.agrupar !== 'ninguno' && x.grupo !== grupo) {
+          grupo = x.grupo;
+          cuerpo.push([{ content: grupo, colSpan: nCol, styles: { fillColor: [230, 242, 240], textColor: VERDE, fontStyle: 'bold', fontSize: 8.5 } }]);
+        }
+        const fila = [
+          { content: x.codigo + (x.numero_parte ? '\nNº ' + x.numero_parte : '') },
+          x.nombre + (x.aplicacion ? '\nAplicación: ' + x.aplicacion : ''),
+          x.medida || '', x.marca,
+          { content: cant(x.existencia) + (x.uom && x.uom !== 'UNI' ? ' ' + x.uom : ''), styles: { halign: 'right', fontStyle: 'bold' } }];
+        if (conPrecio) fila.push({ content: x.precio != null ? x.precio.toFixed(2) : '', styles: { halign: 'right' } });
+        cuerpo.push(fila);
+      });
+      const anchos = conPrecio ? { 0: { cellWidth: 82 }, 2: { cellWidth: 62 }, 3: { cellWidth: 64 }, 4: { cellWidth: 52 }, 5: { cellWidth: 48 } }
+                               : { 0: { cellWidth: 86 }, 2: { cellWidth: 70 }, 3: { cellWidth: 72 }, 4: { cellWidth: 56 } };
+
+      pdf.autoTable({
+        head: [cabeza], body: cuerpo, startY: 72, margin: { top: 72, left: M, right: M, bottom: 36 },
+        theme: 'plain', styles: { font: 'helvetica', fontSize: 7.5, cellPadding: 3, textColor: TINTA, overflow: 'linebreak', valign: 'top' },
+        headStyles: { fillColor: VERDE, textColor: 255, fontStyle: 'bold', fontSize: 8 },
+        alternateRowStyles: { fillColor: [248, 247, 244] },
+        columnStyles: anchos, rowPageBreak: 'avoid',
+        didParseCell: (h) => { if (h.section === 'head' && h.column.index >= 4) h.cell.styles.halign = 'right'; },
+        didDrawPage: () => {
+          encabezado();
+          pdf.setFontSize(7); pdf.setTextColor(...GRIS);
+          pdf.text('Existencias sujetas a cambio sin previo aviso.', M, H - 18);
+          pdf.text('Página ' + pdf.internal.getNumberOfPages() + ' de {total}', W - M, H - 18, { align: 'right' });
+        },
+      });
+      pdf.setFontSize(8); pdf.setTextColor(...TINTA); pdf.setFont('helvetica', 'bold');
+      const y = pdf.lastAutoTable.finalY + 14;
+      if (y < H - 40) pdf.text(d.filas.length.toLocaleString('es-NI') + ' productos', M, y);
+      if (typeof pdf.putTotalPages === 'function') pdf.putTotalPages('{total}');
+      pdf.save(d.archivo);
+      aviso.className = 'small text-success'; aviso.textContent = 'PDF listo (' + d.filas.length.toLocaleString('es-NI') + ' productos)';
+    } catch (e) {
+      console.error(e);
+      aviso.className = 'small text-danger'; aviso.textContent = 'No se pudo generar el PDF';
+    } finally { btn.disabled = false; }
+  });
+})();
+</script>
+{% endblock %}

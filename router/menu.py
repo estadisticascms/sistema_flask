@@ -49,6 +49,7 @@ SECCIONES = [
                 ("Ventas por vendedor (detalle)", "/reporte_ventas", "bi-bar-chart-fill", "Detalle por vendedor y mes", ""),
                 ("Top clientes por vendedor", "/top_clientes_vendedor", "bi-person-lines-fill", "Mejores clientes del período", "ranking"),
                 ("Top clientes por marca", "/top_clientes_marca", "bi-person-badge", "Compras por cliente, mes y vendedor", "ranking"),
+                ("Listado de existencias para clientes", "/listado_existencias", "bi-card-checklist", "Por marca, segmento y familia, con aplicación; Excel y PDF", "inventario stock disponible catalogo lista precios cliente"),
             ]},
             {"titulo": "Control", "items": [
                 ("Revisión de precios para comisionistas", "/revision_precios_venta", "bi-tags", "¿Se respetó el precio del cliente? Para pagar su comisión", "comision comisionista precio venta descuento factura recibo auditoria"),
