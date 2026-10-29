@@ -56,6 +56,12 @@
   .meta.compra { color: var(--ink-2); }
   .fob-menor { color: #9a3412; font-weight: 700; }
   .fob-barato { color: var(--contado); }
+  .abc { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px; padding: 0 5px; border-radius: 6px;
+         font-size: .72rem; font-weight: 800; vertical-align: 1px; margin-right: 4px; }
+  .abc.A { background: var(--credito); color: #fff; } .abc.B { background: #FE6412; color: #fff; }
+  .abc.C { background: #e4e2dc; color: #52514e; } .abc.N { background: #fff; color: #8a8984; border: 1px dashed #cfccc4; font-weight: 600; }
+  .prom-nuevo { display: inline-block; background: #fff1e8; color: #9a3412; border-radius: 6px; padding: 0 5px; font-weight: 700; cursor: help; }
+  .prom-nota { font-size: .68rem; color: #9a3412; white-space: nowrap; }
   .vacio-grande { text-align: center; padding: 2.5rem 1rem; color: var(--ink-3); }
   .vacio-grande i { font-size: 2.2rem; color: var(--credito); }
 </style>
@@ -109,7 +115,14 @@
           {% for pr, n in proveedores %}<option value="{{ pr }}" {% if pr == p.proveedor %}selected{% endif %}>{{ pr }} ({{ "{:,}".format(n) }})</option>{% endfor %}
         </select>
       </div>
-      <div class="col-4 col-lg-2">
+      <div class="col-6 col-lg-2">
+        <label class="form-label" for="abc">Clase ABC</label>
+        <select id="abc" name="abc" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          {% for k, t in clases_abc.items() %}<option value="{{ k }}" {% if p.abc == k %}selected{% endif %}>{{ 'Sin venta' if k == 'N' else k }} · {{ t }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-2">
         <label class="form-label" for="agrupar">Agrupar por</label>
         <select id="agrupar" name="agrupar" class="form-select form-select-sm">
           <option value="marca" {% if p.agrupar == 'marca' %}selected{% endif %}>Marca</option>
@@ -124,7 +137,12 @@
             <button type="button" aria-label="Quitar marca {{ m }}"><i class="bi bi-x" aria-hidden="true"></i></button></span>
         {% endfor %}
       </div>
-      <div class="form-check ms-lg-auto mb-0" title="Suma a lo vendido las unidades registradas como venta perdida en el período">
+      <div class="form-check ms-lg-auto mb-0" title="Si el producto ingresó después de que empezó el período, el promedio se divide entre los meses que lleva a la venta (o hasta que se agotó), no entre todos los meses analizados">
+        <input class="form-check-input" type="checkbox" name="ajustar_nuevos" value="1" id="ajustar_nuevos" {% if p.ajustar_nuevos %}checked{% endif %}>
+        <input type="hidden" name="ajustar_nuevos" value="0">
+        <label class="form-check-label small" for="ajustar_nuevos">Promedio de productos nuevos con sus meses a la venta</label>
+      </div>
+      <div class="form-check mb-0" title="Suma a lo vendido las unidades registradas como venta perdida en el período">
         <input class="form-check-input" type="checkbox" name="con_perdidas" value="1" id="con_perdidas" {% if p.con_perdidas %}checked{% endif %}>
         <input type="hidden" name="con_perdidas" value="0">
         <label class="form-check-label small" for="con_perdidas">Sumar ventas perdidas al sugerido</label>
@@ -172,11 +190,18 @@
       <div class="etiqueta">Con ventas perdidas</div><div class="valor">{{ "{:,}".format(con_perdidas) }}</div>
       <div class="sub">{% if p.con_perdidas and por_perdidas %}+{{ "{:,}".format(por_perdidas) }} unid. al sugerido · {% elif perdidas_sin_sugerido %}{{ perdidas_sin_sugerido }} sin sugerido · {% endif %}<a href="{{ url_for('ventas_perdidas.ventas_perdidas', vista='resumen') }}">ver detalle</a></div></div></div>
     <div class="col-6 col-lg"><div class="card kpi">
+      <div class="etiqueta">Clase ABC</div>
+      <div class="valor" style="font-size: 1.05rem">{% for k in ['A', 'B', 'C'] %}<span class="abc {{ k }}">{{ k }}</span>{{ "{:,}".format(por_abc[k]) }}{{ ' ' }}{% endfor %}</div>
+      <div class="sub">{{ "{:,}".format(por_abc['N']) }} sin venta{% if nuevos %} · <span class="prom-nuevo">{{ nuevos }}</span> nuevos con promedio ajustado{% endif %}</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi">
       <div class="etiqueta">Mercadería en NHE</div><div class="valor">{{ "{:,.0f}".format(total_nhe) }}</div>
       <div class="sub">unidades restadas de la existencia</div></div></div>
   </div>
   <div class="small text-muted mb-2">
-    Promedio calculado con las ventas del {{ periodo.inicio.strftime('%d/%m/%Y') }} al {{ periodo.fin.strftime('%d/%m/%Y') }}.
+    Promedio calculado con las ventas del {{ periodo.inicio.strftime('%d/%m/%Y') }} al {{ periodo.fin.strftime('%d/%m/%Y') }}{% if p.ajustar_nuevos %};
+    los productos que <span class="prom-nuevo">ingresaron después</span> se promedian con los meses que llevan a la venta (o hasta que se agotaron){% endif %}.
+    ABC por venta en C$ de toda la empresa en el período: <span class="abc A">A</span> suman el {{ abc_a }}% de la venta,
+    <span class="abc B">B</span> el siguiente {{ abc_b - abc_a }}%, <span class="abc C">C</span> el resto.
     Modifique la columna <strong>Pedido</strong> si lo necesita; los cambios se guardan en este navegador y se incluyen en el Excel.
     {% if recortado %}<span class="text-danger">Se muestran los primeros {{ "{:,}".format(filas|length) }} de {{ "{:,}".format(total_filas) }} productos: filtre por marca para ver todos (el Excel los incluye todos).</span>{% endif %}
   </div>
@@ -212,7 +237,7 @@
           {% endif %}
           <tr data-codigo="{{ f.codigo }}" data-sugerido="{{ f.sugerido }}" data-costo="{{ f.fob or 0 }}">
             <td class="prod">
-              <div class="desc">{{ f.nombre }}</div>
+              <div class="desc"><span class="abc {{ f.abc }}" title="{{ 'Clase ' ~ f.abc ~ ': ' ~ clases_abc[f.abc] ~ (' · acumulado ' ~ '%.1f'|format(f.abc_acum) ~ '%' if f.abc_acum else '') if f.abc != 'N' else 'Sin venta en el período' }}">{{ f.abc if f.abc != 'N' else '–' }}</span>{{ f.nombre }}</div>
               <div class="meta">{{ f.codigo }}{% if f.numero_parte %} · Nº {{ f.numero_parte }}{% endif %}{% if p.agrupar == 'proveedor' and f.marca %} · {{ f.marca }}{% endif %}{% if f.segmento %} · {{ f.segmento }}{% endif %}{% if f.familia %} · {{ f.familia }}{% if f.subfamilia %} / {{ f.subfamilia }}{% endif %}{% endif %}</div>
               {% if f.proveedor or f.fob %}<div class="meta compra"><i class="bi bi-truck" aria-hidden="true"></i>
                 {% if f.proveedor and p.agrupar != 'proveedor' %}{{ f.proveedor }} · {% endif %}{% if f.fob %}FOB <strong>{{ "{:,.2f}".format(f.fob) }}</strong>{% endif %}
@@ -221,7 +246,9 @@
             <td class="num">{{ "{:,.0f}".format(f.existencia) }}</td>
             <td class="num">{% if f.nhe %}<span class="nhe">{{ "{:,.0f}".format(f.nhe) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
             <td class="num fw-semibold">{{ "{:,.0f}".format(f.disponible) }}</td>
-            <td class="num">{{ "{:,.1f}".format(f.promedio) }}</td>
+            <td class="num">{% if f.nuevo_desde %}<span class="prom-nuevo" title="Ingresó el {{ f.nuevo_desde.strftime('%d/%m/%Y') }}{% if f.agotado %} y se agotó el {{ f.nuevo_hasta.strftime('%d/%m/%Y') }}{% endif %}: {{ '%.0f'|format(f.vendido) }} unid. en {{ '%.1f'|format(f.meses_promedio) }} meses. Con los {{ p.meses_historial }} meses completos sería {{ '%.1f'|format(f.promedio_normal) }}/mes">{{ "{:,.1f}".format(f.promedio) }}</span>
+                <div class="prom-nota">nuevo · {{ '%.1f'|format(f.meses_promedio) }} m{% if f.agotado %} · agotado{% endif %}</div>
+              {% else %}{{ "{:,.1f}".format(f.promedio) }}{% endif %}</td>
             <td class="num">
               {% if f.cobertura is none %}<span class="text-muted">sin ventas</span>
               {% else %}<span class="{{ 'bajo' if f.cobertura < 1 }}">{{ "{:,.1f}".format(f.cobertura) }} m</span>{% endif %}
@@ -305,6 +332,8 @@
       <input type="hidden" name="solo_sugerido" value="{{ '1' if p.solo_sugerido else '0' }}">
       <input type="hidden" name="ocultar_cubiertos" value="{{ '1' if p.ocultar_cubiertos else '0' }}">
       <input type="hidden" name="con_perdidas" value="{{ '1' if p.con_perdidas else '0' }}">
+      <input type="hidden" name="ajustar_nuevos" value="{{ '1' if p.ajustar_nuevos else '0' }}">
+      <input type="hidden" name="abc" value="{{ p.abc }}">
       <input type="hidden" name="cambios" id="cambios">
       <div><div class="small text-muted">Pedido total</div><div class="total-valor" id="barra-total">—</div></div>
       <div class="small" id="barra-cambios" aria-live="polite"></div>

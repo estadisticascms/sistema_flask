@@ -1,161 +1,173 @@
 {% extends "layout.html" %}
-{% block title %}Reporte Diario{% endblock %}
+{% block title %}Ventas por Día{% endblock %}
+{% macro m(v) %}{% if v < 0 %}<span class="neg">−{{ "{:,.2f}".format(-v) }}</span>{% elif v == 0 %}<span class="cero">–</span>{% else %}{{ "{:,.2f}".format(v) }}{% endif %}{% endmacro %}
 
 {% block content %}
-<div class="container-fluid mt-2">
-  <h5 class="mb-3">📊 Reporte de Ventas por Día</h5>
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .vd h4 { color: var(--credito); }
+  .vd .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .vd .neg { color: #b42318; } .vd .cero { color: #b9b7b0; }
+  .cuadre { width: 100%; font-size: .88rem; border-collapse: collapse; }
+  .cuadre th { font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); font-weight: 700; padding: .45rem .6rem;
+               border-bottom: 2px solid var(--grid); text-align: right; }
+  .cuadre th:first-child { text-align: left; }
+  .cuadre td { padding: .32rem .6rem; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
+  .cuadre td:first-child { text-align: left; white-space: normal; }
+  .cuadre tr.bloque td { padding-top: .8rem; font-weight: 800; color: var(--contado); font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+  .cuadre tr.n0 td { font-weight: 700; border-top: 1px solid var(--grid); }
+  .cuadre tr.n1 td:first-child { padding-left: 1.2rem; color: var(--ink-2); }
+  .cuadre tr.n2 td { color: var(--ink-2); font-size: .82rem; } .cuadre tr.n2 td:first-child { padding-left: 2.2rem; }
+  .cuadre tr.final td { background: #eef7f6; }
+  .cuadre td.tot { background: #faf9f6; } .cuadre tr.final td.tot { background: #dcefec; }
+  .tabla-dia { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; min-width: 1250px; }
+  .tabla-dia thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .4rem .45rem;
+                        border-bottom: 1px solid var(--grid); white-space: nowrap; text-align: right; }
+  .tabla-dia thead tr.grupo th { text-align: center; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; border-bottom: 0; }
+  .tabla-dia thead th.g-dev { background: #fff1e8; color: #9a3412; } .tabla-dia thead th.g-neto { background: #e6f1ef; color: var(--credito); }
+  .tabla-dia th.izq, .tabla-dia td.izq { text-align: left; }
+  .tabla-dia td { padding: .3rem .45rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-dia td.sep { border-left: 2px solid var(--grid); }
+  .tabla-dia tr.dia td { background: #f6f5f1; font-weight: 700; }
+  .tabla-dia tr.general td { background: #1f1f1d; color: #fff; font-weight: 700; } .tabla-dia tr.general .neg, .tabla-dia tr.general .cero { color: #fff; }
+  .tabla-dia .tipo { font-size: .7rem; font-weight: 700; border-radius: 8px; padding: 0 7px; }
+  .tabla-dia .tipo.CONTADO { background: #fff1e8; color: #9a3412; } .tabla-dia .tipo.CREDITO { background: #e6f1ef; color: var(--credito); }
+  .vd .btn:focus-visible, .vd a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  @media print { .no-imprimir { display: none !important; } .vd .card { break-inside: avoid; } }
+</style>
 
-  <!-- Filtros -->
-  <form method="get" class="row g-2 mb-3">
-    <div class="col-md-3">
-      <label class="form-label">Fecha inicio</label>
-      <input type="date" name="fecha_inicio" class="form-control form-control-sm" value="{{ fecha_inicio }}">
+{% set g = d.general %}
+{% set params = {'fecha_inicio': f.desde.isoformat(), 'fecha_fin': f.hasta.isoformat(), 'tipo_cambio': f.tc} %}
+<div class="dash vd container-fluid px-3 my-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-calendar3" aria-hidden="true"></i> Ventas por día e impuestos</h4>
+      <div class="text-muted small">
+        {% if f.desde == f.hasta %}{{ dias[f.desde.weekday()]|capitalize }} {{ f.desde.strftime('%d/%m/%Y') }}{% else %}Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}{% endif %}
+        · para cuadrar con Finanzas: venta gravada y exenta, IVA, devoluciones y neto</div>
     </div>
-    <div class="col-md-3">
-      <label class="form-label">Fecha fin</label>
-      <input type="date" name="fecha_fin" class="form-control form-control-sm" value="{{ fecha_fin }}">
-    </div>
-    <div class="col-md-2">
-      <label class="form-label">Tipo de cambio</label>
-      <input type="number" step="0.01" name="tipo_cambio" class="form-control form-control-sm" value="{{ tipo_cambio }}">
-    </div>
-    <div class="col-md-2 d-flex align-items-end">
-      <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
-    </div>
-  </form>
-
-  <!-- Gráficos -->
-  <div class="row mb-3 chart-container">
-    <div class="col-md-6">
-      <h6 class="mb-2 text-center">📈 Evolución diaria (Neto C$)</h6>
-      <canvas id="chartLine" height="200"></canvas>
-    </div>
-    <div class="col-md-6">
-      <h6 class="mb-2 text-center">📊 Contado vs Crédito (Neto C$)</h6>
-      <canvas id="chartBar" height="200"></canvas>
+    <div class="d-flex gap-2 no-imprimir">
+      <a class="btn btn-success btn-sm" href="{{ url_for('ventas_dia.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel para Finanzas</a>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> Imprimir</button>
     </div>
   </div>
 
-  <!-- Tabla -->
-  <table class="table table-sm table-bordered align-middle">
-<thead class="table-dark text-center">
-  <tr>
-    <th>Fecha</th>
-    <th>Tipo Venta</th>
-    <th>Subtotal</th>
-    <th>Descuento</th>
-    <th>SubTotal2</th>
-    <th>Devoluciones</th> <!-- 👈 nueva columna -->
-    <th>Neto</th> <!-- 👈 neto después de devoluciones -->
-    <th>IVA</th>
-    <th>Total</th>
-    <th>Neto $</th>
-  </tr>
-</thead>
-<tbody>
-  {% for fecha, grupo in reporte.items() %}
-    {% for row in grupo.filas %}
-    <tr>
-      <td>{{ row.Fecha.strftime("%d-%b") }}</td>
-      <td>{{ row.TipoVenta }}</td>
-      <td>{{ row.Subtotal|cordobas }}</td>
-      <td>{{ row.Descuento|cordobas }}</td>
-      <td>{{ row.Neto|cordobas }}</td>
-      <td>{{ row.DevTotal|cordobas }}</td> <!-- 👈 -->
-      <td>{{ row.Neto_Ajustado|cordobas }}</td> <!-- 👈 -->
-      <td>{{ row.Iva|cordobas }}</td>
-      <td>{{ row.Total|cordobas }}</td>
-      <td>{{ row.NetoUSD|dolares }}</td>
-    </tr>
-    {% endfor %}
-    <tr class="table-light fw-bold">
-      <td colspan="2" class="text-end">Total {{ fecha }}</td>
-      <td>{{ grupo.subtotal|cordobas }}</td>
-      <td>{{ grupo.descuento|cordobas }}</td>
-      <td>{{ (grupo.subtotal-grupo.descuento)|cordobas }}</td>
-      <td class="text-danger fw-bold">{{ grupo.devoluciones|cordobas }}</td> <!-- 👈 -->
-      <td>{{ (grupo.subtotal-grupo.descuento-grupo.devoluciones)|cordobas }}</td>
-      <td>{{ grupo.iva|cordobas }}</td>
-      <td>{{ grupo.total|cordobas }}</td>
-      <td>{{ (grupo.neto / tipo_cambio)|dolares }}</td>
-    </tr>
-  {% endfor %}
-</tbody>
-<tfoot class="table-secondary fw-bold">
-  <tr>
-    <td colspan="2" class="text-end">Total General</td>
-    <td>{{ total_subtotal|cordobas }}</td>
-    <td>{{ total_descuento|cordobas }}</td>
-    <td>{{ total_subtotal2|cordobas }}</td>
-    <td class="text-danger fw-bold">{{ total_dev|cordobas }}</td> <!-- 👈 -->
-    <td>{{ total_neto|cordobas }}</td>
-    <td>{{ total_iva|cordobas }}</td>
-    <td>{{ total_general|cordobas }}</td>
-    <td>{{ (total_neto / tipo_cambio)|dolares }}</td>
-  </tr>
-</tfoot>
+  <form method="get" class="card card-body py-2 mb-3 no-imprimir">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="fecha_inicio">Desde</label>
+        <input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="fecha_fin">Hasta</label>
+        <input type="date" id="fecha_fin" name="fecha_fin" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="tipo_cambio">Tipo de cambio</label>
+        <input type="number" step="0.0001" min="1" id="tipo_cambio" name="tipo_cambio" value="{{ f.tc }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+      <div class="col-12 col-lg-5 small text-muted">Períodos:
+        {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('ventas_dia.reporte', fecha_inicio=i.isoformat(), fecha_fin=fin.isoformat(), tipo_cambio=f.tc) }}">{{ nombre }}</a>{% endfor %}</div>
+    </div>
+  </form>
 
-  </table>
+  {% if not d.filas %}
+    <div class="alert alert-warning">No hay ventas cargadas en este período.</div>
+  {% else %}
+
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi kpi-hero"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Venta neta final</div><div class="valor">C$ {{ "{:,.2f}".format(g.neto_final) }}</div>
+      <div class="sub">US$ {{ "{:,.2f}".format(g.neto_final / f.tc) }} · TC {{ f.tc }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">IVA neto</div><div class="valor">C$ {{ "{:,.2f}".format(g.iva_final) }}</div>
+      <div class="sub">débito {{ "{:,.2f}".format(g.iva) }} − devoluciones {{ "{:,.2f}".format(g.dev_iva) }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Total neto (con IVA)</div><div class="valor">C$ {{ "{:,.2f}".format(g.total_final) }}</div>
+      <div class="sub">{{ "{:,}".format(g.facturas) }} facturas · {{ d.dias_con_venta }} día{{ 's' if d.dias_con_venta != 1 }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Devoluciones</div><div class="valor">C$ {{ "{:,.2f}".format(g.dev_total) }}</div>
+      <div class="sub">{{ g.devoluciones }} devolución{{ 'es' if g.devoluciones != 1 }} · base {{ "{:,.2f}".format(g.dev_base) }} + IVA {{ "{:,.2f}".format(g.dev_iva) }}</div></div></div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    {# ---------- Cuadre para Finanzas ---------- #}
+    <div class="col-xl-7"><div class="card h-100">
+      <div class="card-header">Cuadre de ventas e IVA <small>· compare cada renglón con Finanzas</small></div>
+      <div class="card-body p-0"><div class="table-responsive">
+        <table class="cuadre">
+          <thead><tr><th>Concepto</th><th>Contado</th><th>Crédito</th><th>Total C$</th></tr></thead>
+          <tbody>
+          {% for clave, etiqueta, nivel in cuadre %}
+            {% if clave == 'titulo' %}<tr class="bloque"><td colspan="4">{{ etiqueta }}</td></tr>
+            {% else %}
+            <tr class="n{{ nivel }} {{ 'final' if clave in ('neto_final', 'iva_final', 'total_final') }}">
+              <td>{{ etiqueta|trim }}{% if clave == 'gravado' %} <span class="small text-muted">(IVA ÷ {{ tasa }}%)</span>{% endif %}</td>
+              <td>{{ m(d.totales.CONTADO[clave]) }}</td><td>{{ m(d.totales.CREDITO[clave]) }}</td><td class="tot">{{ m(g[clave]) }}</td>
+            </tr>
+            {% endif %}
+          {% endfor %}
+            <tr class="n2"><td>Facturas</td><td>{{ d.totales.CONTADO.facturas }}</td><td>{{ d.totales.CREDITO.facturas }}</td><td class="tot">{{ g.facturas }}</td></tr>
+          </tbody>
+        </table>
+      </div></div>
+      <div class="card-footer small text-muted">
+        Sin facturas anuladas{% if d.anuladas.n %} ({{ d.anuladas.n }} por C$ {{ "{:,.2f}".format(d.anuladas.total) }}){% endif %}.
+        Devoluciones cerradas por su fecha; el IVA de cada una sale de su factura original (si era exenta, sin IVA).
+        {% if d.dev_sin_factura %}<span class="text-danger">{{ d.dev_sin_factura }} devolución(es) sin factura encontrada: se calculó con 15%.</span>{% endif %}
+      </div>
+    </div></div>
+
+    {# ---------- Gráfico ---------- #}
+    <div class="col-xl-5"><div class="card h-100">
+      <div class="card-header">Venta neta final por día</div>
+      <div class="card-body"><canvas id="grafico" height="260" role="img" aria-label="Venta neta final por día, contado y crédito"></canvas>
+        <div class="small mt-1"><span class="clave" style="background: var(--credito)"></span>Crédito <span class="clave ms-2" style="background: var(--contado)"></span>Contado</div></div>
+    </div></div>
+  </div>
+
+  {# ---------- Detalle por día ---------- #}
+  <div class="card mb-3">
+    <div class="card-header">Detalle por día y tipo de venta</div>
+    <div class="table-responsive" style="max-height: 70vh">
+      <table class="tabla-dia">
+        <thead>
+          <tr class="grupo"><th colspan="3"></th><th colspan="7">Facturado</th><th colspan="4" class="g-dev">Devoluciones</th><th colspan="4" class="g-neto">Neto después de devoluciones</th></tr>
+          <tr><th class="izq">Fecha</th><th class="izq">Tipo</th><th>Fact.</th>
+            <th>Subtotal</th><th>Descuento</th><th>Venta neta</th><th>Gravada</th><th>Exenta</th><th>IVA</th><th>Total</th>
+            <th class="g-dev">#</th><th class="g-dev">Base</th><th class="g-dev">IVA</th><th class="g-dev">Total</th>
+            <th class="g-neto">Venta neta</th><th class="g-neto">IVA</th><th class="g-neto">Total</th><th class="g-neto">US$</th></tr>
+        </thead>
+        <tbody>
+        {% macro renglon(r) %}
+          <td>{{ r.facturas or '' }}</td>
+          <td class="sep">{{ m(r.subtotal) }}</td><td>{{ m(r.descuento) }}</td><td>{{ m(r.neto) }}</td><td>{{ m(r.gravado) }}</td><td>{{ m(r.exento) }}</td>
+          <td>{{ m(r.iva) }}</td><td>{{ m(r.total) }}</td>
+          <td class="sep">{{ r.devoluciones or '' }}</td><td>{{ m(r.dev_base) }}</td><td>{{ m(r.dev_iva) }}</td><td>{{ m(r.dev_total) }}</td>
+          <td class="sep">{{ m(r.neto_final) }}</td><td>{{ m(r.iva_final) }}</td><td>{{ m(r.total_final) }}</td><td>{{ m(r.neto_final / f.tc) }}</td>
+        {% endmacro %}
+        {% for x in d.filas %}
+          {% for t in tipos if x.tipos[t].facturas or x.tipos[t].devoluciones %}
+          <tr><td class="izq">{{ dias[x.fecha.weekday()] }} {{ x.fecha.strftime('%d/%m') }}</td><td class="izq"><span class="tipo {{ t }}">{{ t|capitalize }}</span></td>{{ renglon(x.tipos[t]) }}</tr>
+          {% endfor %}
+          {% if d.filas|length > 1 %}<tr class="dia"><td class="izq" colspan="2">Total {{ x.fecha.strftime('%d/%m') }}</td>{{ renglon(x.total) }}</tr>{% endif %}
+        {% endfor %}
+          <tr class="general"><td class="izq" colspan="2">Total general</td>{{ renglon(g) }}</tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
 {% block scripts %}
+{% if d.filas %}
 <script>
-   // Definir colores si no están en layout
-  const colorPrincipal = '#FE6412';
-  const colorSecundario = '#027266';
-  const colorNeutro = '#666666';
-
-  // Gráfico de línea: evolución diaria
-  const ctxLine = document.getElementById('chartLine').getContext('2d');
-  new Chart(ctxLine, {
-    type: 'line',
-    data: {
-      labels: {{ chart_labels|default([])|tojson }},
-      datasets: [
-        {
-          label: 'Contado',
-          data: {{ chart_contado|default([])|tojson }},
-          borderColor: colorPrincipal,
-          backgroundColor: colorPrincipal,
-          fill: false
-        },
-        {
-          label: 'Crédito',
-          data: {{ chart_credito|default([])|tojson }},
-          borderColor: colorSecundario,
-          backgroundColor: colorSecundario,
-          fill: false
-        }
-      ]
-    },
-    options: { responsive: true }
-  });
-
-  // Gráfico de barras: comparación contado vs crédito
-  const ctxBar = document.getElementById('chartBar').getContext('2d');
-  new Chart(ctxBar, {
+  new Chart(document.getElementById('grafico'), {
     type: 'bar',
-    data: {
-      labels: {{ chart_labels|default([])|tojson }},
-      datasets: [
-        {
-          label: 'Contado',
-          data: {{ chart_contado|default([])|tojson }},
-          backgroundColor: colorPrincipal
-        },
-        {
-          label: 'Crédito',
-          data: {{ chart_credito|default([])|tojson }},
-          backgroundColor: colorSecundario
-        }
-      ]
-    },
-    options: { responsive: true }
+    data: { labels: {{ grafico.labels|tojson }},
+            datasets: [{ label: 'Crédito', data: {{ grafico.credito|tojson }}, backgroundColor: '#027266', stack: 'v' },
+                       { label: 'Contado', data: {{ grafico.contado|tojson }}, backgroundColor: '#FE6412', stack: 'v' }] },
+    options: { animation: false, plugins: { legend: { display: false },
+               tooltip: { callbacks: { label: (c) => `${c.dataset.label}: C$ ${c.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` } } },
+               scales: { x: { stacked: true, grid: { display: false } },
+                         y: { stacked: true, beginAtZero: true, grid: { color: '#ecebe8' }, ticks: { callback: (v) => (v / 1000).toLocaleString() + 'k' } } } }
   });
 </script>
+{% endif %}
 {% endblock %}
-
-
-
-

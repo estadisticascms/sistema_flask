@@ -1,4 +1,11 @@
-"""Sugerido de compras: promedio de ventas × meses a cubrir − existencia disponible (sin bodegas NHE)."""
+"""Sugerido de compras: promedio de ventas × meses a cubrir − existencia disponible (sin bodegas NHE).
+
+- Productos nuevos: si el producto no tenía ningún movimiento antes del período (ingresó después), el promedio se divide entre
+  los meses que realmente estuvo a la venta: desde su primer ingreso hasta hoy, o hasta su última venta si ya se agotó
+  (mínimo MESES_MIN_NUEVO meses, para que una venta grande puntual no se tome como venta de cada mes).
+  Así un producto que llegó hace 2 meses y ya se vendió no queda con un promedio artificialmente bajo.
+- ABC: clasificación por venta en C$ del período en toda la empresa (A = productos que suman el 80% de la venta,
+  B = el siguiente 15%, C = el 5% restante; "Sin venta" si no se vendió)."""
 import io
 import json
 import math
@@ -18,6 +25,10 @@ sugerido_bp = Blueprint("sugerido_compras", __name__)
 MESES_COBERTURA = [1, 2, 3, 4, 6, 9, 12]
 MESES_HISTORIAL = [3, 6, 12, 24]
 DIAS_RECIENTE = [0, 15, 30, 60, 90]
+DIAS_MES = 30.44
+MESES_MIN_NUEVO = 2                 # divisor mínimo del promedio de un producto nuevo: un pedido grande puntual no se proyecta como venta mensual
+ABC_A, ABC_B = 80, 95               # % acumulado de la venta en C$ que cierra la clase A y la B
+CLASES_ABC = {"A": "80% de la venta", "B": "siguiente 15%", "C": "último 5%", "N": "sin venta en el período"}
 MAX_FILAS_PANTALLA = 2000          # la descarga a Excel no tiene límite
 LOTE_IN = 2000                     # tamaño de listas IN (...) por consulta
 VERDE, NARANJA = "027266", "FE6412"
@@ -49,6 +60,9 @@ def leer_parametros(fuente):
         "ocultar_cubiertos": fuente.get("ocultar_cubiertos") == "1",
         # por defecto las ventas perdidas se suman a la demanda; el checkbox desmarcado manda "0"
         "con_perdidas": fuente.get("con_perdidas", "1") == "1",
+        # por defecto el promedio de los productos nuevos se calcula con los meses que llevan a la venta
+        "ajustar_nuevos": fuente.get("ajustar_nuevos", "1") == "1",
+        "abc": fuente.get("abc") if fuente.get("abc") in CLASES_ABC else "",
         "calculado": fuente.get("calcular") == "1",
     }
 
@@ -85,6 +99,29 @@ def en_lotes(cursor, sql_con_marca, codigos, params_extra=()):
         cursor.execute(sql_con_marca.replace("{IN}", ", ".join(["%s"] * len(lote))), list(params_extra) + lote)
         filas.extend(cursor.fetchall())
     return filas
+
+
+def clasificar_abc(montos):
+    """{codigo: (clase, % acumulado)} según la venta en C$; los productos sin venta no aparecen (clase N)."""
+    positivos = sorted(((c, m) for c, m in montos.items() if m > 0), key=lambda x: -x[1])
+    total = sum(m for _, m in positivos)
+    resultado, acumulado = {}, 0.0
+    for cod, monto in positivos:
+        antes = acumulado / total * 100 if total else 0
+        acumulado += monto
+        # la clase la define dónde empieza el producto: el que cruza el 80% todavía es A
+        resultado[cod] = ("A" if antes < ABC_A else "B" if antes < ABC_B else "C", acumulado / total * 100 if total else 0)
+    return resultado
+
+
+def meses_a_la_venta(primer_mov, ultima_venta, disponible, inicio, fin, meses_historial):
+    """Meses que el producto estuvo a la venta dentro del período, si ingresó después de que empezó.
+    Devuelve (meses, desde, hasta) o None si estuvo todo el período (promedio normal)."""
+    if not primer_mov or primer_mov <= inicio:
+        return None
+    hasta = ultima_venta if disponible <= 0 and ultima_venta and ultima_venta >= primer_mov else fin
+    meses = max((hasta - primer_mov).days + 1, MESES_MIN_NUEVO * DIAS_MES) / DIAS_MES
+    return (meses, primer_mov, hasta) if meses < meses_historial else None
 
 
 def calcular(p):
@@ -128,11 +165,13 @@ def calcular(p):
         # 2) Ventas del período (unidades, sin anuladas). ventas_por_producto no tiene índices:
         #    se recorre una sola vez y se filtra en Python.
         cursor.execute(
-            "SELECT Codigo, SUM(`Cantidad Vendida`) FROM ventas_por_producto "
+            "SELECT Codigo, SUM(`Cantidad Vendida`), SUM(`Sub-Total 2`) FROM ventas_por_producto "
             "WHERE Fecha BETWEEN %s AND %s AND Estatus <> 'Anulado' GROUP BY Codigo",
             (inicio.isoformat(), fin.isoformat()))
-        ventas_todas = {cod: float(n or 0) for cod, n in cursor.fetchall()}
+        filas_venta = cursor.fetchall()
+        ventas_todas = {cod: float(n or 0) for cod, n, _ in filas_venta}
         ventas = {cod: n for cod, n in ventas_todas.items() if cod in productos}
+        abc = clasificar_abc({cod: float(m or 0) for cod, _, m in filas_venta})   # en toda la empresa, no solo lo filtrado
 
         # 3) Existencias por bodega: total y lo que está en bodegas NHE (mercadería faltante)
         sql_exist = ("SELECT Codigo_producto, SUM(Cant_Final), "
@@ -145,6 +184,15 @@ def calcular(p):
             filas_exist = cursor.fetchall()
         existencias = {r[0]: (float(r[1] or 0), float(r[2] or 0)) for r in filas_exist}
 
+        # 3b) Productos nuevos: primer movimiento de inventario y última venta (solo los que vendieron en el período)
+        movimientos = {}
+        if p["ajustar_nuevos"] and ventas:
+            for cod, primero, ult in en_lotes(cursor,
+                    "SELECT codigo_producto, MIN(fecha), MAX(CASE WHEN tipo_transaccion = 'SALIDA' AND tipo_documento_origen LIKE 'FACTURA%%' "
+                    "THEN fecha END) FROM transacciones_inventario WHERE codigo_producto IN ({IN}) GROUP BY codigo_producto",
+                    sorted(c for c, n in ventas.items() if n > 0)):
+                movimientos[cod] = (a_fecha(primero), a_fecha(ult))
+
         # 4) Sugerido por producto. Demanda = lo vendido + (opcional) lo que se perdió por no tenerlo.
         perdidas = perdidas_por_codigo(inicio, fin)
         filas = []
@@ -152,20 +200,29 @@ def calcular(p):
             total, nhe = existencias.get(cod, (0.0, 0.0))
             disponible = total - nhe
             vendido = ventas.get(cod, 0.0)
-            promedio = vendido / p["meses_historial"]
+            primero, ult = movimientos.get(cod, (None, None))
+            nuevo = meses_a_la_venta(primero, ult, disponible, inicio, fin, p["meses_historial"]) if vendido > 0 else None
+            meses = nuevo[0] if nuevo else p["meses_historial"]
+            promedio = vendido / meses
             x = perdidas.get(cod)
             perdido = x["unidades"] if x else 0.0
             def sugerir(demanda):
-                return max(0, math.ceil(demanda / p["meses_historial"] * p["meses_cobertura"] - max(disponible, 0) - 1e-9))
+                return max(0, math.ceil(demanda / meses * p["meses_cobertura"] - max(disponible, 0) - 1e-9))
             sin_perdidas = sugerir(vendido)
             filas.append({**productos[cod], "existencia": total, "nhe": nhe, "disponible": disponible,
-                          "vendido": vendido, "promedio": promedio,
+                          "vendido": vendido, "promedio": promedio, "meses_promedio": meses,
+                          "nuevo_desde": nuevo[1] if nuevo else None, "nuevo_hasta": nuevo[2] if nuevo else None,
+                          "agotado": bool(nuevo and nuevo[2] < fin),
+                          "promedio_normal": vendido / p["meses_historial"],
+                          "abc": abc.get(cod, ("N", None))[0], "abc_acum": abc.get(cod, ("N", None))[1],
                           "cobertura": (disponible / promedio) if promedio > 0 else None,
                           "sugerido": sugerir(vendido + perdido) if p["con_perdidas"] else sin_perdidas,
                           "sugerido_sin_perdidas": sin_perdidas,
                           "perdidas": perdido, "perdidas_clientes": len(x["clientes"]) if x else 0,
                           "perdidas_ultima": x["ultima"] if x else None,
                           "ingresos": [], "dias_compra": None, "ultima_venta": None})
+        if p["abc"]:
+            filas = [f for f in filas if f["abc"] == p["abc"]]
         if p["solo_sugerido"]:   # también se dejan los que tienen ventas perdidas aunque no tengan sugerido
             filas = [f for f in filas if f["sugerido"] > 0 or f["perdidas"] > 0]
 
@@ -297,6 +354,9 @@ def sugerido_compras():
         con_perdidas=sum(1 for f in filas if f["perdidas"] > 0),
         por_perdidas=sum(f["sugerido"] - f["sugerido_sin_perdidas"] for f in filas),
         perdidas_sin_sugerido=sum(1 for f in filas if f["perdidas"] > 0 and f["sugerido"] == 0),
+        clases_abc=CLASES_ABC, abc_a=ABC_A, abc_b=ABC_B,
+        por_abc={k: sum(1 for f in filas if f["abc"] == k) for k in CLASES_ABC},
+        nuevos=sum(1 for f in filas if f["nuevo_desde"]),
     )
 
 
@@ -346,14 +406,17 @@ def generar_excel(filas, p, periodo):
                 f"Promedio de ventas: {periodo['inicio']:%d/%m/%Y} al {periodo['fin']:%d/%m/%Y} ({p['meses_historial']} meses)")
     demanda = "(vendido + ventas perdidas)" if p["con_perdidas"] else "vendido"
     ws["A3"] = ("Disponible = existencia total − bodegas NHE (mercadería faltante).  "
-                f"Sugerido = {demanda} ÷ meses × meses de cobertura − disponible.  Total FOB = pedido final × último precio FOB "
+                f"Sugerido = {demanda} ÷ meses × meses de cobertura − disponible"
+                f"{' (productos nuevos: meses desde su primer ingreso, o hasta agotarse)' if p['ajustar_nuevos'] else ''}.  "
+                f"ABC por venta C$ de la empresa: A {ABC_A}%, B {ABC_B - ABC_A}%, C el resto.  Total FOB = pedido final × último precio FOB "
                 f"(moneda base, US$; vacío si el producto no tiene FOB).  Generado {datetime.now():%d/%m/%Y %H:%M}")
     ws["A2"].font = ws["A3"].font = Font(size=9, color="52514E")
 
     columnas = [
-        ("Código", 11), ("Nº parte", 18), ("Descripción", 38), ("Marca", 14), ("Segmento", 14), ("Familia", 20),
+        ("Código", 11), ("ABC", 6), ("Nº parte", 18), ("Descripción", 38), ("Marca", 14), ("Segmento", 14), ("Familia", 20),
         ("Subfamilia", 22), ("Existencia total", 11), ("En NHE", 9), ("Disponible", 11), ("Vendido período", 11),
-        ("Ventas perdidas (unid.)", 11), ("Prom. mensual", 11), ("Cobertura (meses)", 11), ("Ingreso 1 fecha", 12),
+        ("Ventas perdidas (unid.)", 11), ("Prom. mensual", 11), ("Meses del promedio", 10),
+        ("Producto nuevo desde", 12), ("Cobertura (meses)", 11), ("Ingreso 1 fecha", 12),
         ("Ingreso 1 cant.", 10), ("Ingreso 2 fecha", 12), ("Ingreso 2 cant.", 10), ("Ingreso 3 fecha", 12),
         ("Ingreso 3 cant.", 10), ("Última venta", 12), ("Sugerido sin ventas perdidas", 12), ("Sugerido sistema", 11),
         ("Pedido final", 11), ("Precio FOB US$", 12), ("Total FOB US$", 14), ("Grupo equiv.", 11), ("Equivalentes", 11),
@@ -375,21 +438,23 @@ def generar_excel(filas, p, periodo):
 
     resaltado = PatternFill("solid", fgColor="FFF1E8")
     formatos = {"dd/mm/yyyy": ("Ingreso 1 fecha", "Ingreso 2 fecha", "Ingreso 3 fecha", "Última venta", "Última venta perdida",
-                               "Fecha última compra", "Fecha última recepción"),
+                               "Fecha última compra", "Fecha última recepción",
+                               "Producto nuevo desde"),
                 "#,##0.00##": ("Precio FOB US$", "FOB equiv."), "0.0%": ("Dif. FOB %",),
                 "#,##0.##": ("Existencia total", "En NHE", "Disponible", "Vendido período", "Ventas perdidas (unid.)",
                              "Ingreso 1 cant.", "Ingreso 2 cant.", "Ingreso 3 cant.", "Sugerido sin ventas perdidas",
                              "Sugerido sistema", "Pedido final", "Equivalentes", "Disponible en equivalentes"),
-                "#,##0.0": ("Prom. mensual", "Cobertura (meses)"),
+                "#,##0.0": ("Prom. mensual", "Cobertura (meses)", "Meses del promedio"),
                 "#,##0.00": ("Total FOB US$",)}
     for n, f in enumerate(filas, start=fila_tit + 1):
         ing = f["ingresos"] + [{"fecha": None, "cantidad": None}] * (3 - len(f["ingresos"]))
         valores = {
-            "Código": f["codigo"], "Nº parte": f["numero_parte"], "Descripción": f["nombre"], "Marca": f["marca"],
+            "Código": f["codigo"], "ABC": f["abc"] if f["abc"] != "N" else "Sin venta", "Nº parte": f["numero_parte"], "Descripción": f["nombre"], "Marca": f["marca"],
             "Segmento": f["segmento"], "Familia": f["familia"], "Subfamilia": f["subfamilia"],
             "Existencia total": f["existencia"], "En NHE": f["nhe"], "Disponible": f["disponible"],
             "Vendido período": f["vendido"], "Ventas perdidas (unid.)": f["perdidas"] or None,
-            "Prom. mensual": round(f["promedio"], 2),
+            "Prom. mensual": round(f["promedio"], 2), "Meses del promedio": round(f["meses_promedio"], 1),
+            "Producto nuevo desde": f["nuevo_desde"],
             "Cobertura (meses)": round(f["cobertura"], 1) if f["cobertura"] is not None else None,
             "Ingreso 1 fecha": ing[0]["fecha"], "Ingreso 1 cant.": ing[0]["cantidad"],
             "Ingreso 2 fecha": ing[1]["fecha"], "Ingreso 2 cant.": ing[1]["cantidad"],
@@ -419,6 +484,11 @@ def generar_excel(filas, p, periodo):
                 ws.cell(row=n, column=col[t]).number_format = fmt
         if f["perdidas"]:
             ws.cell(row=n, column=col["Ventas perdidas (unid.)"]).fill = resaltado
+        if f["nuevo_desde"]:
+            for t in ("Prom. mensual", "Meses del promedio", "Producto nuevo desde"):
+                ws.cell(row=n, column=col[t]).fill = resaltado
+        if f["abc"] == "A":
+            ws.cell(row=n, column=col["ABC"]).font = Font(bold=True, color=VERDE)
         if f["eq_disponible"] > 0:
             ws.cell(row=n, column=col["Disponible en equivalentes"]).fill = PatternFill("solid", fgColor="E6F2F0")
         if f["eq_fob_min"]:

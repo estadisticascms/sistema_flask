@@ -1,5 +1,5 @@
 
-from flask import Flask, render_template, request, abort, redirect, url_for, Response, flash, session
+from flask import Flask, render_template, request, abort, redirect, url_for, Response, flash, session, g
 import logging
 import mysql.connector
 from datetime import datetime
@@ -52,7 +52,9 @@ from router.cheques import cheques_bp
 from router.cargar_armados import cargar_armados_bp
 from router.reporte_armados import reporte_armados_bp, armados_del_dia
 from router.menu import contexto_menu
+from utils.db import get_connection
 from router.bitacora import bitacora_bp, iniciar_bitacora
+from router.reporte_ventas_dia import ventas_dia_bp
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
@@ -93,6 +95,7 @@ app.register_blueprint(accesos_bp)
 app.register_blueprint(usuarios_bp)
 app.register_blueprint(login_bp)
 app.register_blueprint(bitacora_bp)
+app.register_blueprint(ventas_dia_bp)
 iniciar_bitacora(app)
 app.register_blueprint(ventas_perdidas_bp)
 app.register_blueprint(productos_agotarse_bp)
@@ -127,21 +130,28 @@ app.context_processor(contexto_menu)  # menú único para inicio y barra superio
 # -----------------------------
 # Configuración de la base de datos
 # -----------------------------
-db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'Lpsmqlg.',
-    'database': 'comersa'
-}
+# Conexión a MySQL: una por petición (se abre al usarla y se cierra al terminar).
+# Antes había una sola conexión global para toda la app: MySQL la cierra tras 8 horas sin uso (wait_timeout) y desde
+# ahí todas las pantallas fallaban con "MySQL Connection not available" hasta reiniciar; además no es segura con varios usuarios.
+def conexion():
+    if "db" not in g:
+        g.db = get_connection()
+    return g.db
 
-# Conexión global
-
-
-conn = mysql.connector.connect(**db_config)
 
 def get_cursor():
     """Devuelve un cursor con resultados como diccionarios"""
-    return conn.cursor(dictionary=True)
+    return conexion().cursor(dictionary=True)
+
+
+@app.teardown_appcontext
+def cerrar_conexion(_error):
+    db = g.pop("db", None)
+    if db is not None:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 # -----------------------------
@@ -744,133 +754,12 @@ def rep_vend_netocreco():
     datos = obtener_reporte_ventas(fecha_inicio, fecha_fin)
     return render_template("RepVentasVendedor.html", **datos)
 
-@app.route("/reporte_ventas_dia", methods=["GET"])
-@requiere_acceso("reporte_ventas_dia")
-def reporte_ventas_dia():
-    fecha_inicio = request.args.get("fecha_inicio", datetime.today().strftime("%Y-%m-%d"))
-    fecha_fin = request.args.get("fecha_fin", datetime.today().strftime("%Y-%m-%d"))
-    tipo_cambio = request.args.get("tipo_cambio", "36.6243")  # valor por defecto
-    tipo_cambio = Decimal(tipo_cambio)
-
-    cursor = get_cursor() 
-
-    query = """
-    SELECT datos.Fecha,
-        datos.TipoVenta,
-        SUM(datos.Subtotal) AS Subtotal,
-        SUM(datos.Descuento) AS Descuento,
-        SUM(datos.Neto) AS Neto,
-        SUM(datos.Iva) AS Iva,
-        SUM(datos.Total) AS Total,
-        SUM(datos.DevTotal) AS DevTotal
-    FROM (
-        -- Ventas
-        SELECT v.fecha AS Fecha,
-            v.tipo_venta AS TipoVenta,
-            SUM(v.SubTotal) AS Subtotal,
-            SUM(v.Descuento) AS Descuento,
-            SUM(v.neto) AS Neto,
-            SUM(v.iva) AS Iva,
-            SUM(v.total) AS Total,
-            0 AS DevTotal
-        FROM ventas_historicas v
-        WHERE v.fecha BETWEEN %s AND %s
-        GROUP BY v.fecha, v.tipo_venta
-
-        UNION ALL
-
-        -- Devoluciones
-        SELECT r.fechadv AS Fecha,
-            r.tipofact AS TipoVenta,
-            0 AS Subtotal,
-            0 AS Descuento,
-            0 AS Neto,
-            0 AS Iva,
-            0 AS Total,
-            SUM(r.totaldv)/1.15 AS DevTotal
-        FROM devoluciones r
-        WHERE r.fechadv BETWEEN %s AND %s and r.estado='Cerrado'
-        GROUP BY r.fechadv, r.tipofact
-    ) datos
-    GROUP BY datos.Fecha, datos.TipoVenta
-    ORDER BY datos.Fecha, datos.TipoVenta;
-
-    """
-    cursor.execute(query, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
-    rows = cursor.fetchall()
-    cursor.close()
- 
-
- # Agrupar por fecha
-    reporte = {}
-    for r in rows:
-        fecha = r["Fecha"].strftime("%d-%b")
-        if fecha not in reporte:
-            reporte[fecha] = {"filas": [], "subtotal": Decimal(0), "descuento": Decimal(0),
-                            "devoluciones": Decimal(0), "neto": Decimal(0),
-                            "iva": Decimal(0), "total": Decimal(0)}
-        
-        dev = Decimal(r["DevTotal"] or 0)
-        neto_val = Decimal(r["Neto"] or 0)
-        neto_ajustado = neto_val - dev
-
-        r["Neto_Ajustado"] = neto_ajustado
-        r["NetoUSD"] = neto_ajustado / tipo_cambio
-
-        reporte[fecha]["filas"].append(r)
-        reporte[fecha]["subtotal"] += Decimal(r["Subtotal"] or 0)
-        reporte[fecha]["descuento"] += Decimal(r["Descuento"] or 0)
-        #reporte[fecha]["neto"] += Decimal(r["Neto"] or 0)
-        reporte[fecha]["devoluciones"] += dev
-        reporte[fecha]["neto"] += neto_ajustado
-        reporte[fecha]["iva"] += Decimal(r["Iva"] or 0)
-        reporte[fecha]["total"] += Decimal(r["Total"] or 0)
-
-    # Totales generales (seguro aunque no haya filas)
-    total_subtotal = sum(Decimal(r["Subtotal"] or 0) for r in rows)
-    total_descuento = sum(Decimal(r["Descuento"] or 0) for r in rows)
-    total_subtotal2 = sum(Decimal(r["Neto"] or 0) for r in rows)
-    total_dev = sum(Decimal(r["DevTotal"] or 0) for r in rows)
-    total_neto = sum((Decimal(r["Neto"] or 0) - Decimal(r["DevTotal"] or 0)) for r in rows)
-    total_iva = sum(Decimal(r["Iva"] or 0) for r in rows)
-    total_general = sum(Decimal(r["Total"] or 0) for r in rows)
-    total_usd = sum(grupo["neto"] / tipo_cambio for grupo in reporte.values())
-
-
-    # Inicializar listas seguras
-    dias = list(reporte.keys()) if reporte else []
-    ventas_contado = []
-    ventas_credito = []
-
-    for fecha, grupo in reporte.items():
-        neto_contado = sum(r["Neto"] or 0 for r in grupo["filas"] if r["TipoVenta"] == "CONTADO")
-        neto_credito = sum(r["Neto"] or 0 for r in grupo["filas"] if r["TipoVenta"] == "CREDITO")
-        ventas_contado.append(float(neto_contado))
-        ventas_credito.append(float(neto_credito))
-
-    return render_template("reporte_ventas_dia.html",
-                           reporte=reporte,
-                           fecha_inicio=fecha_inicio,
-                           fecha_fin=fecha_fin,
-                           tipo_cambio=tipo_cambio,
-                           total_subtotal=total_subtotal,
-                           total_descuento=total_descuento,
-                           total_subtotal2=total_subtotal2,
-                           total_dev=total_dev,
-                           total_neto=total_neto,
-                           total_iva=total_iva,
-                           total_general=total_general,
-                           total_usd=total_usd,
-                           chart_labels=dias,
-                           chart_contado=ventas_contado,
-                           chart_credito=ventas_credito)
-
-
 # -----------------------------
 # Reporte de zonas: ahora es "Ventas por departamento" mensual (router/ventas_departamento_mes.py, misma URL /reporteZona)
 # -----------------------------
 
 @app.route("/exportar", methods=["GET"])
+@requiere_acceso("reporte_ventas")
 def exportar():
     vendedor = request.args.get("vendedor", "ROGER . COLLADO .")
     fecha_inicio = request.args.get("fecha_inicio", "2020-01-01")
@@ -930,22 +819,24 @@ def clientes():
 
 
 @app.route('/editar_cliente/<int:id>', methods=['POST'])
+@requiere_acceso("clientes")
 def editar_cliente(id):
     nuevo_departamento = request.form['departamento']
     nuevo_municipio = request.form['municipio']
-    cursor = conn.cursor()
+    cursor = conexion().cursor()
     cursor.execute(
         "UPDATE clientes SET departamento=%s, municipio=%s WHERE id=%s",
         (nuevo_departamento, nuevo_municipio, id)
     )
-    conn.commit()
+    conexion().commit()
     return redirect('/clientes')
 
 @app.route('/eliminar_cliente/<int:id>', methods=['POST'])
+@requiere_acceso("clientes")
 def eliminar_cliente(id):
-    cursor = conn.cursor()
+    cursor = conexion().cursor()
     cursor.execute("DELETE FROM clientes WHERE id=%s", (id,))
-    conn.commit()
+    conexion().commit()
     return redirect('/clientes')
 
 @app.route('/newzonas', methods=['GET', 'POST'])
@@ -955,13 +846,13 @@ def newzonas():
         nombre_zona = request.form['nombre_zona']
         departamento = request.form['departamento']
         grupozona = request.form['grupozona']
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO zona_cliente (nombre_zona, departamento, grupozona) VALUES (%s, %s, %s)",
+        cursor = conexion().cursor()
+        cursor.execute("INSERT INTO zona_cliente (nombre_zona, municipio, grupozona) VALUES (%s, %s, %s)",
                        (nombre_zona, departamento, grupozona))
-        conn.commit()
+        conexion().commit()
 
     cursor = get_cursor()
-    cursor.execute("SELECT idzona, nombre_zona, departamento, grupozona FROM zona_cliente ORDER BY idzona DESC")
+    cursor.execute("SELECT idzona, nombre_zona, municipio AS departamento, grupozona FROM zona_cliente ORDER BY idzona DESC")
     zonas = cursor.fetchall()
     return render_template('zona_cliente_form.html', zonas=zonas)
 
@@ -969,7 +860,7 @@ def newzonas():
 @requiere_acceso("zonas")
 def listar_zonas():
     cursor = get_cursor()
-    cursor.execute("SELECT idzona, nombre_zona, departamento, grupozona FROM zona_cliente ORDER BY nombre_zona")
+    cursor.execute("SELECT idzona, nombre_zona, municipio AS departamento, grupozona FROM zona_cliente ORDER BY nombre_zona")
     zonas = cursor.fetchall()
 
     consecutivos = {}
@@ -981,26 +872,28 @@ def listar_zonas():
     return render_template('zona_cliente_list.html', zonas=zonas)
 
 @app.route('/editar/<int:idzona>', methods=['GET', 'POST'])
+@requiere_acceso("zonas")
 def editar_zona(idzona):
     cursor = get_cursor()
     if request.method == 'POST':
         nombre_zona = request.form['nombre_zona']
         departamento = request.form['departamento']
         grupozona = request.form['grupozona']
-        cursor.execute("UPDATE zona_cliente SET nombre_zona=%s, departamento=%s, grupozona=%s WHERE idzona=%s",
+        cursor.execute("UPDATE zona_cliente SET nombre_zona=%s, municipio=%s, grupozona=%s WHERE idzona=%s",
                        (nombre_zona, departamento, grupozona, idzona))
-        conn.commit()
+        conexion().commit()
         return redirect('/zonas')
     else:
-        cursor.execute("SELECT * FROM zona_cliente WHERE idzona=%s", (idzona,))
+        cursor.execute("SELECT idzona, nombre_zona, municipio AS departamento, grupozona FROM zona_cliente WHERE idzona=%s", (idzona,))
         zona = cursor.fetchone()
         return render_template('zona_cliente_edit.html', zona=zona)
 
 @app.route('/eliminar/<int:idzona>')
+@requiere_acceso("zonas")
 def eliminar_zona(idzona):
-    cursor = conn.cursor()
+    cursor = conexion().cursor()
     cursor.execute("DELETE FROM zona_cliente WHERE idzona=%s", (idzona,))
-    conn.commit()
+    conexion().commit()
     return redirect('/zonas')
 
 @app.route("/")
