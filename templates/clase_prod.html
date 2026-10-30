@@ -114,6 +114,9 @@
         y la aplicación del catálogo; medida, aplicación y equivalencias se corrigen en el sistema y aquí se consultan.</div>
     </div>
     <div class="d-flex flex-wrap gap-2">
+      <a href="{{ url_for('clase_prod.descargar_excel', **f) }}" class="btn btn-sm text-white" style="background: #027266; border-color: #027266"
+         title="Todos los productos de los filtros actuales, no solo esta página">
+        <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel ({{ "{:,}".format(total) }})</a>
       {% if f.ficha %}
       <a href="{{ url_for('productos_incompletos.descargar_excel', falta={'incompleta': 'cualquiera'}.get(f.ficha, f.ficha), q=f.q) }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-file-earmark-arrow-down" aria-hidden="true"></i> Excel de fichas incompletas</a>

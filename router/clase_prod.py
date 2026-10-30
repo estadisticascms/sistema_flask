@@ -1,9 +1,15 @@
+import io
 import json
 import os
 import re
 import uuid
+from datetime import datetime
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, send_file
+from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from utils.db import get_connection
 from router.accesos import requiere_acceso
 from router.cargar_ventas import ErrorArchivo, a_texto, leer_filas, buscar_encabezado, ruta_temporal, limpiar_temporales
@@ -40,6 +46,12 @@ PUBLICIDAD = re.compile(r"PUBLICIDAD|PROMOCIONAL|LAPICER|BOLIGRAF|CATALOGO|CALEN
 DESCARTES = {"1": "Ocultar sin movimiento y publicidad", "0": "Mostrar todos", "solo": "Solo sin movimiento y publicidad"}
 PREFIJO_TEMP = "carga_clase_prod_"
 LOTE = 2000
+VERDE, NARANJA = "027266", "FE6412"
+# Los encabezados Codigo, Segmento, Familia, Subfamilia y Grupo_equiv (hoja "Productos") son los que pide «Importar desde Excel»
+COLUMNAS_EXCEL = [("Codigo", 11), ("Nº parte", 20), ("Descripción", 40), ("Marca", 16), ("Existencia", 10), ("Segmento", 20),
+                  ("Familia", 26), ("Subfamilia", 26), ("Grupo_equiv", 14), ("Clasificación", 13), ("Medida", 18),
+                  ("Aplicación", 44), ("Equivalencias", 34), ("Falta en ficha", 24), ("Descartado", 14)]
+EDITABLES = ("Segmento", "Familia", "Subfamilia", "Grupo_equiv")
 
 
 # -----------------------------
@@ -185,6 +197,34 @@ def volver_a(destino):
     return redirect(url_for("clase_prod.clase_prod"))
 
 
+SELECT_PRODUCTOS = """
+    SELECT p.`Codigo Producto` AS codigo, p.Nombre AS nombre, p.Marca AS marca,
+           p.`Numero Parte` AS numero_parte, p.Equivalencias AS equivalencias,
+           p.`Existencia Actual` AS existencia, p.Medida AS medida, p.`Descripcion Larga` AS aplicacion,
+           c.codigo IS NOT NULL AS tiene_clase, c.segmento, c.familia, c.subfamilia, c.grupo_equival
+    FROM catalogo_productos p
+    LEFT JOIN clase_prod c ON c.codigo = p.`Codigo Producto`
+"""
+
+
+def orden_de(f):
+    return ORDENES[f["orden"] or ("existencia" if f["estado"] in ("sin_clasificar", "por_clasificar", "incompletos") or f["ficha"] else "marca")]
+
+
+def texto_celda(valor):
+    """Texto seguro para Excel: sin caracteres de control y sin que un '=' del catálogo se vuelva fórmula."""
+    return ILLEGAL_CHARACTERS_RE.sub("", valor).strip() or None if isinstance(valor, str) else valor
+
+
+def clasificacion_de(r):
+    if not r["tiene_clase"]:
+        return "Sin clasificar"
+    if sugerencias_clase.falta(r["familia"]):
+        return "Por clasificar"
+    incompleto = sugerencias_clase.falta(r["segmento"]) or not (r["subfamilia"] or "").strip() or not (r["grupo_equival"] or "").strip()
+    return "Incompleta" if incompleto else "Completa"
+
+
 # -----------------------------
 # Vista principal
 # -----------------------------
@@ -193,7 +233,7 @@ def volver_a(destino):
 def clase_prod():
     f = filtros_desde(request.args)
     pagina = max(int(request.args.get("page", 1) or 1), 1)
-    orden = ORDENES[f["orden"] or ("existencia" if f["estado"] in ("sin_clasificar", "por_clasificar", "incompletos") or f["ficha"] else "marca")]
+    orden = orden_de(f)
     where, params = condiciones(f)
 
     conn = get_connection()
@@ -206,17 +246,8 @@ def clase_prod():
         paginas = max((total + POR_PAGINA - 1) // POR_PAGINA, 1)
         pagina = min(pagina, paginas)
 
-        cursor.execute(f"""
-            SELECT p.`Codigo Producto` AS codigo, p.Nombre AS nombre, p.Marca AS marca,
-                   p.`Numero Parte` AS numero_parte, p.Equivalencias AS equivalencias,
-                   p.`Existencia Actual` AS existencia, p.Medida AS medida, p.`Descripcion Larga` AS aplicacion,
-                   c.codigo IS NOT NULL AS tiene_clase, c.segmento, c.familia, c.subfamilia, c.grupo_equival
-            FROM catalogo_productos p
-            LEFT JOIN clase_prod c ON c.codigo = p.`Codigo Producto`
-            WHERE {where}
-            ORDER BY {orden}
-            LIMIT %s OFFSET %s
-        """, params + [POR_PAGINA, (pagina - 1) * POR_PAGINA])
+        cursor.execute(f"{SELECT_PRODUCTOS} WHERE {where} ORDER BY {orden} LIMIT %s OFFSET %s",
+                       params + [POR_PAGINA, (pagina - 1) * POR_PAGINA])
         registros = cursor.fetchall()
         segmentos, arbol = opciones(cursor)
         conteo = contadores(cursor, f["descartar"])
@@ -245,6 +276,60 @@ def clase_prod():
         segmentos=segmentos, arbol=arbol, conteo=conteo, ordenes=list(ORDENES), fichas=FICHAS, descartes=DESCARTES,
         volver=request.full_path.rstrip("?"),
     )
+
+
+@clase_prod_bp.route("/clase_prod/excel")
+@requiere_acceso("clase_prod")
+def descargar_excel():
+    """Todos los productos de los filtros en pantalla (sin paginar). Se puede corregir y subir en «Importar desde Excel»."""
+    f = filtros_desde(request.args)
+    where, params = condiciones(f)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(f"{SELECT_PRODUCTOS} WHERE {where} ORDER BY {orden_de(f)}", params)
+        registros = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+    motivos = descartados()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Productos"
+    ws["A1"] = "Clasificación y fichas de productos"
+    ws["A1"].font = Font(bold=True, size=14, color=VERDE)
+    ws["A2"] = (f"{len(registros):,} productos · Generado {datetime.now():%d/%m/%Y %H:%M} · Las columnas naranja se pueden corregir "
+                "y subir en «Importar desde Excel»: la celda que quede vacía borra ese dato del producto.")
+    ws["A2"].font = Font(size=9, color="52514E")
+    ft = 4
+    for i, (nombre, ancho) in enumerate(COLUMNAS_EXCEL, start=1):
+        c = ws.cell(row=ft, column=i, value=nombre)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=NARANJA if nombre in EDITABLES else VERDE)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(i)].width = ancho
+    ws.row_dimensions[ft].height = 22
+    for n, r in enumerate(registros, start=ft + 1):
+        faltan = [nombre for nombre, col in (("Medida", "medida"), ("Aplicación", "aplicacion"), ("Equivalencia", "equivalencias"))
+                  if not tiene_valor(r[col])]
+        valores = [r["codigo"], r["numero_parte"], r["nombre"], r["marca"], float(r["existencia"] or 0), r["segmento"], r["familia"],
+                   r["subfamilia"], r["grupo_equival"], clasificacion_de(r),
+                   r["medida"] if tiene_valor(r["medida"]) else None, r["aplicacion"] if tiene_valor(r["aplicacion"]) else None,
+                   r["equivalencias"] if tiene_valor(r["equivalencias"]) else None, ", ".join(faltan) or None, motivos.get(r["codigo"])]
+        for i, v in enumerate(valores, start=1):
+            c = ws.cell(row=n, column=i, value=texto_celda(v))
+            if c.data_type == "f":
+                c.data_type = "s"
+        ws.cell(row=n, column=5).number_format = "#,##0.##"
+    ws.freeze_panes = ws.cell(row=ft + 1, column=4)
+    ws.auto_filter.ref = f"A{ft}:{get_column_letter(len(COLUMNAS_EXCEL))}{ft + max(len(registros), 1)}"
+
+    salida = io.BytesIO()
+    wb.save(salida)
+    salida.seek(0)
+    return send_file(salida, as_attachment=True, download_name=f"clasificacion_fichas_{datetime.now():%Y-%m-%d}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @clase_prod_bp.route("/clase_prod/guardar", methods=["POST"])
