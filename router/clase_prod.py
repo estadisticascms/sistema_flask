@@ -48,7 +48,7 @@ PREFIJO_TEMP = "carga_clase_prod_"
 LOTE = 2000
 VERDE, NARANJA = "027266", "FE6412"
 # Los encabezados Codigo, Segmento, Familia, Subfamilia y Grupo_equiv (hoja "Productos") son los que pide «Importar desde Excel»
-COLUMNAS_EXCEL = [("Codigo", 11), ("Nº parte", 20), ("Descripción", 40), ("Marca", 16), ("Existencia", 10), ("Segmento", 20),
+COLUMNAS_EXCEL = [("Codigo", 11), ("Nº parte", 20), ("Descripción", 40), ("Marca", 16), ("Proveedor", 26), ("Existencia", 10), ("Segmento", 20),
                   ("Familia", 26), ("Subfamilia", 26), ("Grupo_equiv", 14), ("Clasificación", 13), ("Medida", 18),
                   ("Aplicación", 44), ("Equivalencias", 34), ("Falta en ficha", 24), ("Descartado", 14)]
 EDITABLES = ("Segmento", "Familia", "Subfamilia", "Grupo_equiv")
@@ -115,8 +115,8 @@ def condiciones(f):
     for palabra in f["q"].split():
         like = f"%{palabra}%"
         where.append("(p.`Codigo Producto` LIKE %s OR p.Nombre LIKE %s OR p.`Numero Parte` LIKE %s "
-                     "OR p.Marca LIKE %s OR p.Equivalencias LIKE %s)")
-        params += [like] * 5
+                     "OR p.Marca LIKE %s OR p.Equivalencias LIKE %s OR p.`Proveedor Ultima Compra` LIKE %s)")
+        params += [like] * 6
     if f["estado"] == "clasificados":
         where.append("c.codigo IS NOT NULL AND COALESCE(c.familia, '') NOT IN ('', %s)")
         params.append(POR_CLASIFICAR)
@@ -199,7 +199,7 @@ def volver_a(destino):
 
 SELECT_PRODUCTOS = """
     SELECT p.`Codigo Producto` AS codigo, p.Nombre AS nombre, p.Marca AS marca,
-           p.`Numero Parte` AS numero_parte, p.Equivalencias AS equivalencias,
+           p.`Numero Parte` AS numero_parte, p.Equivalencias AS equivalencias, p.`Proveedor Ultima Compra` AS proveedor,
            p.`Existencia Actual` AS existencia, p.Medida AS medida, p.`Descripcion Larga` AS aplicacion,
            c.codigo IS NOT NULL AS tiene_clase, c.segmento, c.familia, c.subfamilia, c.grupo_equival
     FROM catalogo_productos p
@@ -313,7 +313,7 @@ def descargar_excel():
     for n, r in enumerate(registros, start=ft + 1):
         faltan = [nombre for nombre, col in (("Medida", "medida"), ("Aplicación", "aplicacion"), ("Equivalencia", "equivalencias"))
                   if not tiene_valor(r[col])]
-        valores = [r["codigo"], r["numero_parte"], r["nombre"], r["marca"], float(r["existencia"] or 0), r["segmento"], r["familia"],
+        valores = [r["codigo"], r["numero_parte"], r["nombre"], r["marca"], r["proveedor"], float(r["existencia"] or 0), r["segmento"], r["familia"],
                    r["subfamilia"], r["grupo_equival"], clasificacion_de(r),
                    r["medida"] if tiene_valor(r["medida"]) else None, r["aplicacion"] if tiene_valor(r["aplicacion"]) else None,
                    r["equivalencias"] if tiene_valor(r["equivalencias"]) else None, ", ".join(faltan) or None, motivos.get(r["codigo"])]
@@ -321,7 +321,7 @@ def descargar_excel():
             c = ws.cell(row=n, column=i, value=texto_celda(v))
             if c.data_type == "f":
                 c.data_type = "s"
-        ws.cell(row=n, column=5).number_format = "#,##0.##"
+        ws.cell(row=n, column=6).number_format = "#,##0.##"
     ws.freeze_panes = ws.cell(row=ft + 1, column=4)
     ws.auto_filter.ref = f"A{ft}:{get_column_letter(len(COLUMNAS_EXCEL))}{ft + max(len(registros), 1)}"
 
