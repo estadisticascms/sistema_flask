@@ -1,392 +1,250 @@
 {% extends "layout.html" %}
 {% block title %}Resumen General{% endblock %}
-{% block header_title %}Dashboard de Resumen{% endblock %}
+{% block header_title %}Resumen General{% endblock %}
+
+{% macro delta(valor, texto, unidad='%') %}
+  {% if valor is none %}<span class="sub">{{ texto }}</span>
+  {% else %}<span class="{{ 'delta-pos' if valor >= 0 else 'delta-neg' }}">{{ '▲' if valor >= 0 else '▼' }} {{ '{:.1f}'.format(valor|abs) }}{{ unidad }}</span> <span class="sub">{{ texto }}</span>{% endif %}
+{% endmacro %}
 
 {% block content %}
-<div class="container-fluid px-3">
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  /* Pantalla completa: sin el ancho fijo del layout y sin desplazamiento en computadora */
+  body > .container { max-width: none; margin-top: 0 !important; padding: 0 .5rem; }
+  .resumen { display: grid; gap: .5rem; background: #fff; }
+  .resumen-cabeza { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
+  .resumen-cabeza h1 { font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 0; }
+  .resumen-cabeza .periodo { font-size: .8rem; color: var(--ink-2); }
+  .resumen-cabeza form { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-left: auto; font-size: .78rem; }
+  .resumen-cabeza form input { width: 128px; }
+  .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .5rem; }
+  .kpis .kpi { padding: .45rem .7rem; border: 1px solid var(--grid); border-radius: 10px; min-width: 0; }
+  .kpis .kpi-hero { border-color: var(--credito); }
+  .kpis .kpi-hero .valor { font-size: clamp(1.2rem, 1.7vw, 1.8rem); }
+  .kpis .kpi .etiqueta { font-size: .68rem; }
+  .kpis .kpi .sub, .kpis .kpi .delta-pos, .kpis .kpi .delta-neg { font-size: .72rem; }
+  .fila-graficos { display: grid; grid-template-columns: 2fr 1fr; gap: .5rem; min-height: 0; }
+  .fila-tablas { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; min-height: 0; }
+  .resumen .card { min-height: 0; margin: 0; display: flex; flex-direction: column; }
+  .resumen .card-header { padding: .25rem .7rem; font-size: .85rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 .75rem; }
+  .resumen .card-header small { font-size: .72rem; }
+  .resumen .card-body { padding: .25rem .7rem; flex: 1; min-height: 0; }
+  .resumen .grafico { height: 100%; min-height: 0; }
+  .dash.resumen table.tabla { font-size: .76rem; }
+  .dash.resumen table.tabla td, .dash.resumen table.tabla th { padding: .08rem .35rem; line-height: 1.3; }
+  .resumen .barra-celda { min-width: 90px; width: 42%; }
+  @media (min-width: 992px) {
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; overflow: hidden; }
+    body > .container { flex: 1; min-height: 0; padding-bottom: .4rem; }
+    body > nav.navbar { margin-bottom: .4rem !important; }
+    .resumen { height: 100%; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+  }
+  @media (max-width: 991.98px) {
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .fila-graficos, .fila-tablas { grid-template-columns: minmax(0, 1fr); }
+    .resumen .grafico { height: 220px; }
+    .resumen .card-body { overflow-x: auto; }
+    .resumen-cabeza form { margin-left: 0; }
+  }
+</style>
 
-  <!-- 🔍 Filtro de fechas -->
-  <form method="get" class="row g-2 align-items-end mb-3 bg-light p-2 rounded shadow-sm">
-    <div class="col-md-3">
-      <label class="form-label small fw-bold text-success">Fecha inicio</label>
-      <input type="date" class="form-control form-control-sm" name="fecha_inicio" value="{{ fecha_inicio }}">
-    </div>
-    <div class="col-md-3">
-      <label class="form-label small fw-bold text-success">Fecha fin</label>
-      <input type="date" class="form-control form-control-sm" name="fecha_fin" value="{{ fecha_fin }}">
-    </div>
-    <div class="col-md-2">
-      <button type="submit" class="btn btn-sm btn-success w-100">Filtrar</button>
-    </div>
-    <div class="col-md-2">
-      <button type="button" id="btnDescargar" class="btn btn-sm btn-primary w-100">📥 Descargar Imagen</button>
-      <button type="button" id="btnDescargarPDF" class="btn btn-sm btn-primary w-100">📄 Descargar PDF</button>
-    </div>
-  </form>
-
-<!-- Contenedor del resumen para captura -->
-<div id="resumenContainer">
-
-<!-- 🏆 Top 5 Marcas -->
-<h6 style="color: var(--color-principal);">🏆 Top 5 Marcas (Último Mes)</h6>
-<div class="row mb-3">
-  
-  <!-- Tabla marcas -->
-  <div class="col-md-6">
-  <table class="table table-sm table-bordered compact-table">
-    <thead style="background-color: var(--color-secundario); color: white;">
-      <tr><th>Marca</th><th>Ventas</th><th>Ganancia</th><th>Margen %</th></tr>
-    </thead>
-    <tbody>
-      {% for r in top5_marcas %}
-      <tr>
-        <td>{{ r.Marca }}</td>
-        <td class="text-end">{{ r.VentasTotales | cordobas }}</td>
-        <td class="text-end">{{ r.Ganancia | cordobas }}</td>
-        <td class="text-end">{{ r.MargenPorcentaje }}%</td>
-      </tr>
-      {% endfor %}
-      <!-- Fila de totales del Top 5 -->
-      <tr class="table-secondary fw-bold">
-        <td>Total Top 5</td>
-        <td class="text-end">{{ total_top5.VentasTotales | cordobas }}</td>
-        <td class="text-end">{{ total_top5.Ganancia | cordobas }}</td>
-        <td class="text-end">{{ total_top5.MargenPorcentaje }}%</td>
-      </tr>
-    </tbody>
-
-  </table>
-
-        <!-- Gráfico de Barras marcas -->
-      <canvas id="graficoTopMarcas"></canvas>
+<div id="resumenContainer" class="dash resumen">
+  <div class="resumen-cabeza">
+    <h1>Resumen general</h1>
+    <span class="periodo">{{ desde_txt }} al {{ corte_txt }} · comparado con el mismo corte de {{ r.anio_ant }}</span>
+    <form method="get" data-html2canvas-ignore>
+      <label for="fi">Desde</label>
+      <input type="date" id="fi" class="form-control form-control-sm" name="fecha_inicio" value="{{ fecha_inicio }}">
+      <label for="ff">Hasta</label>
+      <input type="date" id="ff" class="form-control form-control-sm" name="fecha_fin" value="{{ fecha_fin }}">
+      <button type="submit" class="btn btn-sm btn-success">Filtrar</button>
+      <button type="button" id="btnDescargar" class="btn btn-sm btn-outline-secondary" title="Descargar imagen"><i class="bi bi-image" aria-hidden="true"></i> Imagen</button>
+      <button type="button" id="btnDescargarPDF" class="btn btn-sm btn-outline-secondary" title="Descargar PDF"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF</button>
+    </form>
   </div>
 
-
-
-    <!-- Gráfico de Anillo -->
-<div class="col-md-6 position-relative" style="max-width:500px; margin:auto; padding:0;">
-
-  <canvas id="graficoAnilloMargen"></canvas>
-  <div id="anilloCentro"
-       style="position:absolute; top:50%; left:33%; transform:translate(-50%,-50%);
-              font-weight:bold; text-align:center; font-size:14px;">
-  </div>
-</div>
-
-
-
-</div>
-
-
-  <!-- 📊 Ventas Mensuales Totales -->
-  <h6 style="color: var(--color-secundario);">📊 Ventas Mensuales Totales (Neto Ajustado)</h6>
-  <div class="row mb-3">
-    <div class="col-md-6"><canvas id="graficoVentasMensuales"></canvas></div>
-    <div class="col-md-6">
-      <table class="table table-sm table-bordered compact-table">
-        <thead style="background-color: var(--color-principal); color: white;">
-          <tr><th>Mes</th><th>Total Neto</th></tr>
-        </thead>
-        <tbody>
-          {% for mes in datos_ventas_mes.chart_labels %}
-          <tr><td>{{ mes }}</td><td class="text-end">{{ datos_ventas_mes.totales_por_mes[mes] | cordobas }}</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <div class="kpis">
+    <div class="kpi kpi-hero">
+      <div class="etiqueta">Venta neta acumulada</div>
+      <div class="valor">{{ millones(r.actual.neto) }}</div>
+      {{ delta(r.var_venta, 'vs ' ~ r.anio_ant) }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Utilidad</div>
+      <div class="valor">{{ millones(r.actual.utilidad) }}</div>
+      {{ delta(r.var_utilidad, 'vs ' ~ r.anio_ant) }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Margen</div>
+      <div class="valor">{% if r.actual.margen is not none %}{{ '{:.1f}'.format(r.actual.margen) }}%{% else %}—{% endif %}</div>
+      {{ delta(r.dif_margen, 'vs ' ~ r.anio_ant, ' pts') }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Recuperación</div>
+      <div class="valor">{{ millones(r.total_recuperado) }}</div>
+      <span class="sub">{% if r.mejor_recuperacion %}Mayor: {{ r.mejor_recuperacion[0] }} {{ millones(r.mejor_recuperacion[1]) }}{% endif %}</span>
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Clientes atendidos</div>
+      <div class="valor">{{ '{:,.0f}'.format(r.actual.clientes) }}</div>
+      {{ delta(r.var_clientes, 'vs ' ~ r.anio_ant) }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Crédito y contado</div>
+      {% if r.pct_credito is not none %}
+      <div class="medidor" role="img" aria-label="Crédito {{ '{:.0f}'.format(r.pct_credito) }}%, contado {{ '{:.0f}'.format(100 - r.pct_credito) }}%">
+        <span style="width: {{ r.pct_credito }}%; background: var(--credito)"></span>
+        <span style="width: {{ 100 - r.pct_credito }}%; background: var(--contado)"></span>
+      </div>
+      <span class="sub"><span class="clave" style="background: var(--credito)"></span>Crédito {{ '{:.0f}'.format(r.pct_credito) }}%
+        <span class="clave ms-1" style="background: var(--contado)"></span>Contado {{ '{:.0f}'.format(100 - r.pct_credito) }}%</span>
+      {% endif %}
     </div>
   </div>
-  <!-- 👥 Ventas Mensuales por Vendedor -->
-  <h6 style="color: var(--color-neutro);">👥 Ventas Mensuales por Vendedor</h6>
-  <div class="row mb-3">
-    
-    <div class="col-md-12">
-      <table class="table table-sm table-bordered compact-table">
-        <thead style="background-color: var(--color-secundario); color: white;">
-          <tr>
-            <th>Tipo Vendedor</th>
-            {% for mes in datos_ventas_mes.chart_labels %}
-              <th class="text-end">{{ mes }}</th>
-            {% endfor %}
-            <th class="text-end">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for tipo, vendedores in datos_ventas_mes.grupos.items() %}
-            {% set total_tipo = namespace(valor=0) %}
+
+  <div class="fila-graficos">
+    <div class="card">
+      <div class="card-header">
+        <span>Venta neta por mes <small>millones de C$</small></span>
+        <small>
+          <span class="clave" style="background: var(--credito)"></span>{{ r.corte.year }}
+          <span class="clave ms-2" style="background: #c9c8c2"></span>{{ r.anio_ant }}
+          {% if r.mes_incompleto %}· {{ r.etiquetas[-1] }} al día {{ r.corte.day }} en ambos años{% endif %}
+          {% if r.mejor_mes %}· Mejor: {{ r.mejor_mes[0] }}, más bajo: {{ r.peor_mes[0] }}{% endif %}
+        </small>
+      </div>
+      <div class="card-body"><div class="grafico"><canvas id="graficoVentas" role="img" aria-label="Venta neta por mes comparada con el año anterior"></canvas></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span>Recuperación por mes <small>millones de C$, con IVA</small></span></div>
+      <div class="card-body"><div class="grafico"><canvas id="graficoRecuperacion" role="img" aria-label="Recuperación por mes"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="fila-tablas">
+    <div class="card">
+      <div class="card-header"><span>Top {{ r.marcas.filas|length }} marcas <small>acumulado</small></span></div>
+      <div class="card-body">
+        {% if r.marcas.filas %}
+        <table class="tabla">
+          <thead><tr><th>Marca</th><th class="num">Venta</th><th>% del total</th><th class="num">Margen</th></tr></thead>
+          <tbody>
+            {% set mayor = r.marcas.filas[0].venta %}
+            {% for m in r.marcas.filas %}
             <tr>
-              <td>{{ tipo }}</td>
-              {% for mes in datos_ventas_mes.chart_labels %}
-                {% set subtotal_mes = namespace(valor=0) %}
-                {% for vendedor, ventas in vendedores.items() %}
-                  {% set subtotal_mes.valor = subtotal_mes.valor + ventas.get(mes, 0) %}
-                {% endfor %}
-                {% set total_tipo.valor = total_tipo.valor + subtotal_mes.valor %}
-                <td class="text-end">{{ subtotal_mes.valor | cordobas }}</td>
-              {% endfor %}
-              <td class="text-end fw-bold">{{ total_tipo.valor | cordobas }}</td>
+              <td>{{ m.marca }}</td>
+              <td class="num">{{ millones(m.venta) }}</td>
+              <td class="barra-celda"><span class="barra" style="width: {{ m.venta / mayor * 100 }}%"></span><span class="txt">{{ '{:.1f}'.format(m.pct) }}%</span></td>
+              <td class="num">{% if m.margen is not none %}{{ '{:.1f}'.format(m.margen) }}%{% else %}—{% endif %}</td>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+            {% endfor %}
+            <tr class="total">
+              <td>Total top {{ r.marcas.filas|length }}</td>
+              <td class="num">{{ millones(r.marcas.venta) }}</td>
+              <td>{{ '{:.1f}'.format(r.marcas.pct) }}%</td>
+              <td class="num">{% if r.marcas.margen is not none %}{{ '{:.1f}'.format(r.marcas.margen) }}%{% else %}—{% endif %}</td>
+            </tr>
+          </tbody>
+        </table>
+        {% else %}<div class="vacio">Sin ventas en el período.</div>{% endif %}
+      </div>
     </div>
-    <div class="col-md-6"><canvas id="graficoVendedoresBarras"></canvas></div>
-    <div class="col-md-6"><canvas id="graficoParticipacionVendedores"></canvas></div>
-  </div>
-
-  <!-- 💵 Recuperación Mensual -->
-  <h6 style="color: var(--color-principal);">💵 Recuperación Mensual</h6>
-  <div class="row mb-3">
-    <div class="col-md-6"><canvas id="graficoRecuperacion"></canvas></div>
-    <div class="col-md-6">
-      <table class="table table-sm table-bordered compact-table">
-        <thead style="background-color: var(--color-neutro); color: white;">
-          <tr><th>Mes</th><th>Cant. ROC</th><th>Total C$</th></tr>
-        </thead>
-        <tbody>
-          {% for r in datos_recuperacion.rows %}
-          <tr>
-            <td>{{ r.Mes }}</td>
-            <td class="text-end">{{ r.Cantidad }}</td>
-            <td class="text-end">{{ r.TotalCordobas | cordobas }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="card">
+      <div class="card-header"><span>Venta neta por tipo de vendedor <small>acumulado</small></span></div>
+      <div class="card-body">
+        {% if r.tipos %}
+        <table class="tabla">
+          <thead><tr><th>Tipo</th><th class="num">Venta</th><th>Participación</th></tr></thead>
+          <tbody>
+            {% set mayor = r.tipos[0].venta %}
+            {% for t in r.tipos %}
+            <tr>
+              <td>{{ t.tipo }}</td>
+              <td class="num">{{ millones(t.venta) }}</td>
+              <td class="barra-celda"><span class="barra" style="width: {{ (t.venta / mayor * 100) if mayor > 0 and t.venta > 0 else 0 }}%"></span><span class="txt">{{ '{:.1f}'.format(t.pct) }}%</span></td>
+            </tr>
+            {% endfor %}
+            <tr class="total"><td>Total</td><td class="num">{{ millones(r.total_tipos) }}</td><td>100%</td></tr>
+          </tbody>
+        </table>
+        {% else %}<div class="vacio">Sin ventas en el período.</div>{% endif %}
+      </div>
     </div>
   </div>
-
-</div> <!-- cierre resumenContainer -->
+</div>
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-
-<!-- Gráfico Ventas Mensuales Totales -->
 <script>
-  const meses = {{ datos_ventas_mes.chart_labels | safe }};
-  const ventas = {{ datos_ventas_mes.chart_values | safe }};
+(() => {
+  const VERDE = '#027266', VERDE_CLARO = 'rgba(2,114,102,.5)', GRIS = '#c9c8c2';
+  const etiquetas = {{ r.etiquetas | tojson }}, ventas = {{ r.ventas | tojson }}, anterior = {{ r.ventas_ant | tojson }},
+        recuperacion = {{ r.recuperacion | tojson }}, incompleto = {{ r.mes_incompleto | tojson }};
+  const fmt = (v) => 'C$ ' + Math.round(v).toLocaleString('en-US');
+  const colores = (datos) => datos.map((_, i) => incompleto && i === datos.length - 1 ? VERDE_CLARO : VERDE);
 
-  new Chart(document.getElementById('graficoVentasMensuales').getContext('2d'), {
-      data: {
-          labels: meses,
-          datasets: [
-              {
-                  type: 'bar',
-                  label: 'Ventas (C$)',
-                  data: ventas,
-                  backgroundColor: '#027266',
-                  borderRadius: 4
-              },
-              {
-                  type: 'line',
-                  label: 'Ventas (línea)',
-                  data: ventas,
-                  borderColor: '#FE6412',
-                  borderWidth: 2,
-                  tension: 0.3,
-                  pointRadius: 4
-              }
-          ]
-      },
-      options: {
-          responsive: true,
-          plugins: { legend: { position: 'bottom' } },
-          scales: {
-              y: {
-                  beginAtZero: true,
-                  title: { display: true, text: 'C$ Ventas' },
-                  ticks: {
-                      callback: function(value) {
-                          if (value >= 1000) return 'C$ ' + (value/1000).toFixed(0) + 'K';
-                          return 'C$ ' + value;
-                      }
-                  }
-              }
-          }
-      }
-  });
-</script>
+  Chart.defaults.font.family = "'Segoe UI', Arial, sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = '#52514e';
+  Chart.defaults.maintainAspectRatio = false;
+  Chart.defaults.animation = false;   // la imagen y el PDF capturan los gráficos completos
 
-<!-- Gráfico Ventas por Vendedores Mensuales -->
-<script>
-  new Chart(document.getElementById('graficoVendedoresBarras').getContext('2d'), {
-      type: 'line',
-      data: {
-          labels: {{ datos_ventas_mes.chart_labels | safe }},
-          datasets: {{ datasets_vendedores | tojson }}
-      },
-      options: {
-          responsive: true,
-          plugins: { legend: { position: 'bottom' } },
-          scales: {
-              y: { beginAtZero: true, title: { display: true, text: 'C$ Neto Ajustado' } }
-          },
-          elements: { line: { tension: 0.3 }, point: { radius: 4 } }
-      }
-  });
-</script>
-
-<!-- Gráfico Recuperación Mensual -->
-<script>
-new Chart(document.getElementById('graficoRecuperacion').getContext('2d'), {
-    type: 'line',
-    data: {
-        labels: {{ datos_recuperacion.chart_labels | safe }},
-        datasets: [{
-            label: 'Total Recuperado (C$)',
-            data: {{ datos_recuperacion.chart_values | safe }},
-            fill: true,
-            backgroundColor: 'rgba(2,114,102,0.2)',
-            borderColor: '#027266',
-            tension: 0.3
-        }]
+  // Valor en millones sobre las barras de la primera serie: el reporte se lee sin pasar el cursor, también en PDF
+  const rotulos = {
+    id: 'rotulos',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = "600 11px 'Segoe UI', Arial, sans-serif";
+      ctx.fillStyle = '#1f1f1d';
+      ctx.textAlign = 'center';
+      chart.getDatasetMeta(0).data.forEach((barra, i) => {
+        const v = chart.data.datasets[0].data[i];
+        if (v) ctx.fillText((v / 1e6).toFixed(1), barra.x, barra.y - 4);
+      });
+      ctx.restore();
     },
-    options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom' } },
-        scales: { y: { beginAtZero: true, title: { display: true, text: 'C$ Recuperado' } } }
-    }
-});
-</script>
-
-<!-- Botón Descargas -->
-<script>
-  // Descargar como PNG
-  document.getElementById("btnDescargar").addEventListener("click", function() {
-    html2canvas(document.getElementById("resumenContainer"), {
-      scale: 2, // mejora la resolución
-      useCORS: true
-    }).then(canvas => {
-      const link = document.createElement("a");
-      link.download = "resumen_dashboard.png";
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-    });
-  });
-
-  // Descargar como PDF
-document.getElementById("btnDescargarPDF").addEventListener("click", function() {
-  const container = document.getElementById("resumenContainer");
-  if (!container) { alert("No se encontró el contenedor resumenContainer"); return; }
-
-  html2canvas(container, { scale: 2, useCORS: true }).then(canvas => {
-    const imgData = canvas.toDataURL("image/png");
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF("p", "pt", "a4"); // vertical, puntos, tamaño A4
-
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const imgWidth = pageWidth;
-    const imgHeight = canvas.height * pageWidth / canvas.width;
-
-    let heightLeft = imgHeight;
-    let position = 0;
-
-    // Primera página
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
-
-    // Si sobra contenido, añadir páginas
-    while (heightLeft > 0) {
-      position = heightLeft - imgHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-    }
-
-    pdf.save("resumen_dashboard.pdf");
-  });
-});
- </script>
-
-
-<!-- Gráfico Barras Top 5 Marcas -->
-<script>
-  new Chart(document.getElementById('graficoTopMarcas').getContext('2d'), {
-      type: 'bar',
-      data: {
-          labels: [{% for r in top5_marcas %}'{{ r.Marca }}',{% endfor %}],
-          datasets: [{
-              label: 'Ganancia (C$)',
-              data: [{% for r in top5_marcas %}{{ r.Ganancia or 0 }},{% endfor %}],
-              backgroundColor: ['#FE6412','#027266','#666666','#4B9CD3','#9C27B0'],
-              borderWidth: 1
-          }]
-      },
-      options: { 
-          responsive: true, 
-          plugins: { legend: { display: false } },
-          scales: {
-              y: { beginAtZero: true, title: { display: true, text: 'Ganancia (C$)' } }
-          }
-      }
-  });
-</script>
-
-
-<!-- Gráfico Anillo Margen -->
-<script>
-const marcas = [{% for r in top5_marcas %}'{{ r.Marca }}',{% endfor %}];
-const margenes = [{% for r in top5_marcas %}{{ r.MargenPorcentaje or 0 }},{% endfor %}];
-const colores = ['#FE6412','#027266','#666666','#4B9CD3','#9C27B0'];
-
-const maxIndex = margenes.indexOf(Math.max(...margenes));
-const marcaMax = marcas[maxIndex];
-const margenMax = margenes[maxIndex];
-const colorMax = colores[maxIndex];
-
-new Chart(document.getElementById('graficoAnilloMargen').getContext('2d'), {
-    type: 'doughnut',
-    data: { labels: marcas, datasets: [{ data: margenes, backgroundColor: colores, borderColor: '#fff', borderWidth: 2 }] },
-    options: {
-        responsive: true,
-        cutout: '50%',
-        plugins: {
-            legend: { position: 'right' },
-            title: { display: true, text: '🥯 Margen de Ganancia', color: '#027266', font: { size: 14, weight: 'bold' }, padding: { top: 5, bottom: 5 } },
-            datalabels: { color: '#fff', font: { weight: 'bold', size: 12 }, formatter: (value) => value + '%' }
-        }
-    },
-    plugins: [ChartDataLabels]
-});
-
-document.getElementById("anilloCentro").innerHTML = marcaMax + "<br>" + margenMax + "%";
-document.getElementById("anilloCentro").style.color = colorMax;
-</script>
-
-<!-- Gráfico Participación Vendedores -->
-<script>
-const mesesPart = {{ datos_ventas_mes.chart_labels | safe }};
-const gruposPart = {{ participacion_vendedores | tojson }};
-
-const datasetsPart = [];
-Object.keys(gruposPart).forEach((grupo, i) => {
-  datasetsPart.push({
-    label: grupo,
-    data: gruposPart[grupo],
-    backgroundColor: `rgba(${(i*60)%255}, ${(i*120)%255}, ${(i*180)%255}, 0.7)`,
-    stack: 'participacion'
-  });
-});
-
-new Chart(document.getElementById('graficoParticipacionVendedores').getContext('2d'), {
+  };
+  const opciones = {
+    layout: { padding: { top: 16 } },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.parsed.y)}` } } },
+    scales: { x: { grid: { display: false } }, y: { display: false, beginAtZero: true } },
+  };
+  new Chart(document.getElementById('graficoVentas'), {
     type: 'bar',
-    data: { labels: mesesPart, datasets: datasetsPart },
-    options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom' } },
-        scales: {
-            x: { stacked: true },
-            y: { stacked: true, beginAtZero: true, max: 100, title: { display: true, text: '% Participación' } }
-        }
-    }
-});
+    data: { labels: etiquetas, datasets: [
+      { label: '{{ r.corte.year }}', data: ventas, backgroundColor: colores(ventas), borderRadius: 4, barPercentage: .9, categoryPercentage: .7 },
+      { label: '{{ r.anio_ant }}', data: anterior, backgroundColor: GRIS, borderRadius: 4, barPercentage: .9, categoryPercentage: .7 },
+    ] },
+    options: opciones, plugins: [rotulos],
+  });
+  new Chart(document.getElementById('graficoRecuperacion'), {
+    type: 'bar',
+    data: { labels: etiquetas, datasets: [{ label: 'Recuperado', data: recuperacion, backgroundColor: colores(recuperacion), borderRadius: 4, categoryPercentage: .7 }] },
+    options: opciones, plugins: [rotulos],
+  });
+
+  const nombre = 'resumen_general_{{ r.corte }}';
+  const capturar = () => html2canvas(document.getElementById('resumenContainer'), { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+  document.getElementById('btnDescargar').addEventListener('click', () => capturar().then((canvas) => {
+    const link = document.createElement('a');
+    link.download = nombre + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }));
+  // Una sola hoja horizontal: la imagen se ajusta a la página sin deformarse
+  document.getElementById('btnDescargarPDF').addEventListener('click', () => capturar().then((canvas) => {
+    const pdf = new window.jspdf.jsPDF('l', 'pt', 'a4');
+    const ancho = pdf.internal.pageSize.getWidth() - 40, alto = pdf.internal.pageSize.getHeight() - 40;
+    const escala = Math.min(ancho / canvas.width, alto / canvas.height);
+    const w = canvas.width * escala, h = canvas.height * escala;
+    pdf.addImage(canvas.toDataURL('image/jpeg', .92), 'JPEG', (ancho + 40 - w) / 2, 20, w, h);
+    pdf.save(nombre + '.pdf');
+  }));
+})();
 </script>
 {% endblock %}
-
-

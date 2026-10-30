@@ -1,177 +1,199 @@
+"""Resumen general: una sola pantalla con el acumulado del año (enero a la fecha) contra el mismo corte del año anterior."""
 from flask import Blueprint, render_template, request
-from datetime import datetime
-from decimal import Decimal
-from calendar import monthrange
+from datetime import date, datetime, timedelta
 from utils.db import get_connection
-from router.reporte_top_marcas import obtener_top_marcas
 from router.accesos import requiere_acceso
+from router.dashboard import con_cache, millones, venta_neta_por_mes
 
 resumen_bp = Blueprint("resumen", __name__)
 
+MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+TOP_MARCAS = 5
+
+
+def un_anio_antes(fecha):
+    # El 29 de febrero no existe el año anterior
+    return fecha.replace(year=fecha.year - 1, day=28 if (fecha.month, fecha.day) == (2, 29) else fecha.day)
+
+
+def fecha_larga(fecha):
+    return f"{fecha.day} {MESES[fecha.month - 1].lower()} {fecha.year}"
+
+
+def leer_fecha(texto, defecto):
+    try:
+        return datetime.strptime(texto or "", "%Y-%m-%d").date()
+    except ValueError:
+        return defecto
+
+
 # -----------------------------
-# Ventas mensuales por vendedores
+# Último día con ventas cargadas (los datos no siempre llegan a hoy)
 # -----------------------------
-def obtener_resumen_ventas_mes(fecha_inicio, fecha_fin):
+def ultima_venta(desde, hasta):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(Fecha) FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s", (desde, hasta))
+    ultima = cursor.fetchone()[0]
+    cursor.close()
+    conn.close()
+    return ultima
+
+
+# -----------------------------
+# Indicadores de un período (sin anuladas; devoluciones cerradas sin IVA)
+# -----------------------------
+def indicadores(desde, hasta):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-
-    query = """
-        SELECT Mes,
-               e.tipo AS Tipo_Vendedor,
-               datos.Vendedor,
-               SUM(datos.Venta_Neta) - SUM(datos.DevTotal) AS Neto_Ajustado
-        FROM (
-            SELECT DATE_FORMAT(v.fecha, '%Y-%m') AS Mes,
-                   CASE 
-                       WHEN v.cliente = 'EJERCITO DE NICARAGUA' THEN 'EJERCITO DE NICARAGUA'
-                       ELSE v.Vendedor
-                   END AS Vendedor,
-                   SUM(v.neto) AS Venta_Neta,
-                   0 AS DevTotal
-            FROM ventas_historicas v
-            WHERE v.fecha BETWEEN %s AND %s
-            GROUP BY Mes, v.vendedor, v.cliente
-
-            UNION ALL
-
-            SELECT DATE_FORMAT(r.fechadv, '%Y-%m') AS Mes,
-                   CASE 
-                       WHEN r.cliente = 'EJERCITO DE NICARAGUA' THEN 'EJERCITO DE NICARAGUA'
-                       ELSE r.Vendedor
-                   END AS Vendedor,
-                   0 AS Venta_Neta,
-                   SUM(r.totaldv)/1.15 AS DevTotal
-            FROM devoluciones r
-            WHERE r.fechadv BETWEEN %s AND %s AND r.estado='Cerrado'
-            GROUP BY Mes, r.vendedor, r.cliente
-        ) datos
-        LEFT JOIN (
-            SELECT tipo, nombre FROM cat_vendedor GROUP BY tipo, nombre
-        ) e ON datos.Vendedor = e.nombre
-        GROUP BY e.tipo, datos.Mes, datos.Vendedor
-        ORDER BY datos.Mes, e.tipo, datos.Vendedor;
-    """
-    cursor.execute(query, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
-    rows = cursor.fetchall()
+    cursor.execute("""
+        SELECT COUNT(*) AS facturas, COUNT(DISTINCT cliente) AS clientes,
+               COALESCE(SUM(neto), 0) AS facturado, COALESCE(SUM(utilidad), 0) AS utilidad,
+               COALESCE(SUM(CASE WHEN tipo_venta = 'Credito' THEN neto END), 0) AS credito,
+               COALESCE(SUM(CASE WHEN tipo_venta = 'Contado' THEN neto END), 0) AS contado
+        FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s AND estado_factura <> 'Anulado'
+    """, (desde, hasta))
+    m = {k: float(v or 0) for k, v in cursor.fetchone().items()}
+    cursor.execute("""
+        SELECT COALESCE(SUM(totaldv), 0) / 1.15 AS total,
+               COALESCE(SUM(CASE WHEN tipofact = 'Credito' THEN totaldv END), 0) / 1.15 AS credito
+        FROM devoluciones WHERE fechadv BETWEEN %s AND %s AND estado = 'Cerrado'
+    """, (desde, hasta))
+    dev = cursor.fetchone()
     cursor.close()
     conn.close()
 
-    grupos = {}
-    meses = set()
-    for r in rows:
-        tipo = r["Tipo_Vendedor"] or "SIN TIPO"
-        vendedor = r["Vendedor"]
-        mes = r["Mes"]
-        neto = Decimal(r["Neto_Ajustado"] or 0)
+    devoluciones, dev_credito = float(dev["total"] or 0), float(dev["credito"] or 0)
+    m["neto"] = m["facturado"] - devoluciones
+    m["credito"] -= dev_credito
+    m["contado"] -= devoluciones - dev_credito
+    m["margen"] = m["utilidad"] / m["facturado"] * 100 if m["facturado"] else None
+    return m
 
-        if tipo not in grupos:
-            grupos[tipo] = {}
-        if vendedor not in grupos[tipo]:
-            grupos[tipo][vendedor] = {}
-
-        grupos[tipo][vendedor][mes] = grupos[tipo][vendedor].get(mes, Decimal(0)) + neto
-        meses.add(mes)
-
-    # Convertimos a float
-    grupos_float = {
-        tipo: {v: {m: float(n) for m, n in ventas.items()} for v, ventas in vendedores.items()}
-        for tipo, vendedores in grupos.items()
-    }
-
-    chart_labels = sorted(meses)
-    totales_por_mes = {mes: sum(grupos_float[t][v].get(mes, 0) for t in grupos_float for v in grupos_float[t]) for mes in chart_labels}
-    chart_values = [totales_por_mes[m] for m in chart_labels]
-
-    return {
-        "grupos": grupos_float,
-        "totales_por_mes": totales_por_mes,
-        "chart_labels": chart_labels,
-        "chart_values": chart_values,
-        "fecha_inicio": fecha_inicio,
-        "fecha_fin": fecha_fin
-    }
 
 # -----------------------------
 # Recuperación mensual desde recibos
 # -----------------------------
-def obtener_recuperacion(fecha_inicio, fecha_fin, tipo_cambio=36.6243):
+def recuperacion_por_mes(desde, hasta):
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    query = """
-        SELECT DATE_FORMAT(fecharc, '%Y-%m') AS Mes,
-               COUNT(numerorc) AS Cantidad,
-               SUM(total) AS TotalCordobas
-        FROM reciboscaja
-        WHERE fecharc BETWEEN %s AND %s
-        GROUP BY Mes
-        ORDER BY Mes;
-    """
-    cursor.execute(query, (fecha_inicio, fecha_fin))
-    rows = cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DATE_FORMAT(fecharc, '%Y-%m'), SUM(total) FROM reciboscaja
+        WHERE fecharc BETWEEN %s AND %s GROUP BY 1
+    """, (desde, hasta))
+    filas = {mes: float(total or 0) for mes, total in cursor.fetchall()}
     cursor.close()
     conn.close()
+    return filas
 
-    for r in rows:
-        subtotal_cordobas = float(r["TotalCordobas"]) / 1.15
-        iva_cordobas = subtotal_cordobas * 0.15
-        total_cordobas = subtotal_cordobas + iva_cordobas
-        subtotal_usd = subtotal_cordobas / tipo_cambio
 
-        r["SubtotalCordobas"] = subtotal_cordobas
-        r["IVACordobas"] = iva_cordobas
-        r["TotalCordobasCalc"] = total_cordobas
-        r["SubtotalUSD"] = subtotal_usd
+# -----------------------------
+# Venta neta por tipo de vendedor (el Ejército va aparte, sin importar quién lo atiende)
+# -----------------------------
+def ventas_por_tipo(desde, hasta):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT grupo, SUM(venta) AS venta FROM (
+            SELECT CASE WHEN v.cliente = 'EJERCITO DE NICARAGUA' THEN 'EJÉRCITO DE NICARAGUA'
+                        ELSE COALESCE(e.tipo, 'SIN TIPO') END AS grupo,
+                   SUM(v.neto) AS venta
+            FROM ventas_historicas v
+            LEFT JOIN (SELECT tipo, nombre FROM cat_vendedor GROUP BY tipo, nombre) e ON e.nombre = v.Vendedor
+            WHERE v.fecha BETWEEN %s AND %s AND v.estado_factura <> 'Anulado'
+            GROUP BY grupo
+            UNION ALL
+            SELECT CASE WHEN r.cliente = 'EJERCITO DE NICARAGUA' THEN 'EJÉRCITO DE NICARAGUA'
+                        ELSE COALESCE(e.tipo, 'SIN TIPO') END AS grupo,
+                   -SUM(r.totaldv) / 1.15 AS venta
+            FROM devoluciones r
+            LEFT JOIN (SELECT tipo, nombre FROM cat_vendedor GROUP BY tipo, nombre) e ON e.nombre = r.Vendedor
+            WHERE r.fechadv BETWEEN %s AND %s AND r.estado = 'Cerrado'
+            GROUP BY grupo
+        ) datos
+        GROUP BY grupo ORDER BY venta DESC
+    """, (desde, hasta, desde, hasta))
+    filas = [{"tipo": tipo, "venta": float(venta or 0)} for tipo, venta in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    total = sum(f["venta"] for f in filas)
+    for f in filas:
+        f["pct"] = f["venta"] / total * 100 if total else 0
+    return filas, total
 
-    labels = [r["Mes"] for r in rows]
-    valores = [r["TotalCordobasCalc"] for r in rows]
 
+# -----------------------------
+# Marcas con más venta en el período
+# -----------------------------
+def marcas_top(desde, hasta):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT Marca, SUM(`Sub-Total 2`) AS venta, SUM(`Cantidad Vendida` * `Costo Unit.`) AS costo
+        FROM ventas_por_producto
+        WHERE Estatus <> 'Anulado' AND Fecha BETWEEN %s AND %s
+        GROUP BY Marca ORDER BY venta DESC
+    """, (str(desde), str(hasta)))  # Fecha es texto 'YYYY-MM-DD' en esta tabla
+    filas = [{"marca": marca or "Sin marca", "venta": float(venta or 0), "costo": float(costo or 0)} for marca, venta, costo in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    total = sum(f["venta"] for f in filas)
+    for f in filas:
+        f["pct"] = f["venta"] / total * 100 if total else 0
+        f["margen"] = (f["venta"] - f["costo"]) / f["venta"] * 100 if f["venta"] else None
+    top = filas[:TOP_MARCAS]
+    venta_top, costo_top = sum(f["venta"] for f in top), sum(f["costo"] for f in top)
+    return {"filas": top, "venta": venta_top, "pct": venta_top / total * 100 if total else 0,
+            "margen": (venta_top - costo_top) / venta_top * 100 if venta_top else None}
+
+
+def meses_entre(desde, hasta):
+    meses, anio, mes = [], desde.year, desde.month
+    while (anio, mes) <= (hasta.year, hasta.month):
+        meses.append(f"{anio}-{mes:02d}")
+        anio, mes = (anio + 1, 1) if mes == 12 else (anio, mes + 1)
+    return meses
+
+
+def variacion(actual, anterior):
+    return (actual / anterior - 1) * 100 if anterior else None
+
+
+def calcular(desde, hasta):
+    corte = min(hasta, ultima_venta(desde, hasta) or hasta)
+    desde_ant, corte_ant = un_anio_antes(desde), un_anio_antes(corte)
+    actual, anterior = indicadores(desde, corte), indicadores(desde_ant, corte_ant)
+
+    meses = meses_entre(desde, corte)
+    por_mes = venta_neta_por_mes(desde, corte)
+    por_mes_ant = venta_neta_por_mes(desde_ant, corte_ant)
+    recuperado = recuperacion_por_mes(desde, corte)
+    # El mes del corte queda incompleto si el corte no es fin de mes
+    incompleto = (corte + timedelta(days=1)).month == corte.month
+    varios_anios = desde.year != corte.year
+    etiquetas = [MESES[int(m[5:]) - 1] + (f" {m[2:4]}" if varios_anios else "") for m in meses]
+    ventas = [float(por_mes.get(m) or 0) for m in meses]
+    ventas_ant = [float(por_mes_ant.get(f"{int(m[:4]) - 1}{m[4:]}") or 0) for m in meses]
+    recuperacion = [recuperado.get(m, 0.0) for m in meses]
+
+    completos = [(m, v) for m, v in zip(etiquetas, ventas) if v][:-1 if incompleto else None]
+    con_recuperacion = [(m, v) for m, v in zip(etiquetas, recuperacion) if v]
+    tipos, total_tipos = ventas_por_tipo(desde, corte)
     return {
-        "rows": rows,
-        "chart_labels": labels,
-        "chart_values": valores
+        "corte": corte, "actual": actual, "anterior": anterior, "anio_ant": corte_ant.year,
+        "var_venta": variacion(actual["neto"], anterior["neto"]),
+        "var_utilidad": variacion(actual["utilidad"], anterior["utilidad"]),
+        "var_clientes": variacion(actual["clientes"], anterior["clientes"]),
+        "dif_margen": actual["margen"] - anterior["margen"] if actual["margen"] is not None and anterior["margen"] is not None else None,
+        "pct_credito": actual["credito"] / actual["neto"] * 100 if actual["neto"] else None,
+        "total_recuperado": sum(recuperacion),
+        "mejor_mes": max(completos, key=lambda x: x[1], default=None),
+        "peor_mes": min(completos, key=lambda x: x[1], default=None),
+        "mejor_recuperacion": max(con_recuperacion, key=lambda x: x[1], default=None),
+        "etiquetas": etiquetas, "ventas": ventas, "ventas_ant": ventas_ant, "recuperacion": recuperacion,
+        "mes_incompleto": incompleto, "tipos": tipos, "total_tipos": total_tipos, "marcas": marcas_top(desde, corte),
     }
 
-# -----------------------------
-# Datasets absolutos por tipo de vendedor
-# -----------------------------
-def preparar_datasets_vendedores(datos_ventas_mes):
-    datasets = []
-    colores = ["#FE6412","#027266","#666666","#4B9CD3","#9C27B0","#FFC107","#E91E63","#795548","#00BCD4","#8BC34A"]
-    tipos = list(datos_ventas_mes["grupos"].keys())
-
-    for i, tipo in enumerate(tipos):
-        vendedores = datos_ventas_mes["grupos"][tipo]
-        data = []
-        for mes in datos_ventas_mes["chart_labels"]:
-            subtotal = sum(v.get(mes, 0) for v in vendedores.values())
-            data.append(subtotal)
-        datasets.append({
-            "label": tipo,
-            "data": data,
-            "backgroundColor": colores[i % len(colores)]
-        })
-    return datasets
-
-# -----------------------------
-# Participación mensual por tipo de vendedor (%)
-# -----------------------------
-def preparar_participacion_vendedores(datos_ventas_mes):
-    chart_labels = datos_ventas_mes["chart_labels"]
-    grupos = datos_ventas_mes["grupos"]
-
-    participacion = {}
-    for mes in chart_labels:
-        total_mes = sum(
-            sum(v.get(mes, 0) for v in vendedores.values())
-            for vendedores in grupos.values()
-        )
-        for tipo, vendedores in grupos.items():
-            subtotal = sum(v.get(mes, 0) for v in vendedores.values())
-            porcentaje = (subtotal / total_mes * 100) if total_mes > 0 else 0
-            participacion.setdefault(tipo, []).append(round(porcentaje, 2))
-
-    return participacion
 
 # -----------------------------
 # Ruta principal del resumen
@@ -179,54 +201,9 @@ def preparar_participacion_vendedores(datos_ventas_mes):
 @resumen_bp.route("/resumen", methods=["GET"])
 @requiere_acceso("resumen")
 def resumen_dashboard():
-    #--fecha_inicio = request.args.get("fecha_inicio", datetime.today().strftime("%Y-%m-01"))
-    fecha_inicio = request.args.get("fecha_inicio", "2026-01-01")
-    fecha_fin = request.args.get("fecha_fin", datetime.today().strftime("%Y-%m-%d"))
-
-    datos_ventas_mes = obtener_resumen_ventas_mes(fecha_inicio, fecha_fin)
-    datos_recuperacion = obtener_recuperacion(fecha_inicio, fecha_fin)
-    datasets_vendedores = preparar_datasets_vendedores(datos_ventas_mes)    
-    participacion_vendedores = preparar_participacion_vendedores(datos_ventas_mes)
-
-    # Último mes del rango para Top Marcas
-    ultimo_mes = max(datos_ventas_mes["chart_labels"]) if datos_ventas_mes["chart_labels"] else None
-
-    if ultimo_mes:
-        year, month = map(int, ultimo_mes.split("-"))
-        fecha_inicio_mes = f"{year}-{month:02d}-01"
-        last_day = monthrange(year, month)[1]
-        fecha_fin_mes = f"{year}-{month:02d}-{last_day:02d}"
-        datos_marcas = obtener_top_marcas(fecha_inicio_mes, fecha_fin_mes)
-        top5_marcas = datos_marcas["detalle"][:5]
-        # Calcular totales del Top 5
-        total_top5 = {
-            "VentasTotales": sum(r["VentasTotales"] for r in top5_marcas),
-            "Ganancia": sum(r["Ganancia"] for r in top5_marcas),
-            # Margen promedio de las 5 marcas
-            "MargenPorcentaje": round(
-                sum(r["MargenPorcentaje"] for r in top5_marcas) / len(top5_marcas), 2
-            ) if top5_marcas else 0
-        }
-    else:
-        datos_marcas = {"detalle": [], "totales": {}}
-        top5_marcas = []
-
-    return render_template("resumen_dashboard.html",
-                           fecha_inicio=fecha_inicio,
-                           fecha_fin=fecha_fin,
-                           datos_ventas_mes=datos_ventas_mes,
-                           datos_marcas=datos_marcas,
-                           top5_marcas=top5_marcas,
-                           total_top5=total_top5,
-                           datos_recuperacion=datos_recuperacion,
-                           datasets_vendedores=datasets_vendedores,
-                           participacion_vendedores=participacion_vendedores)
-
-
-
-
-
-
-
-
-
+    hoy = date.today()
+    desde = leer_fecha(request.args.get("fecha_inicio"), hoy.replace(month=1, day=1))
+    hasta = leer_fecha(request.args.get("fecha_fin"), hoy)
+    r = con_cache(f"resumen_{desde}_{hasta}", lambda: calcular(desde, hasta))
+    return render_template("resumen_dashboard.html", fecha_inicio=desde, fecha_fin=hasta, r=r, millones=millones,
+                           desde_txt=fecha_larga(desde), corte_txt=fecha_larga(r["corte"]))
