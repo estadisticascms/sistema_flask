@@ -68,6 +68,7 @@ SECCIONES = [
                 ("Seguimiento de ingresos", "/seguimiento_ingresos", "bi-box-arrow-in-down", "Lo que ingresó: cuánto se vendió y a quién", "orden de compra"),
             ]},
             {"titulo": "Inventario y precios", "items": [
+                ("Existencias y costo por bodega", "/existencias_bodegas", "bi-boxes", "Una o varias bodegas, con total al costo y orden por montos", "inventario valor stock costo monto"),
                 ("Productos sin movimiento", "/productos_sin_movimiento", "bi-moon-stars", "Con existencia y sin ventas en meses", "lento obsoleto"),
                 ("Revisión de precios", "/revision_precios", "bi-percent", "Margen bajo y sin movimiento con margen alto", "margen costo"),
                 ("Top marcas", "/top_marcas", "bi-award-fill", "Marcas más vendidas", "ranking"),

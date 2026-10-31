@@ -208,7 +208,9 @@ def resumen_dia_bodega(dia):
     filas = []
     for x in hoy["principales"] + ([hoy["otras"]] if hoy["otras"] else []):
         clave = "Otras bodegas" if x.get("nombres") else x["bodega"]
-        filas.append({"bodega": clave, "hoy": x, "mes": del_mes.pop(clave, None), "nombres": x.get("nombres", [])})
+        en_mes = del_mes.pop(clave, None)
+        filas.append({"bodega": clave, "hoy": x, "mes": en_mes,
+                      "nombres": sorted(set(x.get("nombres", [])) | set((en_mes or {}).get("nombres", [])))})
     for clave, x in del_mes.items():   # vendieron en el mes pero no hoy
         filas.append({"bodega": clave, "hoy": None, "mes": x, "nombres": x.get("nombres", [])})
     cero = {"cantidad": 0.0, "productos": 0, "facturas": 0}
@@ -218,13 +220,15 @@ def resumen_dia_bodega(dia):
         for t in ("CONTADO", "CREDITO", "total"):
             f.setdefault("h", {})[t] = f["hoy"][t] if f["hoy"] else cero
             f.setdefault("m", {})[t] = f["mes"][t] if f["mes"] else cero
+    # "Otras bodegas" son existencias ficticias: se muestran al final, sin posición ni títulos
     filas = [f for f in filas if f["dia"] or f["unidades_mes"]]
-    filas.sort(key=lambda f: (-f["dia"], -f["unidades_mes"]))
+    filas.sort(key=lambda f: (bool(f["nombres"]), -f["dia"], -f["unidades_mes"]))
+    reales = [f for f in filas if not f["nombres"]]
     pos = 0
-    for f in filas:
+    for f in reales:
         pos += f["dia"] > 0
         f["pos_dia"] = pos if f["dia"] > 0 else None
-    for orden, f in enumerate(sorted(filas, key=lambda f: -f["unidades_mes"]), start=1):
+    for orden, f in enumerate(sorted(reales, key=lambda f: -f["unidades_mes"]), start=1):
         f["pos_mes"] = orden
 
     # Top productos del día por unidades (sumando todas las bodegas) y la bodega donde más salió
@@ -239,10 +243,10 @@ def resumen_dia_bodega(dia):
     for p in top:
         p["bodega"] = max(p["bodegas"].items(), key=lambda kv: kv[1])[0]
         p["varias"] = len(p["bodegas"]) > 1
-    con_venta = [f for f in filas if f["dia"] > 0]
+    con_venta = [f for f in reales if f["dia"] > 0]
     return {"filas": filas, "inicio": inicio, "dia_total": hoy["total_general"], "mes_total": mes["total_general"],
             "mejor_dia": con_venta[0] if con_venta else None,
-            "mejor_mes": max(filas, key=lambda f: f["unidades_mes"]) if filas else None,
+            "mejor_mes": max(reales, key=lambda f: f["unidades_mes"]) if reales else None,
             "productos": top, "total_productos": hoy["productos_distintos"]}
 
 

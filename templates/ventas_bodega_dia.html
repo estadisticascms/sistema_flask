@@ -149,13 +149,13 @@
           <tr class="{{ 'sin-venta' if not f.dia }}">
             <td>{% if f.pos_dia %}<span class="pos {{ 'p' ~ f.pos_dia if f.pos_dia <= 3 }}">{{ f.pos_dia }}</span>{% else %}<span class="pos">–</span>{% endif %}</td>
             <td class="bod">{{ f.bodega }}
-              <span class="g">{% if f.dia %}{{ f.h.total.productos }} productos{% else %}sin venta hoy{% endif %}{% if f.nombres %} · {{ f.nombres|length }} bodegas{% endif %}</span></td>
+              <span class="g">{% if f.dia %}{{ f.h.total.productos }} productos{% else %}sin venta hoy{% endif %}</span>{% if f.nombres %}<span class="g">{{ f.nombres|join(', ') }}</span>{% endif %}</td>
             <td class="n hoy">{% if f.dia %}{{ u(f.dia) }} <span style="font-size: .72rem; font-weight: 600">unid.</span>
               {% set ft = f.h.total.facturas %}{% set pcv = (f.h.CREDITO.facturas / ft * 100) if ft else 0 %}
               <div class="cc" role="img" aria-label="Facturas crédito {{ f.h.CREDITO.facturas }}, contado {{ f.h.CONTADO.facturas }}"><span style="width: {{ pcv }}%; background: #027266"></span><span style="width: {{ 100 - pcv }}%; background: #FE6412"></span></div>
               <div class="cc-txt">{{ ft }} fact.: <span class="cr">Cr {{ f.h.CREDITO.facturas }}</span> · <span class="co">Co {{ f.h.CONTADO.facturas }}</span></div>
               {% else %}—{% endif %}</td>
-            <td class="n">{{ u(f.unidades_mes) }} <span class="text-muted" style="font-size: .72rem">#{{ f.pos_mes }}</span>
+            <td class="n">{{ u(f.unidades_mes) }} {% if f.pos_mes %}<span class="text-muted" style="font-size: .72rem">#{{ f.pos_mes }}</span>{% endif %}
               <div class="barra-mes"><span style="width: {{ (f.unidades_mes / max_mes * 100)|round(1) }}%"></span></div>
               <div class="uf">{{ "{:,}".format(f.m.total.facturas) }} fact. · {{ "{:,}".format(f.m.total.productos) }} prod.</div></td>
           </tr>

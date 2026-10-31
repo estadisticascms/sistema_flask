@@ -1,0 +1,159 @@
+{% extends "layout.html" %}
+{% block title %}Existencias y costo por bodega{% endblock %}
+{% macro cant(v) %}{{ "{:,.2f}".format(v).replace(".00", "") }}{% endmacro %}
+{% macro monto(v) %}C$ {{ "{:,.2f}".format(v) }}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .eb h4 { color: var(--credito); }
+  .eb .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .eb .form-control-sm, .eb .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .eb .btn:focus-visible, .eb a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .lista-bod { min-width: 280px; max-height: 340px; overflow-y: auto; }
+  .lista-bod .form-check { padding-top: .15rem; padding-bottom: .15rem; }
+  .tabla-eb { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; min-width: 720px; }
+  .tabla-eb thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .45rem .5rem; white-space: nowrap; }
+  .tabla-eb td { padding: .35rem .5rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: top; }
+  .tabla-eb tbody tr:hover td { background: #faf9f6; }
+  .tabla-eb .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-eb tfoot td { position: sticky; bottom: 0; background: #f6f5f1; font-weight: 700; border-top: 2px solid var(--grid); }
+  .tabla-eb .costo { font-weight: 700; }
+  .tabla-eb .negativo { color: #c4320a; }
+  .prod .desc { font-weight: 600; }
+  .prod .meta { font-size: .72rem; color: var(--ink-3); }
+  .barra-pct { position: relative; min-width: 120px; }
+  .barra-pct .barra { position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 14px; border-radius: 0 4px 4px 0; background: var(--credito); opacity: .18; }
+  .barra-pct .txt { position: relative; }
+  .vacio-grande { text-align: center; padding: 2.5rem 1rem; color: var(--ink-3); }
+</style>
+
+<div class="dash eb container-fluid px-3 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-boxes" aria-hidden="true"></i> Existencias y costo por bodega</h4>
+      <div class="text-muted small">{{ filtros_txt }}</div>
+    </div>
+    {% if filas %}
+    <a class="btn btn-verde btn-sm" href="{{ url_for('existencias_bodegas.excel') }}?{{ params|urlencode }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+    {% endif %}
+  </div>
+
+  <form method="get" id="form-filtros" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-lg-4"><label class="form-label" for="btn-bodegas">Bodegas <span class="text-muted">(una o varias)</span></label>
+        <div class="dropdown">
+          <button type="button" id="btn-bodegas" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown"
+                  data-bs-auto-close="outside" aria-expanded="false">{{ f.bodegas|join(', ') if f.bodegas else 'Todas' }}</button>
+          <div class="dropdown-menu p-2 shadow-sm lista-bod" aria-labelledby="btn-bodegas">
+            {% for b in bodegas %}
+            <div class="form-check">
+              <input class="form-check-input chk-bod" type="checkbox" name="bodega" value="{{ b }}" id="bod-{{ loop.index }}" {% if b in f.bodegas %}checked{% endif %}>
+              <label class="form-check-label small" for="bod-{{ loop.index }}">{{ b }}</label>
+            </div>
+            {% endfor %}
+            <div class="border-top mt-1 pt-1"><button type="button" class="btn btn-link btn-sm p-0" id="bod-ninguna">Quitar selección (todas)</button></div>
+          </div>
+        </div></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="marca">Marca</label>
+        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="q">Buscar</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, descripción, Nº parte"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="orden">Ordenar por</label>
+        <select id="orden" name="orden" class="form-select form-select-sm">
+          {% for k, o in ordenes.items() %}<option value="{{ k }}" {% if k == f.orden %}selected{% endif %}>{{ o[0] }}</option>{% endfor %}
+        </select></div>
+      <div class="col-6 col-lg-2"><button class="btn btn-primary btn-sm w-100"><i class="bi bi-funnel" aria-hidden="true"></i> Generar</button></div>
+    </div>
+    <div class="form-check mt-2 mb-0">
+      <input class="form-check-input" type="checkbox" name="solo_con_existencia" value="1" id="solo_con_existencia" {% if f.solo_con_existencia %}checked{% endif %}>
+      <input type="hidden" name="solo_con_existencia" value="0">
+      <label class="form-check-label small" for="solo_con_existencia">Solo con existencia (sin negativos ni saldos de costo sin unidades)</label>
+    </div>
+  </form>
+
+  {% if not filas %}
+    <div class="card vacio-grande"><p class="mb-0">No hay productos con esos filtros.</p></div>
+  {% else %}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg"><div class="card kpi kpi-hero"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Costo total</div><div class="valor">{{ monto(t.costo) }}</div>
+      <div class="sub">{% if f.solo_con_existencia and t.fuera %}Sin incluir {{ monto(t.fuera) }} de negativos y saldos{% else %}Valor del inventario al costo{% endif %}</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Productos</div><div class="valor">{{ "{:,}".format(t.productos) }}</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Unidades</div><div class="valor">{{ cant(t.unidades) }}</div></div></div>
+    <div class="col-6 col-lg"><div class="card kpi"><div class="etiqueta">Bodegas</div><div class="valor">{{ t.bodegas }}</div></div></div>
+  </div>
+
+  {% if por_bodega|length > 1 %}
+  <div class="table-responsive border rounded-3 bg-white mb-3" style="max-height: 260px">
+    <table class="tabla-eb">
+      <caption class="visually-hidden">Costo por bodega</caption>
+      <thead><tr><th scope="col">Bodega</th><th scope="col" class="num">Productos</th><th scope="col" class="num">Unidades</th>
+        <th scope="col" class="num">Costo total</th><th scope="col">% del costo</th></tr></thead>
+      <tbody>
+        {% set mayor = por_bodega[0].costo %}
+        {% for b in por_bodega %}
+        <tr>
+          <td>{{ b.bodega }}</td>
+          <td class="num">{{ "{:,}".format(b.productos) }}</td>
+          <td class="num">{{ cant(b.unidades) }}</td>
+          <td class="num costo {{ 'negativo' if b.costo < 0 }}">{{ monto(b.costo) }}</td>
+          <td class="barra-pct"><span class="barra" style="width: {{ (b.costo / mayor * 100) if mayor > 0 and b.costo > 0 else 0 }}%"></span><span class="txt">{{ "{:.1f}".format(b.pct) }}%</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td>Total</td><td class="num"></td><td class="num">{{ cant(t.unidades) }}</td><td class="num">{{ monto(t.costo) }}</td><td>100%</td></tr></tfoot>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if t.productos > filas|length %}
+    <div class="small text-danger mb-1">Se muestran los primeros {{ "{:,}".format(filas|length) }} de {{ "{:,}".format(t.productos) }} productos según el orden elegido; el total y el Excel los incluyen todos.</div>
+  {% endif %}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-eb">
+      <caption class="visually-hidden">Existencia y costo por producto</caption>
+      <thead><tr><th scope="col">Producto</th><th scope="col">Marca</th><th scope="col" class="num">Existencia</th>
+        <th scope="col" class="num">Costo unitario</th><th scope="col" class="num">Costo total</th></tr></thead>
+      <tbody>
+        {% for x in filas %}
+        <tr>
+          <td class="prod">
+            <div class="desc">{{ x.nombre }}</div>
+            <div class="meta">{{ x.codigo }}{% if x.numero_parte %} · Nº {{ x.numero_parte }}{% endif %}</div>
+            {% if f.bodegas|length != 1 %}<div class="meta">{{ texto_detalle(x) }}</div>{% endif %}
+          </td>
+          <td>{{ x.marca }}</td>
+          <td class="num">{{ cant(x.existencia) }}{% if x.uom and x.uom != 'UNI' %} <span class="small text-muted">{{ x.uom }}</span>{% endif %}</td>
+          <td class="num">{{ monto(x.costo_unit) if x.costo_unit is not none else '—' }}</td>
+          <td class="num costo {{ 'negativo' if x.costo_total < 0 }}">{{ monto(x.costo_total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td colspan="2">Total · {{ "{:,}".format(t.productos) }} productos</td><td class="num">{{ cant(t.unidades) }}</td><td></td><td class="num">{{ monto(t.costo) }}</td></tr></tfoot>
+    </table>
+  </div>
+  {% endif %}
+</div>
+<datalist id="dl-marcas">{% for m, n in marcas %}<option value="{{ m }}">{{ n }} productos</option>{% endfor %}</datalist>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const boton = document.getElementById('btn-bodegas'), casillas = [...document.querySelectorAll('.chk-bod')];
+  function texto() {
+    const v = casillas.filter(c => c.checked).map(c => c.value);
+    boton.textContent = !v.length ? 'Todas' : v.length <= 2 ? v.join(', ') : `${v.length} bodegas`;
+  }
+  casillas.forEach(c => c.addEventListener('change', texto));
+  document.getElementById('bod-ninguna').addEventListener('click', () => { casillas.forEach(c => c.checked = false); texto(); });
+  texto();
+  document.getElementById('orden').addEventListener('change', (e) => e.target.form.submit());
+})();
+</script>
+{% endblock %}

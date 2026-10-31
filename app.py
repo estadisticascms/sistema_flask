@@ -56,6 +56,7 @@ from utils.db import get_connection
 from router.bitacora import bitacora_bp, iniciar_bitacora
 from router.reporte_ventas_dia import ventas_dia_bp
 from router.listado_existencias import listado_existencias_bp
+from router.existencias_bodegas import existencias_bodegas_bp
 
 app = Flask(__name__)
 app.config["UPLOAD_FOLDER"] = "uploads"
@@ -98,6 +99,7 @@ app.register_blueprint(login_bp)
 app.register_blueprint(bitacora_bp)
 app.register_blueprint(ventas_dia_bp)
 app.register_blueprint(listado_existencias_bp)
+app.register_blueprint(existencias_bodegas_bp)
 iniciar_bitacora(app)
 app.register_blueprint(ventas_perdidas_bp)
 app.register_blueprint(productos_agotarse_bp)
