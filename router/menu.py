@@ -45,7 +45,7 @@ SECCIONES = [
             ]},
             {"titulo": "Vendedores", "items": [
                 ("Totales por vendedor", "/rep_vend_totales", "bi-trophy-fill", "Ranking para compartir con vendedores", "ranking comision"),
-                ("Crédito y contado por vendedor", "/rep_vend_netocreco", "bi-file-earmark-bar-graph", "Venta neta crédito / contado", "credito contado"),
+                ("Cierre de mes por vendedor", "/rep_vend_netocreco", "bi-calendar-check", "Crédito y contado del mes, para compartir por WhatsApp", "credito contado cierre mes whatsapp"),
                 ("Ventas por vendedor (detalle)", "/reporte_ventas", "bi-bar-chart-fill", "Detalle por vendedor y mes", ""),
                 ("Top clientes por vendedor", "/top_clientes_vendedor", "bi-person-lines-fill", "Mejores clientes del período", "ranking"),
                 ("Top clientes por marca", "/top_clientes_marca", "bi-person-badge", "Compras por cliente, mes y vendedor", "ranking"),

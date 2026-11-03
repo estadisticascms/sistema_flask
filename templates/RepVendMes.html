@@ -1,0 +1,262 @@
+{% extends "layout.html" %}
+{% block title %}Cierre de Mes por Vendedor{% endblock %}
+
+{% set meses_nombre = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'] %}
+{% set mes = meses_nombre[r.inicio.month - 1] %}
+{% set mes_ant = meses_nombre[r.rango_ant[0].month - 1] %}
+{% macro c(v) %}C$ {{ "{:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro k(v) %}{% if (v or 0) >= 1000000 %}{{ "%.2f"|format(v / 1000000) }}M{% elif (v or 0) >= 1000 %}{{ "%.0f"|format(v / 1000) }}k{% else %}{{ "{:,.0f}".format(v or 0) }}{% endif %}{% endmacro %}
+{% macro delta(v, sufijo='') %}{% if v is not none %}<span class="{{ 'delta-pos' if v >= 0 else 'delta-neg' }}">{{ '▲' if v >= 0 else '▼' }} {{ "%.1f"|format(v|abs) }}%</span>{{ sufijo }}{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  /* Tarjeta para compartir: angosta (se ve completa en el celular) y con letra grande */
+  #reporte { width: 620px; max-width: 100%; margin: 0 auto; background: #fff; border-radius: 14px; overflow: hidden;
+             box-shadow: 0 2px 12px rgba(0,0,0,.08); font-family: 'Segoe UI', Arial, sans-serif; color: #1f1f1d; }
+  #reporte .cab { background: #027266; color: #fff; padding: 14px 18px 12px; display: flex; align-items: center; gap: 12px; border-bottom: 5px solid #FE6412; }
+  #reporte .cab img { height: 38px; background: #1f1f1d; border-radius: 8px; padding: 4px 8px; }
+  #reporte .cab .t { font-size: 1.3rem; font-weight: 800; line-height: 1.1; }
+  #reporte .cab .f { font-size: .95rem; opacity: .9; }
+  #reporte .cuerpo { padding: 14px 18px 10px; }
+  #reporte .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  #reporte .kpi2 { border-radius: 12px; padding: 10px 12px; background: #f6f5f1; }
+  #reporte .kpi2.hoy { background: #e9f4f2; }
+  #reporte .kpi2 .e { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #52514e; }
+  #reporte .kpi2 .v { font-size: 1.7rem; font-weight: 800; line-height: 1.15; color: #027266; white-space: nowrap; }
+  #reporte .kpi2.mes .v { color: #1f1f1d; }
+  #reporte .kpi2 .s { font-size: .82rem; color: #52514e; }
+  #reporte .medidor { height: 7px; border-radius: 4px; overflow: hidden; display: flex; gap: 2px; margin: 6px 0 3px; }
+  #reporte .delta-pos { color: #027266; font-weight: 700; } #reporte .delta-neg { color: #b42318; font-weight: 700; }
+  #reporte .mejor { display: flex; gap: 12px; align-items: center; margin-top: 12px; padding: 10px 14px; border-radius: 12px;
+                    background: linear-gradient(90deg, #fff1e8, #fff8f3); border: 1px solid #ffd2b8; }
+  #reporte .mejor .copa { font-size: 2rem; color: #FE6412; line-height: 1; }
+  #reporte .mejor .e { font-size: .75rem; font-weight: 700; text-transform: uppercase; color: #9a3412; }
+  #reporte .mejor .n { font-size: 1.2rem; font-weight: 800; }
+  #reporte .mejor .m { font-size: .9rem; color: #52514e; }
+  #reporte .lider-mes { font-size: .85rem; color: #52514e; margin-top: 6px; }
+  #reporte .armados { display: flex; gap: 12px; align-items: center; margin-top: 10px; padding: 9px 14px; border-radius: 12px; background: #e9f4f2; }
+  #reporte .armados .ico { font-size: 1.6rem; color: #027266; line-height: 1; }
+  #reporte .armados .e { font-size: .75rem; font-weight: 700; text-transform: uppercase; color: #52514e; }
+  #reporte .armados .n { font-size: 1.35rem; font-weight: 800; color: #027266; line-height: 1.1; }
+  #reporte .armados .n small { font-size: .8rem; font-weight: 600; color: #52514e; }
+  #reporte .armados .m { font-size: .82rem; color: #52514e; text-align: right; line-height: 1.3; }
+  #reporte table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: .95rem; }
+  #reporte th { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #6b6a66; padding: 4px 6px;
+                border-bottom: 2px solid #e3e1db; text-align: left; }
+  #reporte th.n, #reporte td.n { text-align: right; white-space: nowrap; }
+  #reporte td { padding: 6px 6px; border-bottom: 1px solid #f0eee9; vertical-align: middle; }
+  #reporte td.vend { font-weight: 600; line-height: 1.15; }
+  #reporte td.vend .g { display: block; font-size: .7rem; font-weight: 400; color: #8a8984; text-transform: capitalize; }
+  #reporte td.hoy { font-weight: 800; color: #027266; }
+  #reporte tr.sin-venta td { color: #a3a19a; } #reporte tr.sin-venta td.hoy { color: #a3a19a; font-weight: 400; }
+  #reporte tr.yo td { background: #fff1e8; }
+  #reporte .pos { display: inline-flex; width: 26px; height: 26px; border-radius: 50%; align-items: center; justify-content: center;
+                  font-weight: 800; font-size: .85rem; background: #eceae4; color: #52514e; }
+  #reporte .pos.p1 { background: #f5b301; color: #fff; } #reporte .pos.p2 { background: #a8a9ad; color: #fff; } #reporte .pos.p3 { background: #c47a3a; color: #fff; }
+  #reporte .barra-mes { height: 6px; background: #eceae4; border-radius: 3px; overflow: hidden; margin-top: 3px; }
+  #reporte .barra-mes span { display: block; height: 100%; background: #FE6412; border-radius: 3px; }
+  #reporte tr.total td { border-top: 2px solid #027266; border-bottom: 0; font-weight: 800; }
+  #reporte .cc { display: flex; height: 4px; border-radius: 2px; overflow: hidden; gap: 1px; margin: 3px 0 1px auto; width: 110px; }
+  #reporte .cc-txt { font-size: .68rem; font-weight: 600; color: #6b6a66; white-space: nowrap; }
+  #reporte .cc-txt .cr { color: #027266; } #reporte .cc-txt .co { color: #c2410c; }
+  #reporte .leyenda { font-size: .7rem; color: #6b6a66; }
+  #reporte .leyenda i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin: 0 3px 0 6px; vertical-align: -1px; }
+  #reporte .prods { margin-top: 14px; }
+  #reporte .prods .tit { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #52514e;
+                         display: flex; justify-content: space-between; border-bottom: 2px solid #e3e1db; padding-bottom: 3px; }
+  #reporte .prod { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f0eee9; }
+  #reporte .prod .pos { width: 22px; height: 22px; font-size: .75rem; flex-shrink: 0; }
+  #reporte .prod .d { flex-grow: 1; min-width: 0; line-height: 1.15; }
+  #reporte .prod .d .n1 { font-weight: 600; font-size: .86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #reporte .prod .d .n2 { font-size: .7rem; color: #8a8984; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #reporte .prod .u { font-size: .78rem; color: #52514e; white-space: nowrap; }
+  #reporte .prod .v { font-weight: 800; color: #027266; white-space: nowrap; width: 92px; text-align: right; }
+  #reporte .pie { font-size: .72rem; color: #8a8984; padding: 6px 18px 12px; display: flex; justify-content: space-between; gap: 8px; }
+  .controles { max-width: 620px; margin: 0 auto 10px; }
+  .controles .btn:focus-visible, .controles a:focus-visible { outline: 3px solid #FE6412; outline-offset: 2px; box-shadow: none; }
+</style>
+<style>
+  #reporte .kpi2 .s .delta-pos, #reporte .kpi2 .s .delta-neg { white-space: nowrap; }
+  #reporte .comp { display: flex; justify-content: space-between; gap: 6px; font-size: .82rem; color: #52514e; padding: 2px 0; }
+  #reporte .comp + .comp { border-top: 1px dashed #dcdad3; }
+  #reporte .comp b { color: #1f1f1d; white-space: nowrap; }
+  #reporte td.vend .g { text-transform: none; } #reporte td.vend .gr { text-transform: capitalize; }
+  #reporte td.ant { font-size: .82rem; color: #52514e; }
+  #reporte td.ant .va { display: block; font-size: .8rem; }
+  #reporte .dev { font-size: .66rem; color: #b42318; white-space: nowrap; }
+</style>
+
+<div class="dash container-fluid px-2">
+  {# ---------- Controles (no salen en la imagen) ---------- #}
+  <form method="get" class="controles d-flex flex-wrap align-items-end gap-2">
+    <div><label class="form-label small mb-0" for="mes">Mes</label>
+      <div class="input-group input-group-sm">
+        <a class="btn btn-outline-secondary {{ 'disabled' if not anterior }}" href="{{ url_for('rep_vend_netocreco', mes=anterior.strftime('%Y-%m'), vendedor=vendedor or '') if anterior else '#' }}" aria-label="Mes anterior"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+        <input type="month" id="mes" name="mes" value="{{ r.inicio.strftime('%Y-%m') }}" max="{{ ultima_fecha.strftime('%Y-%m') }}" class="form-control" onchange="this.form.submit()">
+        <a class="btn btn-outline-secondary {{ 'disabled' if not siguiente }}" href="{{ url_for('rep_vend_netocreco', mes=siguiente.strftime('%Y-%m'), vendedor=vendedor or '') if siguiente else '#' }}" aria-label="Mes siguiente"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+      </div></div>
+    <div><label class="form-label small mb-0" for="vendedor">Resaltar vendedor</label>
+      <select id="vendedor" name="vendedor" class="form-select form-select-sm" onchange="this.form.submit()">
+        <option value="">Ninguno</option>
+        {% for f in r.vendedores|sort(attribute='vendedor') %}<option {% if f.vendedor == vendedor %}selected{% endif %}>{{ f.vendedor }}</option>{% endfor %}
+      </select></div>
+    <div class="ms-auto d-flex flex-wrap gap-2">
+      <button type="button" id="btnWhatsapp" class="btn btn-success btn-sm" title="En partes que WhatsApp no reduce: se ven nítidas"><i class="bi bi-whatsapp" aria-hidden="true"></i> Imagen para WhatsApp</button>
+      <button type="button" id="btnImagen" class="btn btn-outline-success btn-sm" title="Una sola imagen en alta resolución: enviarla en HD o como documento"><i class="bi bi-image" aria-hidden="true"></i> Imagen completa HD</button>
+      <button type="button" id="btnCopiar" class="btn btn-outline-success btn-sm" hidden><i class="bi bi-clipboard" aria-hidden="true"></i> Copiar</button>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('rep_vend_netocreco', vista='detalle', fecha_inicio=r.inicio, fecha_fin=r.fin) }}"><i class="bi bi-layout-text-window" aria-hidden="true"></i> Vista detallada</a>
+    </div>
+    <span id="avisoImagen" class="small w-100 text-end"></span>
+  </form>
+
+  {# ---------- Tarjeta para compartir ---------- #}
+  <div id="reporte">
+    <div class="cab">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Comersa">
+      <div>
+        <div class="t">Cierre de mes por vendedor</div>
+        <div class="f">{{ mes|capitalize }} {{ r.inicio.year }}{% if r.parcial %} · datos al {{ r.fin.day }} de {{ mes }}{% endif %}</div>
+      </div>
+    </div>
+
+    <div class="cuerpo">
+      {% if not r.vendedores %}
+        <div class="alert alert-warning mb-0">No hay ventas cargadas para este mes.</div>
+      {% else %}
+      {% set pc = (r.credito / r.total * 100) if r.total else 0 %}
+      <div class="kpis">
+        <div class="kpi2 hoy">
+          <div class="e">Venta de {{ mes }}</div>
+          <div class="v">{{ c(r.total) }}</div>
+          <div class="medidor" role="img" aria-label="Crédito {{ '%.0f'|format(pc) }}%, contado {{ '%.0f'|format(100 - pc) }}%">
+            <span style="width: {{ pc }}%; background: #027266"></span><span style="width: {{ 100 - pc }}%; background: #FE6412"></span></div>
+          <div class="s">Crédito {{ c(r.credito) }} ({{ "%.0f"|format(pc) }}%)</div>
+          <div class="s">Contado {{ c(r.contado) }} ({{ "%.0f"|format(100 - pc) }}%)</div>
+          <div class="s">{{ "{:,}".format(r.facturas) }} facturas · {{ r.vendedores|length }} vendedores</div>
+        </div>
+        <div class="kpi2 mes">
+          <div class="e">Comparación</div>
+          <div class="comp"><span>vs {{ mes_ant }}{% if r.parcial %} (al {{ r.rango_ant[1].day }}){% endif %}<br><b>{{ c(r.total_ant) }}</b></span><span>{{ delta(r.var_ant) }}</span></div>
+          <div class="comp"><span>vs {{ mes }} {{ r.inicio.year - 1 }}{% if r.parcial %} (al {{ r.rango_anio[1].day }}){% endif %}<br><b>{{ c(r.total_anio) }}</b></span><span>{{ delta(r.var_anio) }}</span></div>
+          <div class="comp"><span>Promedio diario · {{ r.dias }} días</span><b>{{ c(r.promedio) }}</b></div>
+          <div class="comp"><span>Devoluciones (ya restadas)</span><b>{{ c(r.devoluciones) }}</b></div>
+        </div>
+      </div>
+
+      {% if r.mejor %}
+      <div class="mejor">
+        <i class="bi bi-trophy-fill copa" aria-hidden="true"></i>
+        <div class="flex-grow-1">
+          <div class="e">Mejor vendedor del mes</div>
+          <div class="n">{{ r.mejor.vendedor }}</div>
+          <div class="m">{{ c(r.mejor.total) }} · {{ "%.0f"|format(r.mejor.pct) }}% de la venta del mes{% if r.mejor.var is not none %} · {{ delta(r.mejor.var, ' vs ' ~ mes_ant) }}{% endif %}</div>
+        </div>
+      </div>
+      {% endif %}
+      {% if r.crecimiento %}<div class="lider-mes"><i class="bi bi-graph-up-arrow" style="color: #FE6412" aria-hidden="true"></i>
+        Mayor crecimiento: <strong>{{ r.crecimiento.vendedor }}</strong> {{ delta(r.crecimiento.var) }} vs {{ mes_ant }} ({{ c(r.crecimiento.anterior) }} → {{ c(r.crecimiento.total) }})</div>{% endif %}
+
+      {% if armados %}
+      {% set a = armados.total %}
+      <div class="armados">
+        <i class="bi bi-tools ico" aria-hidden="true"></i>
+        <div class="flex-grow-1">
+          <div class="e">Mangueras armadas del mes</div>
+          <div class="n">{{ "{:,.0f}".format(a.mangueras) }} <small>en {{ a.facturas }} facturas · <span style="color: #027266">Cr {{ "{:,.0f}".format(a.mang_credito) }}</span> · <span style="color: #c2410c">Co {{ "{:,.0f}".format(a.mang_contado) }}</span></small></div>
+        </div>
+        <div class="m">Promedio {{ "%.1f"|format(armados.promedio_dia) }} por día{% if armados.mejor_dia %}<br>Mejor día: {{ armados.mejor_dia.fecha.day }} ({{ "{:,.0f}".format(armados.mejor_dia.mangueras) }}){% endif %}</div>
+      </div>
+      {% endif %}
+
+      {% set max_mes = (r.vendedores | map(attribute='total') | max) or 1 %}
+      <table>
+        <thead><tr><th style="width: 36px">#</th><th>Vendedor</th>
+          <th class="n" style="width: 140px">{{ mes|capitalize }} <span class="leyenda" style="text-transform: none; font-weight: 400"><i style="background: #027266"></i>Cr<i style="background: #FE6412"></i>Co</span></th>
+          <th class="n" style="width: 108px">vs {{ mes_ant }}</th></tr></thead>
+        <tbody>
+          {% for f in r.vendedores %}
+          <tr class="{{ 'sin-venta' if f.total <= 0 }} {{ 'yo' if f.vendedor == vendedor }}">
+            <td><span class="pos {{ 'p' ~ f.posicion if f.posicion <= 3 }}">{{ f.posicion }}</span></td>
+            <td class="vend">{{ f.vendedor }}<span class="g"><span class="gr">{{ f.grupo|lower }}</span> · {{ "%.1f"|format(f.pct) }}%</span>
+              <div class="barra-mes"><span style="width: {{ ([f.total, 0]|max / max_mes * 100)|round(1) }}%"></span></div></td>
+            <td class="n hoy">{{ c(f.total) }}
+              {% set pcv = ([[f.credito / f.total * 100, 0]|max, 100]|min) if f.total > 0 else 0 %}
+              <div class="cc" role="img" aria-label="Crédito {{ '%.0f'|format(pcv) }}%"><span style="width: {{ pcv }}%; background: #027266"></span><span style="width: {{ 100 - pcv }}%; background: #FE6412"></span></div>
+              <div class="cc-txt"><span class="cr">Cr {{ k(f.credito) }}</span> · <span class="co">Co {{ k(f.contado) }}</span></div>
+              {% if f.devoluciones %}<div class="dev">Dev −{{ k(f.devoluciones) }}</div>{% endif %}</td>
+            <td class="n ant">{% if f.anterior %}{{ c(f.anterior) }} <span class="text-muted" style="font-size: .7rem">#{{ f.pos_anterior }}</span>{% else %}—{% endif %}
+              <span class="va">{% if f.var is not none %}{{ delta(f.var) }}{% elif not f.anterior and f.total > 0 %}<span class="text-muted">nuevo</span>{% endif %}</span></td>
+          </tr>
+          {% endfor %}
+          <tr class="total"><td></td><td>Total</td><td class="n" style="color: #027266">{{ c(r.total) }}
+            <div class="cc-txt"><span class="cr">Cr {{ k(r.credito) }}</span> · <span class="co">Co {{ k(r.contado) }}</span></div></td>
+            <td class="n ant">{{ c(r.total_ant) }}<span class="va">{{ delta(r.var_ant) }}</span></td></tr>
+        </tbody>
+      </table>
+
+      {% if r.productos %}
+      <div class="prods">
+        <div class="tit"><span><i class="bi bi-box-seam" aria-hidden="true"></i> Top 10 productos del mes</span>
+          <span style="text-transform: none; font-weight: 400">{{ "{:,}".format(r.total_productos) }} productos vendidos</span></div>
+        {% for p in r.productos %}
+        <div class="prod">
+          <span class="pos {{ 'p' ~ loop.index if loop.index <= 3 }}">{{ loop.index }}</span>
+          <div class="d"><div class="n1">{{ p.descripcion }}</div><div class="n2">{{ p.numero_parte or p.codigo }} · {{ p.marca or 'sin marca' }}</div></div>
+          <span class="u">{{ "{:,.0f}".format(p.unidades) if p.unidades == p.unidades|int else "{:,.2f}".format(p.unidades) }} unid.</span>
+          <span class="v">{{ c(p.venta) }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+    <div class="pie"><span>Venta neta sin IVA, menos devoluciones. Cr = crédito, Co = contado. % = parte de la venta del mes. # junto al mes anterior = posición que tuvo.{% if r.parcial %} Mes con datos al {{ r.fin.day }}: se compara al mismo día.{% endif %} Productos: venta sin IVA.</span><span>Grupo Comersa · <span id="fechaImagen"></span></span></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="{{ url_for('static', filename='imagen_reporte.js') }}"></script>
+<script>
+(function () {
+  const nombre = 'cierre_mes_{{ r.inicio.strftime("%Y-%m") }}.png';
+  const titulo = ['#reporte .cab .t', '#reporte .cab .f'].map(q => document.querySelector(q)?.textContent.trim()).filter(Boolean).join(' · ') || 'Reporte';
+  const tarjeta = document.getElementById('reporte');
+  const aviso = document.getElementById('avisoImagen');
+  const avisar = (t, ok = true) => { aviso.className = 'small w-100 text-end ' + (ok ? 'text-success' : 'text-danger'); aviso.textContent = t; };
+  function sellar() {
+    document.getElementById('fechaImagen').textContent = new Date().toLocaleString('es-NI', { dateStyle: 'short', timeStyle: 'short' });
+  }
+  async function conEspera(btn, accion) {
+    const html = btn.innerHTML; btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Generando…'; aviso.textContent = '';
+    try { sellar(); await accion(); }
+    catch (e) { console.error(e); avisar('No se pudo generar la imagen', false); }
+    finally { btn.disabled = false; btn.innerHTML = html; }
+  }
+  // Recomendado: partes de máximo 1600 px de alto, WhatsApp las envía sin reducir
+  document.getElementById('btnWhatsapp').addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+    const partes = await ImagenReporte.partes(tarjeta, { titulo });
+    const r = await ImagenReporte.guardar(partes, nombre);
+    if (r === 'descargado') avisar(partes.length > 1 ? `✓ ${partes.length} imágenes descargadas: envíelas juntas en el mismo mensaje` : '✓ Imagen descargada');
+  }));
+  // Una sola imagen grande (enviar con HD activado o como documento)
+  document.getElementById('btnImagen').addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+    const r = await ImagenReporte.guardar([await ImagenReporte.una(tarjeta)], nombre);
+    if (r === 'descargado') avisar('✓ Descargada. En WhatsApp actívele «HD» al enviarla, o mándela como documento');
+  }));
+  // Copiar al portapapeles para pegar directo en WhatsApp Web (solo si el navegador lo permite)
+  const btnCopiar = document.getElementById('btnCopiar');
+  if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+    btnCopiar.hidden = false;
+    btnCopiar.addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': ImagenReporte.una(tarjeta) })]);
+      avisar('✓ Imagen copiada: péguela en WhatsApp con Ctrl+V y active «HD» antes de enviar');
+    }));
+  }
+})();
+</script>
+{% endblock %}
+

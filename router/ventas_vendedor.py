@@ -143,3 +143,69 @@ def dias_vecinos(dia):
     cursor.close()
     conn.close()
     return anterior, siguiente
+
+
+def mes_cerrado_por_defecto(ultima, hoy=None):
+    """Primer día del último mes ya terminado con ventas (el anterior al mes actual); si aún no hay datos, el de la última venta."""
+    inicio_actual = (hoy or date.today()).replace(day=1)
+    anterior = (inicio_actual - timedelta(days=1)).replace(day=1)
+    return anterior if ultima >= anterior else ultima.replace(day=1)
+
+
+def fin_de_mes(inicio):
+    return (inicio.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+
+
+def mismo_corte(inicio, dia):
+    """Mismo período (del 1 al día del corte, sin pasarse del fin de ese mes) en el mes que empieza en inicio."""
+    return inicio, min(inicio + timedelta(days=dia - 1), fin_de_mes(inicio))
+
+
+def resumen_mes(inicio, ultima, obtener_reporte):
+    """Cierre del mes por vendedor para compartir (misma información que resumen_dia, pero del mes completo) y la comparación
+    con el mes anterior y el mismo mes del año pasado. Si el mes no tiene todos los días cargados se compara al mismo día."""
+    fin = min(fin_de_mes(inicio), ultima)
+    parcial = fin < fin_de_mes(inicio)
+    ini_ant = (inicio - timedelta(days=1)).replace(day=1)
+    ini_anio = inicio.replace(year=inicio.year - 1)
+    rango_ant = mismo_corte(ini_ant, fin.day) if parcial else (ini_ant, fin_de_mes(ini_ant))
+    rango_anio = mismo_corte(ini_anio, fin.day) if parcial else (ini_anio, fin_de_mes(ini_anio))
+
+    vendedores = ranking_vendedores(obtener_reporte(inicio.isoformat(), fin.isoformat()))
+    anteriores = {v["vendedor"]: v for v in ranking_vendedores(obtener_reporte(*(d.isoformat() for d in rango_ant)))}
+    total_anio = sum(v["total"] for v in ranking_vendedores(obtener_reporte(*(d.isoformat() for d in rango_anio))))
+    for v in vendedores:
+        a = anteriores.get(v["vendedor"])
+        v["anterior"] = a["total"] if a else 0.0
+        v["pos_anterior"] = a["posicion"] if a else None
+        v["var"] = (v["total"] / v["anterior"] - 1) * 100 if v["anterior"] > 0 and v["total"] > 0 else None
+
+    total = sum(v["total"] for v in vendedores)
+    total_ant = sum(v["total"] for v in anteriores.values())
+    facturas, dias = facturas_periodo(inicio, fin)
+    productos = productos_periodo(inicio, fin)
+    con_var = [v for v in vendedores if v["var"] is not None and v["anterior"] >= 50000]  # evita "crecimientos" sobre bases mínimas
+    return {
+        "inicio": inicio, "fin": fin, "parcial": parcial, "rango_ant": rango_ant, "rango_anio": rango_anio,
+        "vendedores": vendedores, "total": total,
+        "credito": sum(v["credito"] for v in vendedores), "contado": sum(v["contado"] for v in vendedores),
+        "devoluciones": sum(v["devoluciones"] for v in vendedores),
+        "facturas": facturas, "dias": dias, "promedio": total / dias if dias else None,
+        "total_ant": total_ant, "var_ant": (total / total_ant - 1) * 100 if total_ant and total else None,
+        "total_anio": total_anio, "var_anio": (total / total_anio - 1) * 100 if total_anio and total else None,
+        "mejor": vendedores[0] if vendedores and vendedores[0]["total"] > 0 else None,
+        "crecimiento": max(con_var, key=lambda v: v["var"]) if con_var and max(v["var"] for v in con_var) > 0 else None,
+        "productos": productos[:10], "total_productos": len(productos), "venta_productos": sum(p["venta"] for p in productos),
+    }
+
+
+def meses_vecinos(inicio):
+    """Mes con ventas anterior y siguiente (para las flechas de la vista del mes)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT (SELECT MAX(Fecha) FROM ventas_historicas WHERE Fecha < %s), (SELECT MIN(Fecha) FROM ventas_historicas WHERE Fecha > %s)",
+                   (inicio, fin_de_mes(inicio)))
+    anterior, siguiente = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return anterior and anterior.replace(day=1), siguiente and siguiente.replace(day=1)

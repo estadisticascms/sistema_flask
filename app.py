@@ -26,7 +26,7 @@ from router.productos_agotarse import productos_agotarse_bp
 from router.ventas_bodegas import ventas_bodega_bp
 from router.clase_prod import clase_prod_bp
 from router.dashboard import dashboard_bp
-from router.dashboard import ultima_fecha_con_ventas, ranking_marcas
+from router.dashboard import ultima_fecha_con_ventas, ranking_marcas, con_cache
 import router.ventas_vendedor as vv
 from router.cargar_ventas import cargar_ventas_bp
 from router.cargar_ventas_producto import cargar_ventas_producto_bp
@@ -50,7 +50,7 @@ from router.cargar_recuperacion import cargar_recuperacion_bp
 from router.analisis_cartera import analisis_cartera_bp
 from router.cheques import cheques_bp
 from router.cargar_armados import cargar_armados_bp
-from router.reporte_armados import reporte_armados_bp, armados_del_dia
+from router.reporte_armados import reporte_armados_bp, armados_del_dia, calcular as calcular_armados
 from router.menu import contexto_menu
 from utils.db import get_connection
 from router.bitacora import bitacora_bp, iniciar_bitacora
@@ -753,6 +753,23 @@ def rep_vend_totales():
 @app.route("/rep_vend_netocreco", methods=["GET"])
 @requiere_acceso("rep_vend_netocreco")
 def rep_vend_netocreco():
+    # Vista por defecto: cierre del mes por vendedor (tarjeta para compartir, como la del día)
+    if request.args.get("vista") != "detalle":
+        ultima = ultima_fecha_con_ventas() or datetime.today().date()
+        try:
+            inicio = datetime.strptime(request.args.get("mes") or "", "%Y-%m").date()
+        except ValueError:
+            inicio = vv.mes_cerrado_por_defecto(ultima)
+        inicio = min(inicio, ultima.replace(day=1))
+        anterior, siguiente = vv.meses_vecinos(inicio)
+        def calcular():
+            r = vv.resumen_mes(inicio, ultima, obtener_reporte_ventas)
+            return r, calcular_armados({"desde": inicio, "hasta": r["fin"]})
+        r, armados = con_cache(f"cierre_mes_{inicio}_{ultima}", calcular)   # ventas_por_producto es lenta (sin índice)
+        return render_template("RepVendMes.html", r=r, ultima_fecha=ultima, anterior=anterior, siguiente=siguiente,
+                               vendedor=(request.args.get("vendedor") or "").strip() or None,
+                               armados=armados if armados["total"]["facturas"] else None)
+
     fecha_inicio = request.args.get("fecha_inicio", datetime.today().strftime("%Y-%m-%d"))
     fecha_fin = request.args.get("fecha_fin", datetime.today().strftime("%Y-%m-%d"))
     datos = obtener_reporte_ventas(fecha_inicio, fecha_fin)
