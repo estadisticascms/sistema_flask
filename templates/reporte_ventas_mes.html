@@ -1,251 +1,211 @@
 {% extends "layout.html" %}
-{% block title %}Reporte Ventas por Mes{% endblock %}
+{% block title %}Ventas netas por mes{% endblock %}
+{% macro c(v) %}C$ {{ "{:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro n(v) %}{{ "{:,.0f}".format(v or 0) }}{% endmacro %}
+{% macro delta(v) %}{% if v is not none %}<span class="{{ 'delta-pos' if v >= 0 else 'delta-neg' }}">{{ '▲' if v >= 0 else '▼' }} {{ "{:.1f}".format(v|abs) }}%</span>{% else %}<span class="text-muted">—</span>{% endif %}{% endmacro %}
 
 {% block content %}
-{% set meses = {
-  '01':'Enero','02':'Febrero','03':'Marzo','04':'Abril','05':'Mayo','06':'Junio',
-  '07':'Julio','08':'Agosto','09':'Septiembre','10':'Octubre','11':'Noviembre','12':'Diciembre'
-} %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  body > .container { max-width: none; padding: 0 .75rem; }
+  .vm h4 { color: var(--credito); }
+  .vm .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .vm .btn:focus-visible, .vm a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .meses-kpi { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .5rem; }
+  .meses-kpi .kpi { border: 1px solid var(--grid); border-radius: 10px; }
+  .meses-kpi .kpi.ultimo { border-color: var(--credito); }
+  .meses-kpi .linea { font-size: .74rem; color: var(--ink-2); display: flex; justify-content: space-between; gap: .5rem; }
+  .tabla-vm { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-vm thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
+                       border-bottom: 1px solid var(--grid); padding: .4rem .5rem; white-space: nowrap; }
+  .tabla-vm td { padding: .35rem .5rem; border-bottom: 1px solid var(--grid); color: var(--ink); vertical-align: top; }
+  .tabla-vm tbody tr:hover td { background: #faf9f6; }
+  .tabla-vm .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-vm .neto { font-weight: 700; }
+  .tabla-vm .det { font-size: .68rem; color: var(--ink-3); white-space: nowrap; }
+  .tabla-vm .det .co { color: #c2410c; } .tabla-vm .det .cr { color: var(--credito); } .tabla-vm .det .dv { color: #6b6a66; }
+  .tabla-vm .col-total { background: #fafaf8; }
+  .tabla-vm tfoot td { background: #f6f5f1; font-weight: 700; border-top: 2px solid var(--grid); }
+  .tabla-vm .sub { font-size: .7rem; color: var(--ink-3); }
+  .tabla-vm .vend { white-space: nowrap; }
+  #reporte { background: #fff; }
+</style>
 
-<div class="container mt-4">
-  <h2 class="mb-4 text-primary">📊 Reporte de Ventas Netas por Mes</h2>
-  <p class="text-muted">Periodo: {{ fecha_inicio }} → {{ fecha_fin }}</p>
-
-  <!-- Filtro de fechas -->
-  <form method="get" action="{{ url_for('reporte_ventas_mes.reporte_ventas_mes') }}" class="mb-4">
-    <div class="row">
-      <div class="col-md-3">
-        <label for="fecha_inicio">Fecha inicio:</label>
-        <input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ fecha_inicio }}" class="form-control">
-      </div>
-      <div class="col-md-3">
-        <label for="fecha_fin">Fecha fin:</label>
-        <input type="date" id="fecha_fin" name="fecha_fin" value="{{ fecha_fin }}" class="form-control">
-      </div>
-      <div class="col-md-2 align-self-end">
-        <button type="submit" class="btn btn-primary w-100">Filtrar</button>
-      </div>
+<div class="dash vm container-fluid px-1 mt-2">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-calendar-month" aria-hidden="true"></i> Ventas netas por mes</h4>
+      <div class="text-muted small">{{ etiqueta(p.meses[0]) }} a {{ etiqueta(p.meses[-1]) }}{% if p.parcial %} · {{ etiqueta(p.meses[-1]) }} al día {{ p.fin.day }} (datos cargados hasta el {{ p.fin.strftime('%d/%m/%Y') }}){% endif %}</div>
     </div>
-  </form>
-
-  <!-- Gráfico comparativo -->
-  <div class="card mb-4 chart-container">
-    <div class="card-body">
-      <canvas id="ventasMesChart" style="max-height:250px;"></canvas>
+    <div class="d-flex gap-2">
+      <a class="btn btn-verde btn-sm" href="{{ url_for('reporte_ventas_mes.descargar_excel', desde=p.desde, hasta=p.hasta) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
+      <button type="button" id="btnImagen" class="btn btn-outline-secondary btn-sm"><i class="bi bi-image" aria-hidden="true"></i> Imagen</button>
     </div>
   </div>
- <button id="btnDescargarExcel" class="btn btn-primary btn-sm mt-2">Descargar Excel Completo</button>
 
-  <!-- Tablas agrupadas por tipo -->
-  {% for tipo, vendedores in grupos.items() %}
-    <h6 class="mt-4 text-secondary">{{ tipo }}</h6>
-    <table class="table table-bordered table-striped table-sm">
-      <thead class="table-light">
-        <tr>
-          <th>Vendedor</th>
-          {% for mes in chart_labels %}
-            {% set anio = mes.split('-')[0] %}
-            {% set mes_num = mes.split('-')[1] %}
-            <th>{{ meses[mes_num] }}-{{ anio }}</th>
-          {% endfor %}
-          <th>Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for vendedor, datos in vendedores.items() %}
-        <tr>
-          <td class="fw-bold">{{ vendedor }}</td>
-          {% set total_vendedor = namespace(suma=0) %}
-          {% for mes in chart_labels %}
-            {% set valor = datos.get(mes, 0) %}
-            <td>{{ valor|cordobas }}</td>
-            {% set total_vendedor.suma = total_vendedor.suma + valor %}
-          {% endfor %}
-          <td class="table-secondary fw-bold">{{ total_vendedor.suma|cordobas }}</td>
-        </tr>
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      <div><label class="form-label" for="desde">Desde (mes)</label>
+        <input type="month" id="desde" name="desde" value="{{ p.desde }}" class="form-control form-control-sm"></div>
+      <div><label class="form-label" for="hasta">Hasta (mes)</label>
+        <input type="month" id="hasta" name="hasta" value="{{ p.hasta }}" class="form-control form-control-sm"></div>
+      <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Comparar</button>
+      <div class="btn-group btn-group-sm" role="group" aria-label="Rangos rápidos">
+        {% for n, desde in rapidos %}
+        <a class="btn btn-outline-secondary {{ 'active' if desde == p.desde }}" href="{{ url_for('reporte_ventas_mes.reporte_ventas_mes', desde=desde, hasta=p.hasta) }}">Últimos {{ n }} meses</a>
         {% endfor %}
-      <!-- Fila de total general por grupo -->
-      <tr class="table-info fw-bold">
-        <td>Total {{ tipo }}</td>
-        {% set total_grupo = namespace(suma=0) %}
-        {% for mes in chart_labels %}
-          {% set suma_mes = namespace(valor=0) %}
-          {% for vendedor, datos in vendedores.items() %}
-            {% set suma_mes.valor = suma_mes.valor + datos.get(mes, 0) %}
-          {% endfor %}
-          <td>{{ suma_mes.valor|cordobas }}</td>
-          {% set total_grupo.suma = total_grupo.suma + suma_mes.valor %}
-        {% endfor %}
-        <td>{{ total_grupo.suma|cordobas }}</td>
-      </tr>
-      </tbody>
-    </table>
-  {% endfor %}
-<!-- Tabla resumen global -->
-<h5 class="mt-4 text-primary">Total General</h5>
-<table class="table table-bordered table-striped table-sm">
-  <thead class="table-light">
-    <tr>
-      <th>Mes</th>
-      <th>Total</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% set total_global = namespace(suma=0) %}
-    {% for mes in chart_labels %}
-      {% set suma_mes = namespace(valor=0) %}
-      {% for tipo, vendedores in grupos.items() %}
-        {% for vendedor, datos in vendedores.items() %}
-          {% set suma_mes.valor = suma_mes.valor + datos.get(mes, 0) %}
-        {% endfor %}
-      {% endfor %}
-      <tr>
-        {% set anio = mes.split('-')[0] %}
-        {% set mes_num = mes.split('-')[1] %}
-        <td>{{ meses[mes_num] }}-{{ anio }}</td>
-        <td>{{ suma_mes.valor|cordobas }}</td>
-      </tr>
-      {% set total_global.suma = total_global.suma + suma_mes.valor %}
+      </div>
+      <span class="small text-muted">Hasta {{ max_meses }} meses.</span>
+    </div>
+    {% if p.ajustado %}<div class="small text-danger mt-1">El rango se limitó a los últimos {{ max_meses }} meses.</div>{% endif %}
+  </form>
+
+  <div id="reporte">
+  {% set ultimo = p.meses[-1] %}{% set penultimo = p.meses[-2] if p.meses|length > 1 else none %}
+  {% set txt_var = ('Var. ' ~ etiqueta(ultimo)[:3] ~ ' vs ' ~ etiqueta(penultimo)[:3]) if penultimo else '' %}
+
+  {# ---------- Comparativo por mes ---------- #}
+  <div class="meses-kpi mb-2">
+    {% for m in r.resumen %}
+    <div class="card kpi {{ 'ultimo' if loop.last }}">
+      <div class="etiqueta">{{ m.etiqueta }}{% if loop.last and p.parcial %} · al día {{ p.fin.day }}{% endif %}</div>
+      <div class="valor">{{ c(m.neto) }}</div>
+      <div class="sub mb-1">{% if m.var is not none %}{{ delta(m.var) }} vs mes anterior{% else %}venta neta{% endif %}</div>
+      {% if m.pct_credito is not none %}
+      <div class="medidor" role="img" aria-label="Crédito {{ '%.0f'|format(m.pct_credito) }}%, contado {{ '%.0f'|format(100 - m.pct_credito) }}%">
+        <span style="width: {{ m.pct_credito }}%; background: var(--credito)"></span><span style="width: {{ 100 - m.pct_credito }}%; background: var(--contado)"></span></div>
+      {% endif %}
+      <div class="linea"><span><span class="clave" style="background: var(--contado)"></span>Contado</span><span>{{ c(m.contado) }}</span></div>
+      <div class="linea"><span><span class="clave" style="background: var(--credito)"></span>Crédito</span><span>{{ c(m.credito) }}</span></div>
+      <div class="linea"><span><span class="clave" style="background: #b9b8b3"></span>Devoluciones</span><span>−{{ c(m.devoluciones) }}</span></div>
+    </div>
     {% endfor %}
-    <tr class="table-info fw-bold">
-      <td>Total General</td>
-      <td>{{ total_global.suma|cordobas }}</td>
-    </tr>
-  </tbody>
-</table>
-<button id="btnDescargarImagen" class="btn btn-success btn-sm mt-2">Descargar como Imagen</button>
+  </div>
+  {% if r.resumen|length > 1 %}
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>Venta neta por mes <small>millones de C$</small></span>
+      <small><span class="clave" style="background: var(--contado)"></span>Contado <span class="clave ms-2" style="background: var(--credito)"></span>Crédito · menos devoluciones = neto (rótulo)</small></div>
+    <div class="card-body p-2"><div class="grafico" style="height: 210px"><canvas id="graficoMeses" role="img" aria-label="Contado y crédito por mes"></canvas></div></div>
+  </div>
+  {% endif %}
+
+  {# ---------- Vendedores ---------- #}
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+      <span>Vendedores de mayor a menor venta neta <small>{{ r.vendedores|length }} vendedores</small></span>
+      <small><span class="text-muted">Bajo cada monto, en C$:</span> <span style="color:#c2410c">Co</span> contado · <span style="color: var(--credito)">Cr</span> crédito · Dev devoluciones sin IVA</small>
+    </div>
+    <div class="card-body p-0 table-responsive" style="max-height: 75vh">
+      <table class="tabla-vm">
+        <caption class="visually-hidden">Venta neta por vendedor y mes, con contado, crédito y devoluciones</caption>
+        <thead><tr>
+          <th scope="col">#</th><th scope="col">Vendedor</th>
+          {% for m in p.meses %}<th scope="col" class="num">{{ etiqueta(m) }}</th>{% endfor %}
+          <th scope="col" class="num col-total">Total</th><th scope="col" class="num">% del total</th>
+          {% if penultimo %}<th scope="col" class="num">{{ txt_var }}{% if p.parcial %}*{% endif %}</th>{% endif %}
+        </tr></thead>
+        {% macro celda(t, clase='') %}
+          <td class="num {{ clase }}"><div class="neto">{{ c(t.neto) }}</div>
+            <div class="det"><span class="co">Co {{ n(t.contado) }}</span> · <span class="cr">Cr {{ n(t.credito) }}</span>{% if t.devoluciones %}<br><span class="dv">Dev −{{ n(t.devoluciones) }}</span>{% endif %}</div></td>
+        {% endmacro %}
+        <tbody>
+          {% for x in r.vendedores %}
+          <tr>
+            <td><span class="rank {{ 'top3' if loop.index <= 3 }}">{{ loop.index }}</span></td>
+            <td class="vend"><strong>{{ x.vendedor }}</strong><div class="sub">{{ x.tipo }}</div></td>
+            {% for m in p.meses %}{{ celda(x.meses[m]) }}{% endfor %}
+            {{ celda(x.total, 'col-total') }}
+            <td class="num">{{ "{:.1f}".format(x.pct) }}%</td>
+            {% if penultimo %}<td class="num">{{ delta(x.var) }}</td>{% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot><tr><td></td><td>Total</td>
+          {% for m in p.meses %}{{ celda(r.totales[m]) }}{% endfor %}
+          {{ celda(r.totales.total, 'col-total') }}<td class="num">100%</td>
+          {% if penultimo %}<td class="num">{{ delta(r.resumen[-1].var) }}</td>{% endif %}
+        </tr></tfoot>
+      </table>
+    </div>
+  </div>
+
+  {# ---------- Rankings ---------- #}
+  {% macro ranking(titulo, filas, producto) %}
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>{{ titulo }} <small>por venta del período</small></span>
+      <small class="text-muted">Venta facturada sin IVA (no resta devoluciones)</small></div>
+    <div class="card-body p-0 table-responsive">
+      <table class="tabla-vm">
+        <thead><tr><th scope="col">#</th><th scope="col">{{ 'Producto' if producto else 'Marca' }}</th>
+          {% for m in p.meses %}<th scope="col" class="num">{{ etiqueta(m) }}</th>{% endfor %}
+          <th scope="col" class="num col-total">Total</th><th scope="col" class="num">Unidades</th><th scope="col" class="num">Margen</th>
+          <th scope="col" class="num">% de la venta</th>{% if penultimo %}<th scope="col" class="num">{{ txt_var }}{% if p.parcial %}*{% endif %}</th>{% endif %}</tr></thead>
+        <tbody>
+          {% for z in filas %}
+          <tr>
+            <td><span class="rank {{ 'top3' if loop.index <= 3 }}">{{ loop.index }}</span></td>
+            <td>{% if producto %}<strong>{{ z.descripcion }}</strong><div class="sub">{{ z.codigo }}{% if z.numero_parte %} · Nº {{ z.numero_parte }}{% endif %} · {{ z.marca }}</div>
+                {% else %}<strong>{{ z.marca }}</strong><div class="sub">{{ "{:,}".format(z.productos) }} productos vendidos</div>{% endif %}</td>
+            {% for m in p.meses %}<td class="num">{{ c(z.meses.get(m, 0)) }}</td>{% endfor %}
+            <td class="num col-total neto">{{ c(z.venta) }}</td>
+            <td class="num">{{ "{:,.0f}".format(z.unidades) }}</td>
+            <td class="num">{{ "{:.1f}%".format(z.margen) if z.margen is not none else '—' }}</td>
+            <td class="num">{{ "{:.1f}".format(z.pct) }}%</td>
+            {% if penultimo %}<td class="num">{{ delta(z.var) }}</td>{% endif %}
+          </tr>
+          {% else %}<tr><td colspan="9" class="vacio">Sin ventas en el período.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endmacro %}
+  {{ ranking('Top 10 productos', r.productos, true) }}
+  {{ ranking('Top 10 marcas', r.marcas, false) }}
+  {% if p.parcial and penultimo %}<div class="small text-muted mb-3">* {{ etiqueta(ultimo) }} está incompleto (al día {{ p.fin.day }}): la variación lo compara con {{ etiqueta(penultimo) }} completo.</div>{% endif %}
+  </div>
 </div>
-
-<!-- Script Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-  const ctx = document.getElementById('ventasMesChart').getContext('2d');
-
-  // Colores corporativos
-  const colorPrincipal      = getComputedStyle(document.documentElement).getPropertyValue('--color-principal').trim();   // Naranja
-  const colorSecundario     = getComputedStyle(document.documentElement).getPropertyValue('--color-secundario').trim(); // Verde
-  const colorNeutro         = getComputedStyle(document.documentElement).getPropertyValue('--color-neutro').trim();     // Gris
-  const colorPrincipalClaro = '#FF8A47'; // Naranja claro
-  const colorSecundarioClaro= '#66B2A3'; // Verde claro
-
-  const colores = [colorPrincipal, colorSecundario, colorNeutro, colorPrincipalClaro, colorSecundarioClaro];
-
-  const ventasMesChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: [
-        {% for mes in chart_labels %}
-          {% set anio = mes.split('-')[0] %}
-          {% set mes_num = mes.split('-')[1] %}
-          "{{ meses[mes_num] }}-{{ anio }}",
-        {% endfor %}
-      ],
-      datasets: [
-        {% for tipo, vendedores in grupos.items() %}
-        {
-          label: '{{ tipo }}',
-          data: [
-            {% for mes in chart_labels %}
-              {{ vendedores.values()|map(attribute=mes)|map('default',0)|sum }},
-            {% endfor %}
-          ],
-          backgroundColor: colores[{{ loop.index0 }} % colores.length]
-        },
-        {% endfor %}
-
-        // Dataset de Total General como barra gris
-        {
-          label: 'Total General',
-          data: [
-            {% for mes in chart_labels %}
-              {% set suma_mes = namespace(valor=0) %}
-              {% for tipo, vendedores in grupos.items() %}
-                {% for vendedor, datos in vendedores.items() %}
-                  {% set suma_mes.valor = suma_mes.valor + datos.get(mes, 0) %}
-                {% endfor %}
-              {% endfor %}
-              {{ suma_mes.valor }},
-            {% endfor %}
-          ],
-          backgroundColor: 'rgba(100, 100, 100, 0.7)', // gris semitransparente
-          borderColor: 'black',
-          borderWidth: 1
-        }
-      ]
-
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'top' },
-        title: { display: true, text: 'Ventas Netas Ajustadas por Mes' }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    }
-  });
-</script>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script>
-  document.getElementById("btnDescargarImagen").addEventListener("click", () => {
-    const contenedor = document.querySelector(".container"); // todo el reporte
-    html2canvas(contenedor).then(canvas => {
-      const link = document.createElement("a");
-      link.download = "reporte_vendedores.png";
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-    });
-  });
-</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script>
-document.getElementById("btnDescargarExcel").addEventListener("click", () => {
-  // 1. Crear libro
-  const wb = XLSX.utils.book_new();
-
-  // 2. Crear una sola hoja con todas las tablas concatenadas
-  let dataFinal = [];
-
-  const tablas = document.querySelectorAll("table");
-  tablas.forEach((tabla, index) => {
-    const wsTemp = XLSX.utils.table_to_sheet(tabla);
-    const dataTemp = XLSX.utils.sheet_to_json(wsTemp, {header:1});
-    
-    // Agregar título de la tabla
-    dataFinal.push([`Tabla ${index+1}`]);
-    // Agregar datos de la tabla
-    dataFinal = dataFinal.concat(dataTemp);
-    // Línea en blanco entre tablas
-    dataFinal.push([]);
-  });
-
-  const ws = XLSX.utils.aoa_to_sheet(dataFinal);
-  XLSX.utils.book_append_sheet(wb, ws, "Reporte");
-
-  // 3. Capturar el gráfico como imagen base64
-  const chartCanvas = document.getElementById("ventasMesChart");
-  const chartImage = chartCanvas.toDataURL("image/png");
-
-  // 4. Adjuntar imagen al workbook (SheetJS soporta imágenes en base64)
-  if(!wb.Workbook) wb.Workbook = {};
-  if(!wb.Workbook.Images) wb.Workbook.Images = [];
-  wb.Workbook.Images.push({
-    name: "GraficoVentas",
-    data: chartImage,
-    extension: ".png"
-  });
-
-  // 5. Guardar archivo
-  XLSX.writeFile(wb, "reporte_vendedores.xlsx");
-});
-</script>
-
 {% endblock %}
 
-
-
-
-
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+(() => {
+  const resumen = {{ r.resumen | tojson }};
+  const lienzo = document.getElementById('graficoMeses');
+  if (lienzo) {
+    const neto = resumen.map(m => m.neto);
+    new Chart(lienzo, {
+      type: 'bar',
+      data: { labels: resumen.map(m => m.etiqueta), datasets: [
+        { label: 'Contado', data: resumen.map(m => m.contado), backgroundColor: '#FE6412', borderRadius: 4, stack: 'v' },
+        { label: 'Crédito', data: resumen.map(m => m.credito), backgroundColor: '#027266', borderRadius: 4, stack: 'v' },
+      ] },
+      options: {
+        maintainAspectRatio: false, animation: false, layout: { padding: { top: 16 } },
+        plugins: { legend: { display: false },
+                   tooltip: { callbacks: { label: (c) => `${c.dataset.label}: C$ ${Math.round(c.parsed.y).toLocaleString('en-US')}`,
+                                           footer: (items) => `Neto: C$ ${Math.round(neto[items[0].dataIndex]).toLocaleString('en-US')}` } } },
+        scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, display: false, beginAtZero: true } },
+      },
+      plugins: [{ id: 'neto', afterDatasetsDraw(chart) {
+        const { ctx } = chart, meta = chart.getDatasetMeta(1);
+        ctx.save(); ctx.font = "600 11px 'Segoe UI', Arial, sans-serif"; ctx.fillStyle = '#1f1f1d'; ctx.textAlign = 'center';
+        meta.data.forEach((barra, i) => ctx.fillText((neto[i] / 1e6).toFixed(2), barra.x, barra.y - 4));
+        ctx.restore();
+      } }],
+    });
+  }
+  document.getElementById('btnImagen').addEventListener('click', () => {
+    const el = document.getElementById('reporte');
+    html2canvas(el, { scale: 2, backgroundColor: '#ffffff', windowWidth: el.scrollWidth }).then((canvas) => {
+      const a = document.createElement('a');
+      a.download = 'ventas_netas_{{ p.desde }}_a_{{ p.hasta }}.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    });
+  });
+})();
+</script>
+{% endblock %}

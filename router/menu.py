@@ -34,7 +34,7 @@ SECCIONES = [
             {"titulo": "Reportes de ventas", "items": [
                 ("Resumen de ventas", "/dashboard", "bi-speedometer2", "Mes en curso: ventas, recuperación, cartera e ingresos", "dashboard tablero"),
                 ("Ventas por día", "/reporte_ventas_dia", "bi-calendar3", "Evolución diaria", "diario"),
-                ("Ventas mensuales", "/reporte_ventas_mes", "bi-calendar-month", "Por tipo de vendedor", "mes"),
+                ("Ventas mensuales", "/reporte_ventas_mes", "bi-calendar-month", "Comparativo de meses: vendedores, top 10 productos y marcas", "mes neta contado credito devoluciones ranking comparativo"),
                 ("Armado de mangueras", "/reporte_armados", "bi-tools", "Mangueras por día, venta, margen, mano de obra y soldadura", "armados mixtas bienes taller hidraulica"),
                 ("Ventas por bodega", "/ventas_bodega", "bi-shop", "Unidades vendidas por bodega", "sucursal"),
             ]},
