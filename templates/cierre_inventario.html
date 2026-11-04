@@ -1,0 +1,207 @@
+{% extends "layout.html" %}
+{% block title %}Cierre de inventario{% endblock %}
+
+{% macro u(v) %}{% if v is none %}—{% else %}<span class="{{ 'neg' if v < -0.0001 }}">{{ "{:,.2f}".format(v) }}</span>{% endif %}{% endmacro %}
+{% macro c(v, s='C$') %}{% if v is none %}—{% elif v|abs < 0.005 %}{{ s }} -{% else %}<span class="{{ 'neg' if v < 0 }}">{{ '-' if v < 0 }}{{ s }} {{ "{:,.2f}".format(v|abs) }}</span>{% endif %}{% endmacro %}
+{% macro var(v) %}{% if v and v.mn|abs < 0.5 %}<span class="pct">=</span>{% elif v %}<span class="{{ 'sube' if v.mn >= 0 else 'baja' }}">{{ '▲' if v.mn >= 0 else '▼' }} {{ "{:,.0f}".format(v.mn|abs) }}</span>{% if v.pct is not none %}<span class="pct">{{ "%+.1f"|format(v.pct) }}%</span>{% endif %}{% endif %}{% endmacro %}
+{% macro delta(v) %}{% if v is not none %}<span class="{{ 'd-sube' if v >= 0 else 'd-baja' }}">{{ '▲' if v >= 0 else '▼' }} {{ "%.1f"|format(v|abs) }}%</span>{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  #reporte { width: max-content; min-width: 760px; margin: 0 auto; background: #fff; border-radius: 14px; overflow: hidden;
+             box-shadow: 0 2px 12px rgba(0,0,0,.08); font-family: 'Segoe UI', Arial, sans-serif; color: #1f1f1d; }
+  #reporte .cab { background: #027266; color: #fff; padding: 14px 20px 12px; display: flex; align-items: center; gap: 14px; border-bottom: 5px solid #FE6412; }
+  #reporte .cab img { height: 38px; background: #1f1f1d; border-radius: 8px; padding: 4px 8px; }
+  #reporte .cab .t { font-size: 1.35rem; font-weight: 800; line-height: 1.1; }
+  #reporte .cab .f { font-size: .95rem; opacity: .9; }
+  #reporte .cuerpo { padding: 14px 20px 6px; }
+  #reporte .kpis { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  #reporte .kpi2 { border-radius: 12px; padding: 9px 14px; background: #f6f5f1; min-width: 170px; }
+  #reporte .kpi2.princ { background: #e9f4f2; }
+  #reporte .kpi2 .e { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #52514e; }
+  #reporte .kpi2 .v { font-size: 1.45rem; font-weight: 800; line-height: 1.15; color: #027266; white-space: nowrap; }
+  #reporte .kpi2 .v.n { color: #1f1f1d; }
+  #reporte .kpi2 .s { font-size: .8rem; color: #52514e; white-space: nowrap; }
+  #reporte .d-sube { color: #027266; font-weight: 700; } #reporte .d-baja { color: #b42318; font-weight: 700; }
+
+  #reporte table.inv { border-collapse: collapse; font-size: .82rem; margin-bottom: 6px; }
+  #reporte table.inv th, #reporte table.inv td { padding: 3px 7px; white-space: nowrap; }
+  #reporte table.inv thead th { background: #027266; color: #fff; font-weight: 700; text-align: center; font-size: .78rem; }
+  #reporte table.inv thead tr.sub th { background: #FE6412; font-size: .68rem; letter-spacing: .02em; }
+  #reporte table.inv thead th.mes { border-left: 2px solid #fff; }
+  #reporte table.inv td { border-bottom: 1px solid #ecebe8; font-variant-numeric: tabular-nums; }
+  #reporte table.inv td.n { text-align: right; }
+  #reporte table.inv td.li { text-align: center; color: #8a8984; font-size: .74rem; }
+  #reporte table.inv td.bod { font-weight: 600; }
+  #reporte table.inv td.ini { border-left: 2px solid #e3e1db; }
+  #reporte table.inv td.ult { background: #f4faf9; }
+  #reporte table.inv td.mn { font-weight: 600; }
+  #reporte table.inv tr.sec td { background: #fff; color: #027266; font-weight: 800; text-transform: uppercase; font-size: .78rem;
+                                 padding-top: 12px; border-bottom: 2px solid #027266; letter-spacing: .03em; }
+  #reporte table.inv tr.sec.otro td { color: #9a3412; border-bottom-color: #FE6412; }
+  #reporte table.inv tr.subt td { font-weight: 800; background: #f6f5f1; border-bottom: 0; }
+  #reporte table.inv tr.total td { font-weight: 800; font-size: .9rem; background: #e9f4f2; color: #027266; border-top: 3px solid #027266; }
+  #reporte table.inv tr:not(.sec):not(.subt):not(.total):hover td { background: #fff8f3; }
+  #reporte .neg { color: #b42318; }
+  #reporte .sube { color: #027266; font-weight: 700; } #reporte .baja { color: #b42318; font-weight: 700; }
+  #reporte .pct { display: inline-block; min-width: 52px; text-align: right; font-size: .72rem; color: #6b6a66; margin-left: 4px; }
+  #reporte .cambios { display: flex; gap: 12px; margin: 10px 0 4px; flex-wrap: wrap; }
+  #reporte .cambios > div { flex: 1; min-width: 300px; border-radius: 12px; padding: 8px 12px; }
+  #reporte .cambios .up { background: #e9f4f2; } #reporte .cambios .down { background: #fff1e8; }
+  #reporte .cambios .tit { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #52514e; margin-bottom: 2px; }
+  #reporte .cambios .it { display: flex; justify-content: space-between; gap: 10px; font-size: .84rem; padding: 2px 0; }
+  #reporte .cambios .it + .it { border-top: 1px dashed #d6d4cc; }
+  #reporte .pie { font-size: .72rem; color: #8a8984; padding: 6px 20px 12px; display: flex; justify-content: space-between; gap: 8px; }
+  .controles { max-width: 1100px; margin: 0 auto 10px; }
+  .controles .btn:focus-visible, .controles a:focus-visible, .controles select:focus-visible { outline: 3px solid #FE6412; outline-offset: 2px; box-shadow: none; }
+  .marco { overflow-x: auto; padding-bottom: 8px; }
+  @media print {
+    @page { size: landscape; margin: 8mm; }
+    .controles, nav, header, footer, .navbar { display: none !important; }
+    #reporte { box-shadow: none; border-radius: 0; min-width: 0; }
+    #reporte table.inv { font-size: 7.5pt; }
+    .marco { overflow: visible; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+
+<div class="dash container-fluid px-2">
+  <form method="get" class="controles d-flex flex-wrap align-items-end gap-2">
+    <div><label class="form-label small mb-0" for="hasta">Cierre</label>
+      <div class="input-group input-group-sm">
+        <a class="btn btn-outline-secondary {{ 'disabled' if not anterior }}" href="{{ url_for('cierre_inventario.reporte', hasta=anterior, meses=meses) if anterior else '#' }}" aria-label="Cierre anterior"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
+        <select id="hasta" name="hasta" class="form-select" onchange="this.form.submit()">
+          {% for x in cierres|reverse %}<option value="{{ x.fecha_corte }}" {% if x.fecha_corte == hasta %}selected{% endif %}>{{ mes_txt(x.fecha_corte)|capitalize }} ({{ x.fecha_corte.strftime('%d/%m/%Y') }})</option>{% endfor %}
+        </select>
+        <a class="btn btn-outline-secondary {{ 'disabled' if not siguiente }}" href="{{ url_for('cierre_inventario.reporte', hasta=siguiente, meses=meses) if siguiente else '#' }}" aria-label="Cierre siguiente"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+      </div></div>
+    <div><label class="form-label small mb-0" for="meses">Meses a comparar</label>
+      <select id="meses" name="meses" class="form-select form-select-sm" onchange="this.form.submit()">
+        {% for m in opciones_meses %}<option value="{{ m }}" {% if m == meses %}selected{% endif %}>{{ m }} meses</option>{% endfor %}
+      </select></div>
+    <div class="ms-auto d-flex flex-wrap gap-2">
+      {% if r %}
+      <button type="button" id="btnImagen" class="btn btn-success btn-sm" title="Imagen en alta resolución: enviarla en HD o como documento"><i class="bi bi-whatsapp" aria-hidden="true"></i> Imagen para WhatsApp</button>
+      <button type="button" id="btnCopiar" class="btn btn-outline-success btn-sm" hidden><i class="bi bi-clipboard" aria-hidden="true"></i> Copiar</button>
+      <a class="btn btn-outline-success btn-sm" href="{{ url_for('cierre_inventario.excel', hasta=hasta, meses=meses) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> Imprimir / PDF</button>
+      {% endif %}
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('cierre_inventario.cargar') }}"><i class="bi bi-cloud-arrow-up" aria-hidden="true"></i> Cargar cierre</a>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('cierre_inventario.bodegas') }}"><i class="bi bi-diagram-3" aria-hidden="true"></i> Secciones de bodegas</a>
+    </div>
+    <span id="avisoImagen" class="small w-100 text-end"></span>
+  </form>
+
+  {% if not r %}
+    <div class="alert alert-warning mx-auto" style="max-width:700px">Todavía no hay cierres de inventario cargados.
+      <a href="{{ url_for('cierre_inventario.cargar') }}">Cargue el Reporte de Análisis de Inventario</a> cortado al fin de mes.</div>
+  {% else %}
+  {% set f = r.fechas %}
+  <div class="marco">
+  <div id="reporte">
+    <div class="cab">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="Comersa">
+      <div>
+        <div class="t">Saldo de inventario por bodega</div>
+        <div class="f">Cierre de {{ mes_txt(f[-1]) }}{% if f|length > 1 %} · comparado desde {{ mes_txt(f[0]) }}{% endif %}</div>
+      </div>
+    </div>
+
+    <div class="cuerpo">
+      {% set t = r.total[-1] %}
+      <div class="kpis">
+        <div class="kpi2 princ"><div class="e">Inventario al costo · {{ f[-1].strftime('%d/%m/%Y') }}</div>
+          <div class="v">C$ {{ "{:,.0f}".format(t.mn) }}</div><div class="s">U$ {{ "{:,.0f}".format(t.me) }} · T/C {{ "%.2f"|format(r.tc) }}</div></div>
+        <div class="kpi2"><div class="e">Unidades</div><div class="v n">{{ "{:,.0f}".format(t.unidades) }}</div>
+          <div class="s">{{ r.ultimo.bodegas }} bodegas en el cierre</div></div>
+        {% if r.vs_anterior %}<div class="kpi2"><div class="e">vs {{ mes_txt(r.vs_anterior.fecha) }}</div>
+          <div class="v n">{{ delta(r.vs_anterior.pct) }}</div>
+          <div class="s">{{ '+' if r.vs_anterior.dif >= 0 else '−' }}C$ {{ "{:,.0f}".format(r.vs_anterior.dif|abs) }}</div></div>{% endif %}
+        {% if r.vs_anio %}<div class="kpi2"><div class="e">vs {{ mes_txt(r.vs_anio.fecha) }}</div>
+          <div class="v n">{{ delta(r.vs_anio.pct) }}</div>
+          <div class="s">{{ '+' if r.vs_anio.dif >= 0 else '−' }}C$ {{ "{:,.0f}".format(r.vs_anio.dif|abs) }}</div></div>{% endif %}
+      </div>
+
+      <table class="inv">
+        <thead>
+          <tr><th rowspan="2">LINEA</th><th rowspan="2" class="text-start">BODEGA</th>
+            {% for fe in f %}<th colspan="3" class="mes">{{ mes_txt(fe, True) }}</th>{% endfor %}
+            {% if f|length > 1 %}<th rowspan="2" class="mes">VARIACIÓN C$<br><small>vs {{ mes_txt(f[-2], True) }}</small></th>{% endif %}</tr>
+          <tr class="sub">{% for fe in f %}<th class="mes">UNIDADES</th><th>COSTO MN C$</th><th>COSTO ME U$</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for s in r.secciones %}
+            {% if not loop.first %}<tr class="sec {{ 'otro' if s.grupo is none }}"><td colspan="{{ 2 + 3 * f|length + (1 if f|length > 1 else 0) }}">{{ s.titulo }}</td></tr>{% endif %}
+            {% for x in s.filas %}
+            <tr><td class="li">{{ x.linea }}</td><td class="bod">{{ x.nombre }}</td>
+              {% for v in x.celdas %}{% set ult = 'ult' if loop.last and f|length > 1 %}
+                <td class="n ini {{ ult }}">{{ u(v.unidades if v else none) }}</td><td class="n mn {{ ult }}">{{ c(v.mn if v else none) }}</td><td class="n {{ ult }}">{{ c(v.me if v else none, '$') }}</td>
+              {% endfor %}
+              {% if f|length > 1 %}<td class="n ini">{{ var(x.var) }}</td>{% endif %}</tr>
+            {% endfor %}
+            <tr class="subt"><td></td><td>{{ 'Total bodegas' if loop.first else 'Total ' ~ s.titulo|lower }}</td>
+              {% for v in s.total %}<td class="n ini">{{ u(v.unidades if v else none) }}</td><td class="n">{{ c(v.mn if v else none) }}</td><td class="n">{{ c(v.me if v else none, '$') }}</td>{% endfor %}
+              {% if f|length > 1 %}<td class="n ini">{{ var(s.var) }}</td>{% endif %}</tr>
+          {% endfor %}
+          <tr class="total"><td></td><td>TOTAL</td>
+            {% for v in r.total %}<td class="n ini">{{ u(v.unidades if v else none) }}</td><td class="n">{{ c(v.mn if v else none) }}</td><td class="n">{{ c(v.me if v else none, '$') }}</td>{% endfor %}
+            {% if f|length > 1 %}<td class="n ini">{{ var(r.var) }}</td>{% endif %}</tr>
+        </tbody>
+      </table>
+
+      {% if r.suben or r.bajan %}
+      <div class="cambios">
+        {% if r.suben %}<div class="up"><div class="tit">▲ Más aumentaron vs {{ mes_txt(f[-2], True) }}</div>
+          {% for x in r.suben %}<div class="it"><span>{{ x.nombre }}</span><b class="sube">+C$ {{ "{:,.0f}".format(x.var.mn) }}</b></div>{% endfor %}</div>{% endif %}
+        {% if r.bajan %}<div class="down"><div class="tit">▼ Más disminuyeron vs {{ mes_txt(f[-2], True) }}</div>
+          {% for x in r.bajan %}<div class="it"><span>{{ x.nombre }}</span><b class="baja">−C$ {{ "{:,.0f}".format(x.var.mn|abs) }}</b></div>{% endfor %}</div>{% endif %}
+      </div>
+      {% endif %}
+      {% if r.sin_clasificar %}<div class="small mt-2" style="color:#9a3412"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        {{ r.sin_clasificar }} bodega(s) sin sección: asígnela en «Secciones de bodegas».</div>{% endif %}
+    </div>
+    <div class="pie"><span>Costo U$ = costo C$ ÷ tipo de cambio de cada cierre{% if r.tcs.values()|unique|list|length == 1 %} ({{ "%.2f"|format(r.tc) }}){% endif %} · fuente: Reporte de Análisis de Inventario</span>
+      <span id="fechaImagen"></span></div>
+  </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if r %}
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="{{ url_for('static', filename='imagen_reporte.js') }}"></script>
+<script>
+(function () {
+  const nombre = 'cierre_inventario_{{ r.fechas[-1].strftime("%Y-%m") }}.png';
+  const tarjeta = document.getElementById('reporte');
+  const aviso = document.getElementById('avisoImagen');
+  const avisar = (t, ok = true) => { aviso.className = 'small w-100 text-end ' + (ok ? 'text-success' : 'text-danger'); aviso.textContent = t; };
+  const ancho = () => Math.ceil(tarjeta.scrollWidth);
+  function sellar() { document.getElementById('fechaImagen').textContent = new Date().toLocaleString('es-NI', { dateStyle: 'short', timeStyle: 'short' }); }
+  async function conEspera(btn, accion) {
+    const html = btn.innerHTML; btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Generando…'; aviso.textContent = '';
+    try { sellar(); await accion(); }
+    catch (e) { console.error(e); avisar('No se pudo generar la imagen', false); }
+    finally { btn.disabled = false; btn.innerHTML = html; }
+  }
+  // La tabla es ancha: una sola imagen en alta resolución (enviar con «HD» o como documento)
+  document.getElementById('btnImagen').addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+    const res = await ImagenReporte.guardar([await ImagenReporte.una(tarjeta, { ancho: ancho(), escala: 2 })], nombre);
+    if (res === 'descargado') avisar('✓ Descargada. En WhatsApp actívele «HD» al enviarla, o mándela como documento');
+  }));
+  const btnCopiar = document.getElementById('btnCopiar');
+  if (navigator.clipboard && window.ClipboardItem && window.isSecureContext) {
+    btnCopiar.hidden = false;
+    btnCopiar.addEventListener('click', (e) => conEspera(e.currentTarget, async () => {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': ImagenReporte.una(tarjeta, { ancho: ancho(), escala: 2 }) })]);
+      avisar('✓ Imagen copiada: péguela en WhatsApp con Ctrl+V y active «HD» antes de enviar');
+    }));
+  }
+})();
+</script>
+{% endif %}
+{% endblock %}

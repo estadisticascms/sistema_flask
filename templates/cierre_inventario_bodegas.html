@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block title %}Secciones de bodegas{% endblock %}
+{% block content %}
+<div class="container mt-3 mb-4" style="max-width: 980px">
+  <h5><i class="bi bi-diagram-3" aria-hidden="true"></i> Secciones de bodegas en el cierre de inventario</h5>
+  <p class="text-muted small mb-3">
+    Elija en qué sección del <a href="{{ url_for('cierre_inventario.reporte') }}">cierre de inventario</a> sale cada bodega y su orden (número menor, más arriba).
+    «Sin sección» la manda a <em>Otras bodegas</em>. El nombre es el que se muestra en el reporte; el archivo del sistema puede traerlo con otros espacios o guiones.
+  </p>
+  <form method="post">
+    <table class="table table-sm align-middle small">
+      <thead><tr><th>Nombre en el reporte</th><th>Sección</th><th style="width:90px">Orden</th><th class="text-end">Costo C$ {% if ultima %}{{ mes_txt(ultima, True) }}{% endif %}</th><th>Último cierre</th></tr></thead>
+      <tbody>
+      {% for f in filas %}
+        <tr class="{{ '' if f.activa else 'text-muted' }}">
+          <td><input type="hidden" name="clave" value="{{ f.clave }}">
+            <input type="text" name="nombre_{{ f.clave }}" value="{{ f.nombre }}" maxlength="100" class="form-control form-control-sm" aria-label="Nombre de {{ f.nombre }}">
+            {% if f.nombre_archivo and f.nombre_archivo != f.nombre %}<div class="form-text">En el archivo: {{ f.nombre_archivo }}</div>{% endif %}</td>
+          <td><select name="grupo_{{ f.clave }}" class="form-select form-select-sm {{ 'border-warning' if not f.grupo }}" aria-label="Sección de {{ f.nombre }}">
+              <option value="">Sin sección</option>
+              {% for g in ['BODEGAS', 'REVISAR', 'LIQUIDAR'] %}<option value="{{ g }}" {% if f.grupo == g %}selected{% endif %}>{{ nombre_grupo[g] }}</option>{% endfor %}
+            </select></td>
+          <td><input type="number" name="orden_{{ f.clave }}" value="{{ f.orden }}" class="form-control form-control-sm" aria-label="Orden de {{ f.nombre }}"></td>
+          <td class="text-end">{{ "{:,.2f}".format(f.mn) if f.mn is not none else '' }}</td>
+          <td>{{ mes_txt(f.ultima, True) if f.ultima else '—' }}{% if not f.activa %} <span class="badge text-bg-light">no está en el último cierre</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit" class="btn btn-success"><i class="bi bi-check2" aria-hidden="true"></i> Guardar</button>
+    <a href="{{ url_for('cierre_inventario.reporte') }}" class="btn btn-outline-secondary">Volver al reporte</a>
+  </form>
+</div>
+{% endblock %}

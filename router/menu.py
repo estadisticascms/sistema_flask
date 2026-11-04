@@ -68,6 +68,7 @@ SECCIONES = [
                 ("Seguimiento de ingresos", "/seguimiento_ingresos", "bi-box-arrow-in-down", "Lo que ingresó: cuánto se vendió y a quién", "orden de compra"),
             ]},
             {"titulo": "Inventario y precios", "items": [
+                ("Cierre de mes de inventario", "/cierre_inventario", "bi-archive", "Saldo por bodega de los últimos meses, en C$ y U$", "inventario cierre saldo bodega mensual costo"),
                 ("Existencias y costo por bodega", "/existencias_bodegas", "bi-boxes", "Una o varias bodegas, con total al costo y orden por montos", "inventario valor stock costo monto"),
                 ("Productos sin movimiento", "/productos_sin_movimiento", "bi-moon-stars", "Con existencia y sin ventas en meses", "lento obsoleto"),
                 ("Revisión de precios", "/revision_precios", "bi-percent", "Margen bajo y sin movimiento con margen alto", "margen costo"),
@@ -124,6 +125,7 @@ SECCIONES = [
                 ("Devoluciones", "/devoluciones", "bi-arrow-return-left", "Devoluciones de clientes", "subir excel"),
             ]},
             {"titulo": "Cuando cambian", "items": [
+                ("Cierre de mes de inventario", "/cargar_cierre_inventario", "bi-archive", "Análisis de Inventario al fin de mes", "subir excel cierre"),
                 ("Existencias por bodega", "/cargar_existencias", "bi-boxes", "Reemplaza la existencia actual", "subir excel"),
                 ("Catálogo de productos", "/cargar_catalogo", "bi-journal-bookmark-fill", "Existencias, costos y precios", "subir excel"),
                 ("Clientes", "/cargar_clientes", "bi-person-vcard", "Actualiza la lista de clientes", "subir excel"),

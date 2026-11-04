@@ -51,6 +51,7 @@ from router.analisis_cartera import analisis_cartera_bp
 from router.cheques import cheques_bp
 from router.cargar_armados import cargar_armados_bp
 from router.reporte_armados import reporte_armados_bp, armados_del_dia, calcular as calcular_armados
+from router.cierre_inventario import cierre_inventario_bp
 from router.menu import contexto_menu
 from utils.db import get_connection
 from router.bitacora import bitacora_bp, iniciar_bitacora
@@ -129,6 +130,7 @@ app.register_blueprint(analisis_cartera_bp)
 app.register_blueprint(cheques_bp)
 app.register_blueprint(cargar_armados_bp)
 app.register_blueprint(reporte_armados_bp)
+app.register_blueprint(cierre_inventario_bp)
 app.context_processor(contexto_menu)  # menú único para inicio y barra superior
 
 # -----------------------------

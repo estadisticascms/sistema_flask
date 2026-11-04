@@ -1,0 +1,102 @@
+{% extends "layout.html" %}
+{% block title %}Cargar cierre de inventario{% endblock %}
+{% macro c(v) %}<span class="{{ 'text-danger' if v < 0 }}">C$ {{ "{:,.2f}".format(v) }}</span>{% endmacro %}
+{% block content %}
+<div class="container mt-3 mb-4">
+  <h5><i class="bi bi-archive" aria-hidden="true"></i> Cargar cierre de mes de inventario</h5>
+  <p class="text-muted small mb-3">
+    Suba el <strong>Reporte de Análisis de Inventario</strong> del sistema (Excel) sacado <strong>desde 2021-01-01 al último día del mes</strong>,
+    sin filtro de bodega. Se guarda el saldo de cada bodega (Cantidad Final y Monto Final) y el detalle por producto. Si el mes ya estaba cargado,
+    se reemplaza. Nada se guarda hasta que presione <strong>Confirmar carga</strong>.
+    <a href="{{ url_for('cierre_inventario.reporte') }}">Ver el reporte de cierre</a>.
+  </p>
+
+  <form action="{{ url_for('cierre_inventario.cargar') }}" method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3"
+        onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Validando…';">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-5">
+        <label class="form-label fw-semibold" for="archivo">Reporte de Análisis de Inventario <span class="text-danger">*</span></label>
+        <input type="file" id="archivo" name="archivo" class="form-control" accept=".xls,.xlsx" required>
+        <div class="form-text">Columnas: Bodega, Id Producto, Código Producto, …, Monto Final, Cantidad Final.</div>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold" for="fecha_corte">Fecha de corte</label>
+        <input type="date" id="fecha_corte" name="fecha_corte" class="form-control">
+        <div class="form-text">Vacío: la del archivo («Al: …»).</div>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label fw-semibold" for="tc">Tipo de cambio</label>
+        <input type="number" id="tc" name="tc" class="form-control" step="0.0001" min="1" value="{{ '%.4f'|format(tc_defecto) }}" required>
+        <div class="form-text">Para el costo en U$.</div>
+      </div>
+      <div class="col-md-3"><button type="submit" class="btn btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Validar archivo</button></div>
+    </div>
+  </form>
+
+  {% if errores_archivo %}
+    <div class="alert alert-danger"><strong>No se pudo leer el archivo:</strong>
+      <ul class="mb-0">{% for e in errores_archivo %}<li>{{ e }}</li>{% endfor %}</ul></div>
+  {% endif %}
+
+  {% if validado %}
+    <div class="row g-2 mb-3 text-center">
+      <div class="col-6 col-md"><div class="card card-body py-2 border-success"><div class="small text-muted">Cierre de</div>
+        <div class="fs-4 fw-bold text-success">{{ mes_txt(fecha_corte)|capitalize }}</div><div class="small text-muted">corte al {{ fecha_corte.strftime('%d/%m/%Y') }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Inventario al costo</div>
+        <div class="fs-5 fw-bold">{{ c(total_mn) }}</div><div class="small text-muted">U$ {{ "{:,.2f}".format(total_mn / tc) }} · T/C {{ "%.4f"|format(tc) }}</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Unidades</div>
+        <div class="fs-5 fw-bold">{{ "{:,.2f}".format(total_unidades) }}</div><div class="small text-muted">{{ filas|length }} bodegas</div></div></div>
+      <div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">Productos con saldo</div>
+        <div class="fs-5 fw-bold">{{ "{:,}".format(total_productos) }}</div><div class="small text-muted">de {{ "{:,}".format(lineas) }} filas del archivo</div></div></div>
+      {% if anterior %}<div class="col-6 col-md"><div class="card card-body py-2"><div class="small text-muted">vs {{ mes_txt(anterior.fecha_corte) }}</div>
+        {% set dif = total_mn - anterior.costo_mn|float %}
+        <div class="fs-5 fw-bold {{ 'text-success' if dif >= 0 else 'text-danger' }}">{{ '+' if dif >= 0 }}{{ "{:,.2f}".format(dif) }}</div>
+        <div class="small text-muted">antes C$ {{ "{:,.2f}".format(anterior.costo_mn) }}</div></div></div>{% endif %}
+    </div>
+
+    {% if existente %}
+      <div class="alert alert-warning"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        Ya hay un cierre de <strong>{{ mes_txt(fecha_corte) }}</strong> (C$ {{ "{:,.2f}".format(existente.costo_mn) }}, cargado {{ existente.cargado.strftime('%d/%m/%Y %H:%M') }}{% if existente.cargado_por %} por {{ existente.cargado_por }}{% endif %}).
+        Al confirmar se reemplaza.</div>
+    {% endif %}
+    {% if advertencias %}<div class="alert alert-warning small"><ul class="mb-0">{% for a in advertencias %}<li>{{ a }}</li>{% endfor %}</ul></div>{% endif %}
+    {% if errores %}<div class="alert alert-danger small"><strong>Filas que no se cargan ({{ errores|length }}):</strong>
+      <ul class="mb-0">{% for e in errores[:30] %}<li>{{ e }}</li>{% endfor %}{% if errores|length > 30 %}<li>… y {{ errores|length - 30 }} más</li>{% endif %}</ul></div>{% endif %}
+
+    <form action="{{ url_for('cierre_inventario.confirmar') }}" method="post" class="d-flex gap-2 mb-3"
+          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerText='Guardando…';">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="btn btn-success"><i class="bi bi-check2-circle" aria-hidden="true"></i> Confirmar carga</button>
+      <a href="{{ url_for('cierre_inventario.cargar') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+
+    <h6>Saldo por bodega</h6>
+    <div class="table-responsive"><table class="table table-sm table-striped small w-auto">
+      <thead><tr><th>Sección</th><th>Bodega</th><th class="text-end">Productos</th><th class="text-end">Unidades</th><th class="text-end">Costo C$</th>
+        <th class="text-end">Costo U$</th>{% if anterior %}<th class="text-end">{{ mes_txt(anterior.fecha_corte) }} C$</th><th class="text-end">Variación C$</th>{% endif %}</tr></thead>
+      <tbody>{% for f in filas %}<tr>
+        <td>{% if f.grupo %}{{ nombre_grupo[f.grupo] }}{% else %}<span class="badge text-bg-warning">Sin sección</span>{% endif %}</td>
+        <td>{{ f.bodega }}</td><td class="text-end">{{ "{:,}".format(f.productos) }}</td><td class="text-end">{{ "{:,.2f}".format(f.unidades) }}</td>
+        <td class="text-end">{{ c(f.mn) }}</td><td class="text-end">{{ "{:,.2f}".format(f.mn / tc) }}</td>
+        {% if anterior %}<td class="text-end">{{ "{:,.2f}".format(f.anterior) if f.anterior is not none else '—' }}</td>
+          <td class="text-end">{% if f.anterior is not none %}{% set d = f.mn - f.anterior %}<span class="{{ 'text-success' if d > 0.005 else ('text-danger' if d < -0.005) }}">{{ "{:+,.2f}".format(d) }}</span>{% else %}nueva{% endif %}</td>{% endif %}
+      </tr>{% endfor %}</tbody>
+      <tfoot><tr class="fw-bold"><td></td><td>Total</td><td class="text-end">{{ "{:,}".format(total_productos) }}</td><td class="text-end">{{ "{:,.2f}".format(total_unidades) }}</td>
+        <td class="text-end">{{ c(total_mn) }}</td><td class="text-end">{{ "{:,.2f}".format(total_mn / tc) }}</td>
+        {% if anterior %}<td class="text-end">{{ "{:,.2f}".format(anterior.costo_mn) }}</td><td class="text-end">{{ "{:+,.2f}".format(total_mn - anterior.costo_mn|float) }}</td>{% endif %}</tr></tfoot>
+    </table></div>
+  {% endif %}
+
+  {% if cierres %}
+    <h6 class="mt-4">📑 Cierres cargados</h6>
+    <table class="table table-sm table-striped small w-auto">
+      <thead><tr><th>Mes</th><th>Corte</th><th class="text-end">Bodegas</th><th class="text-end">Unidades</th><th class="text-end">Costo C$</th><th class="text-end">T/C</th><th>Origen</th><th>Cargado</th></tr></thead>
+      <tbody>{% for m in cierres %}<tr>
+        <td><a href="{{ url_for('cierre_inventario.reporte', hasta=m.fecha_corte) }}">{{ mes_txt(m.fecha_corte)|capitalize }}</a></td><td>{{ m.fecha_corte.strftime('%d/%m/%Y') }}</td>
+        <td class="text-end">{{ m.bodegas }}</td><td class="text-end">{{ "{:,.2f}".format(m.unidades) }}</td><td class="text-end">{{ "{:,.2f}".format(m.costo_mn) }}</td>
+        <td class="text-end">{{ "%.2f"|format(m.tc) }}</td><td>{{ 'Sistema' if m.origen == 'sistema' else 'Excel anterior' }}</td>
+        <td>{{ m.cargado.strftime('%d/%m/%Y %H:%M') }}{% if m.cargado_por %} · {{ m.cargado_por }}{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}
