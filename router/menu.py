@@ -41,7 +41,7 @@ SECCIONES = [
             {"titulo": "Por zona y departamento", "items": [
                 ("Ventas por departamento (mapa)", "/ventas_departamento", "bi-map", "Mapa, segmento, familia y subfamilia", "zona geografia"),
                 ("Departamentos por mes", "/reporteZona", "bi-geo-alt-fill", "Comparativo mensual, clientes, productos y vendedor", "zona"),
-                ("Ventas por zona mensual", "/ventas_zonas_mes", "bi-diagram-3-fill", "Zonas por mes, vendedor, segmentos, clientes y productos", "departamento vendedor segmento"),
+                ("Ventas por vendedor y departamento", "/ventas_zonas_mes", "bi-map-fill", "Mapa, meses, vendedor, segmentos, clientes y productos", "zona departamento vendedor segmento"),
             ]},
             {"titulo": "Vendedores", "items": [
                 ("Totales por vendedor", "/rep_vend_totales", "bi-trophy-fill", "Ranking para compartir con vendedores", "ranking comision"),

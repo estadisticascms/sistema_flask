@@ -1,13 +1,12 @@
-"""Ventas por zona, comparativo por mes (zonas de la tabla zona_cliente: municipio -> zona).
+"""Ventas por vendedor y departamento, comparativo por mes (URL y permiso: ventas_zonas_mes).
 
-Nivel 1: zonas × meses, con vendedor principal y los segmentos de producto de cada zona (se despliegan).
-Nivel 2: clientes de la zona × meses con su vendedor, y los segmentos de la zona por mes.
-Ventana: clientes de una zona -> productos de un cliente, con edición de segmento / familia / subfamilia
+Nivel 1: departamentos × meses, con mapa, vendedor principal y los segmentos de producto de cada departamento (se despliegan).
+Nivel 2: clientes del departamento × meses con su vendedor, y los segmentos del departamento por mes.
+Ventana: clientes de un departamento -> productos de un cliente, con edición de segmento / familia / subfamilia
 (la misma ventana de Ventas por departamento: static/lista_ventas.js).
 
-Venta neta sin IVA (Sub-Total 2 de ventas_por_producto) sin facturas anuladas. La zona sale del municipio de la ficha
-del cliente; si el municipio no está en zona_cliente, se usa la zona de la cabecera de su departamento."""
-import difflib
+Venta neta sin IVA (Sub-Total 2 de ventas_por_producto) sin facturas anuladas. El departamento sale de la ficha del cliente,
+normalizado igual que en Ventas por departamento (se reconocen municipios y nombres mal escritos)."""
 import io
 import time
 from datetime import date, datetime
@@ -22,97 +21,30 @@ from router.accesos import requiere_acceso
 from router.clase_prod import opciones as opciones_clase
 from router.dashboard import ultima_fecha_con_ventas
 from router.ventas_bodegas import en_cache
-from router.ventas_departamento import (OCASIONAL, SIN_SEGMENTO, catalogo_basico, clasificacion, departamento_de, normal,
-                                        tiene_acceso)
-from router.ventas_departamento_mes import clave, fecha_param, lista_vendedores, meses_entre, restar_meses
+from router.ventas_departamento import (DEPARTAMENTOS, OCASIONAL, SIN_DEPTO, SIN_SEGMENTO, cartera_por_departamento, catalogo_basico,
+                                        clasificacion, departamentos_clientes, mapa, normal, tiene_acceso)
+from router.ventas_departamento_mes import (clave, fecha_param, fichas_clientes, lista_vendedores, meses_entre, nombre_depto,
+                                            restar_meses)
 from router.ventas_vendedor import rangos_rapidos
 
 ventas_zonas_mes_bp = Blueprint("ventas_zonas_mes", __name__)
 
-SIN_ZONA = "Sin zona"            # está en la tabla clientes pero sin municipio ni departamento reconocible
-FUERA = (SIN_ZONA, OCASIONAL)
+FUERA = (SIN_DEPTO, OCASIONAL)   # no se pintan en el mapa
+GRUPOS = DEPARTAMENTOS + [SIN_DEPTO, OCASIONAL]
 VERDE, NARANJA = "027266", "FE6412"
-# Cabecera de cada departamento: zona para los clientes cuyo municipio no está en zona_cliente
-CABECERA = {"BOACO": "BOACO", "CARAZO": "JINOTEPE", "CHINANDEGA": "CHINANDEGA", "CHONTALES": "JUIGALPA", "ESTELI": "ESTELI",
-            "GRANADA": "GRANADA", "JINOTEGA": "JINOTEGA", "LEON": "LEON", "MADRIZ": "SOMOTO", "MANAGUA": "MANAGUA", "MASAYA": "MASAYA",
-            "MATAGALPA": "MATAGALPA", "NUEVA SEGOVIA": "OCOTAL", "RACCN": "PUERTO CABEZAS", "RACCS": "BLUEFIELDS",
-            "RIO SAN JUAN": "SAN CARLOS", "RIVAS": "RIVAS"}
 
 
 def compacto(texto):
     return normal(texto).replace(" ", "")
 
 
-def zonas():
-    """Zonas en su orden (grupozona) y municipio (sin espacios ni tildes) -> zona."""
-    def leer():
-        conn = get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT nombre_zona, municipio FROM zona_cliente WHERE nombre_zona <> '' ORDER BY grupozona, idzona")
-            orden, municipios = [], {}
-            for zona, municipio in cursor.fetchall():
-                zona = zona.strip()
-                if zona not in orden:
-                    orden.append(zona)
-                municipios.setdefault(compacto(municipio), zona)   # un municipio repetido se queda con la primera zona
-            return {"orden": orden, "municipios": municipios}
-        finally:
-            cursor.close()
-            conn.close()
-    return en_cache("vzm_zonas", leer)
+def depto_param(valor):
+    valor = (valor or "").strip().upper()
+    return next((g for g in GRUPOS if g.upper() == valor), "")
 
 
-def zona_de(departamento, municipio, z):
-    """(zona, cómo se asignó): por municipio, o por la cabecera del departamento."""
-    for texto in (municipio, departamento):
-        k = compacto(texto)
-        if len(k) < 3:
-            continue
-        if k in z["municipios"]:
-            return z["municipios"][k], "municipio"
-        parecido = difflib.get_close_matches(k, z["municipios"].keys(), n=1, cutoff=0.86)
-        if parecido:
-            return z["municipios"][parecido[0]], "municipio"
-    depto = departamento_de(departamento, municipio)
-    if depto and compacto(CABECERA.get(depto)) in z["municipios"]:
-        return z["municipios"][compacto(CABECERA[depto])], "departamento"
-    return SIN_ZONA, None
-
-
-def fichas_clientes():
-    """Clientes por nombre: zona, vendedor asignado y estado (10 minutos en memoria)."""
-    def leer():
-        z = zonas()
-        conn = get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT nombre, departamento, municipio, vendedor, estado FROM clientes")
-            fichas = {}
-            for nombre, depto, municipio, vendedor, estado in cursor.fetchall():
-                k = clave(nombre)
-                if not k:
-                    continue
-                actual = fichas.get(k)
-                zona, como = zona_de(depto, municipio, z)
-                if actual is None or (estado == "Activo" and not actual["activo"]) or (actual["zona"] == SIN_ZONA and zona != SIN_ZONA):
-                    fichas[k] = {"nombre": " ".join(nombre.split()), "zona": zona, "como": como,
-                                 "vendedor": (vendedor or "").strip(), "activo": estado == "Activo" or bool(actual and actual["activo"])}
-            return fichas
-        finally:
-            cursor.close()
-            conn.close()
-    return en_cache("vzm_fichas", leer)
-
-
-def cartera_por_zona():
-    cartera = {}
-    for ficha in fichas_clientes().values():
-        c = cartera.setdefault(ficha["zona"], {"total": 0, "activos": 0, "por_depto": 0})
-        c["total"] += 1
-        c["activos"] += ficha["activo"]
-        c["por_depto"] += ficha["como"] == "departamento"
-    return cartera
+def nombre(g):
+    return g if g in FUERA else nombre_depto(g)
 
 
 _VENTAS = {}
@@ -149,23 +81,22 @@ def leer_filtros(args):
         ultima = ultima.date()
     hasta = fecha_param(args.get("hasta"), ultima)
     desde = min(fecha_param(args.get("desde"), restar_meses(hasta, 5)), hasta)   # por defecto: 6 meses
-    zona = (args.get("zona") or "").strip()
     return {"desde": desde, "hasta": hasta, "ultima": ultima, "vendedor": (args.get("vendedor") or "").strip(),
-            "zona": zona if zona in zonas()["orden"] or zona in FUERA else "",
+            "depto": depto_param(args.get("depto")),
             "segmento": (args.get("segmento") or "").strip(), "familia": "", "q": (args.get("q") or "").strip()}
 
 
 def filas_filtradas(f):
-    """Ventas del período con vendedor y segmento aplicados: (zona, cliente, vendedor, mes, código, seg, fam, sub, monto, unidades, última, desc)."""
-    fichas, clase = fichas_clientes(), clasificacion()
+    """Ventas del período con vendedor y segmento aplicados: (departamento, cliente, vendedor, mes, código, seg, fam, sub, monto, unidades, última, desc)."""
+    deptos, clase = departamentos_clientes(), clasificacion()
     for cliente, vendedor, mes, codigo, monto, unidades, ultima, desc in ventas_periodo(f["desde"], f["hasta"]):
         if f["vendedor"] and vendedor != f["vendedor"]:
             continue
         seg, fam, sub = clase.get(codigo, (SIN_SEGMENTO, SIN_SEGMENTO, SIN_SEGMENTO))
         if f["segmento"] and seg != f["segmento"]:
             continue
-        zona = fichas.get(clave(cliente), {}).get("zona", OCASIONAL)
-        yield zona, cliente, vendedor, mes, codigo, seg, fam, sub, monto, unidades, ultima, desc
+        depto = deptos.get(clave(cliente), OCASIONAL)
+        yield depto, cliente, vendedor, mes, codigo, seg, fam, sub, monto, unidades, ultima, desc
 
 
 def principal(montos):
@@ -178,9 +109,9 @@ def calcular(f):
     meses = meses_entre(f["desde"], f["hasta"])
     claves = [m for m, _ in meses]
     fichas = fichas_clientes()
-    por_zona, por_cliente, segs_total = {}, {}, {}
-    for zona, cliente, vendedor, mes, codigo, seg, fam, sub, monto, unidades, ultima, desc in filas_filtradas(f):
-        z = por_zona.setdefault(zona, {"meses": {}, "total": 0.0, "clientes": set(), "segmentos": {}, "vendedores": {}})
+    por_grupo, por_cliente, segs_total = {}, {}, {}
+    for depto, cliente, vendedor, mes, codigo, seg, fam, sub, monto, unidades, ultima, desc in filas_filtradas(f):
+        z = por_grupo.setdefault(depto, {"meses": {}, "total": 0.0, "clientes": set(), "segmentos": {}, "vendedores": {}})
         z["meses"][mes] = z["meses"].get(mes, 0.0) + monto
         z["total"] += monto
         z["clientes"].add(clave(cliente))
@@ -189,7 +120,7 @@ def calcular(f):
         s["total"] += monto
         z["vendedores"][vendedor] = z["vendedores"].get(vendedor, 0.0) + monto
         segs_total[seg] = segs_total.get(seg, 0.0) + monto
-        if f["zona"] and zona == f["zona"]:
+        if f["depto"] and depto == f["depto"]:
             c = por_cliente.setdefault(clave(cliente), {"cliente": cliente, "meses": {}, "total": 0.0, "vendedores": {},
                                                         "ultima": None, "segmentos": {}})
             c["meses"][mes] = c["meses"].get(mes, 0.0) + monto
@@ -199,29 +130,29 @@ def calcular(f):
             if ultima and (c["ultima"] is None or ultima > c["ultima"]):
                 c["ultima"] = ultima
 
-    total = sum(z["total"] for z in por_zona.values())
-    cartera = cartera_por_zona()
+    total = sum(z["total"] for z in por_grupo.values())
+    cartera = cartera_por_departamento()
     filas = []
-    for nombre in zonas()["orden"] + [SIN_ZONA, OCASIONAL]:
-        z = por_zona.get(nombre, {"meses": {}, "total": 0.0, "clientes": set(), "segmentos": {}, "vendedores": {}})
-        c = cartera.get(nombre, {"total": 0, "activos": 0, "por_depto": 0})
+    for g in GRUPOS:
+        z = por_grupo.get(g, {"meses": {}, "total": 0.0, "clientes": set(), "segmentos": {}, "vendedores": {}})
+        c = cartera.get(g, {"total": 0, "activos": 0})
         vend, otros = principal(z["vendedores"])
         segmentos = sorted(z["segmentos"].values(), key=lambda x: -x["total"])
         for s in segmentos:
             s["pct"] = s["total"] / z["total"] * 100 if z["total"] else 0
-        filas.append({"zona": nombre, "meses": z["meses"], "total": z["total"], "compraron": len(z["clientes"]),
-                      "cartera": c["total"], "activos": c["activos"], "por_depto": c["por_depto"],
+        filas.append({"depto": g, "nombre": nombre(g), "meses": z["meses"], "total": z["total"], "compraron": len(z["clientes"]),
+                      "cartera": c["total"], "activos": c["activos"],
                       "pct": z["total"] / total * 100 if total else 0, "segmentos": segmentos,
                       "vendedor": vend, "vendedor_pct": z["vendedores"].get(vend, 0) / z["total"] * 100 if z["total"] else 0,
                       "otros_vendedores": otros})
-    filas.sort(key=lambda x: (x["zona"] in FUERA, x["zona"] == OCASIONAL, -x["total"]))
+    filas.sort(key=lambda x: (x["depto"] in FUERA, x["depto"] == OCASIONAL, -x["total"]))
     for x in filas:   # comparativo: último mes contra el anterior
         ult, ant = (x["meses"].get(claves[-1], 0), x["meses"].get(claves[-2], 0)) if len(claves) > 1 else (0, 0)
         x["variacion"] = (ult - ant) / ant * 100 if ant else None
 
-    zona_fila = next((x for x in filas if x["zona"] == f["zona"]), None)
+    fila_sel = next((x for x in filas if x["depto"] == f["depto"]), None)
     clientes = []
-    if f["zona"]:
+    if f["depto"]:
         for k, c in por_cliente.items():
             vend, otros = principal(c["vendedores"])
             ficha = fichas.get(k, {})
@@ -231,18 +162,22 @@ def calcular(f):
         for palabra in f["q"].upper().split():
             clientes = [c for c in clientes if palabra in (c["cliente"] or "").upper() or palabra in (c["vendedor"] or "").upper()]
         clientes.sort(key=lambda c: (-c["total"], c["cliente"] or ""))
-        total_zona = zona_fila["total"] if zona_fila else 0
+        total_grupo = fila_sel["total"] if fila_sel else 0
         for i, c in enumerate(clientes, start=1):
             c["posicion"] = i
-            c["pct"] = c["total"] / total_zona * 100 if total_zona else 0
+            c["pct"] = c["total"] / total_grupo * 100 if total_grupo else 0
 
     siguiente = date(f["hasta"].year + f["hasta"].month // 12, f["hasta"].month % 12 + 1, 1)
-    return {"meses": meses, "filas": filas, "total": total, "clientes": clientes, "zona_fila": zona_fila,
+    return {"meses": meses, "filas": filas, "total": total, "clientes": clientes, "fila_sel": fila_sel,
             "por_mes": {m: sum(x["meses"].get(m, 0) for x in filas) for m in claves},
             "clientes_mes": {m: sum(c["meses"].get(m, 0) for c in clientes) for m in claves},
             "segmentos_todos": [s for s, _ in sorted(segs_total.items(), key=lambda x: -x[1])] if not f["segmento"] else [f["segmento"]],
             "parcial": (siguiente - f["hasta"]).days > 1,
-            "maximo": max((v for x in filas if x["zona"] not in FUERA for v in x["meses"].values()), default=0),
+            "maximo": max((v for x in filas if x["depto"] not in FUERA for v in x["meses"].values()), default=0),
+            "mapa_datos": {x["depto"]: {"nombre": x["nombre"], "total": round(x["total"], 2), "clientes": x["compraron"], "cartera": x["cartera"],
+                                        "vendedor": x["vendedor"], "vendedor_pct": round(x["vendedor_pct"]),
+                                        "segmentos": [[s["segmento"], round(s["total"], 2)] for s in x["segmentos"][:6]]}
+                           for x in filas if x["depto"] not in FUERA and x["total"] > 0},
             "maximo_cliente": max((v for c in clientes for v in c["meses"].values()), default=0)}
 
 
@@ -257,17 +192,17 @@ def todos_los_segmentos():
 def reporte_ventas_zonas_mes():
     f = leer_filtros(request.args)
     d = calcular(f)
-    return render_template("ventas_zonas_mes.html", f=f, d=d, vendedores=lista_vendedores(), zonas=zonas()["orden"],
-                           fuera=FUERA, sin_zona=SIN_ZONA, ocasional=OCASIONAL, segmentos=todos_los_segmentos(),
+    return render_template("ventas_zonas_mes.html", f=f, d=d, vendedores=lista_vendedores(), grupos=GRUPOS, nombre=nombre,
+                           fuera=FUERA, ocasional=OCASIONAL, segmentos=todos_los_segmentos(), mapa=mapa(),
                            rangos=rangos_rapidos(f["ultima"]))
 
 
-def lista_zona(f, zona, tipo, solo_cliente=None):
-    """Clientes (con su vendedor) o productos de una zona; con solo_cliente, los productos de ese cliente."""
+def lista_grupo(f, depto, tipo, solo_cliente=None):
+    """Clientes (con su vendedor) o productos de un departamento; con solo_cliente, los productos de ese cliente."""
     catalogo = catalogo_basico() if tipo == "productos" else {}
     filas, total = {}, 0.0
     for z, cliente, vendedor, mes, codigo, seg, fam, sub, monto, unidades, ultima, desc in filas_filtradas(f):
-        if z != zona or (solo_cliente and cliente != solo_cliente):
+        if z != depto or (solo_cliente and cliente != solo_cliente):
             continue
         total += monto
         if tipo == "clientes":
@@ -336,14 +271,14 @@ def nota_excel(f):
 @ventas_zonas_mes_bp.route("/ventas_zonas_mes/lista")
 @requiere_acceso("ventas_zonas_mes")
 def lista():
-    """Clientes o productos de una zona para la ventana (HTML) o en Excel."""
+    """Clientes o productos de un departamento para la ventana (HTML) o en Excel."""
     f = leer_filtros(request.args)
     tipo = "productos" if request.args.get("tipo") == "productos" else "clientes"
-    zona = (request.args.get("ver") or "").strip()
-    if zona not in zonas()["orden"] and zona not in FUERA:
-        return "Zona no válida", 400
+    depto = depto_param(request.args.get("ver"))
+    if not depto:
+        return "Departamento no válido", 400
     cliente = (request.args.get("cliente") or "").strip() if tipo == "productos" else ""
-    filas, total = lista_zona(f, zona, tipo, cliente or None)
+    filas, total = lista_grupo(f, depto, tipo, cliente or None)
     if request.args.get("formato") != "excel":
         editar, segmentos, arbol = tipo == "productos" and tiene_acceso("clase_prod"), [], {}
         if editar:
@@ -354,23 +289,23 @@ def lista():
             finally:
                 cursor.close()
                 conn.close()
-        return render_template("ventas_departamento_lista.html", f=f, tipo=tipo, depto=zona, filas=filas, total=total,
+        return render_template("ventas_departamento_lista.html", f=f, tipo=tipo, depto=depto, filas=filas, total=total,
                                filtro=texto_filtro(f), editar=editar, segmentos=segmentos, arbol=arbol, sin_segmento=SIN_SEGMENTO,
-                               cliente=cliente, unidad="zona",
+                               cliente=cliente, unidad="depto.",
                                excel_url=url_for("ventas_zonas_mes.lista", formato="excel", **request.args.to_dict()))
 
     wb = Workbook()
     ws = wb.active
     ws.title = tipo.capitalize()
-    titulo = f"{'Clientes' if tipo == 'clientes' else 'Productos'} de {cliente + ' · ' if cliente else ''}zona {zona}"
+    titulo = f"{'Clientes' if tipo == 'clientes' else 'Productos'} de {cliente + ' · ' if cliente else ''}{nombre(depto)}"
     if tipo == "clientes":
-        columnas = [("#", 5), ("Cliente", 42), ("Vendedor", 28), ("Otros vendedores", 26), ("Total C$", 15), ("% de la zona", 10),
+        columnas = [("#", 5), ("Cliente", 42), ("Vendedor", 28), ("Otros vendedores", 26), ("Total C$", 15), ("% del depto.", 10),
                     ("Unidades", 11), ("Productos distintos", 11)]
         valores = [[n, x["cliente"], x["vendedor"], ", ".join(x["otros_vendedores"]) or None, round(x["monto"], 2), x["pct"] / 100,
                     x["unidades"], x["productos"]] for n, x in enumerate(filas, 1)]
     else:
         columnas = [("#", 5), ("Código", 12), ("Nº parte", 20), ("Descripción", 45), ("Marca", 16), ("Segmento", 20), ("Familia", 26),
-                    ("Subfamilia", 30), ("Total C$", 15), ("% del cliente" if cliente else "% de la zona", 10), ("Unidades", 11), ("Clientes", 10)]
+                    ("Subfamilia", 30), ("Total C$", 15), ("% del cliente" if cliente else "% del depto.", 10), ("Unidades", 11), ("Clientes", 10)]
         valores = [[n, x["codigo"], x["numero_parte"], x["descripcion"], x["marca"], x["segmento"], x["familia"], x["subfamilia"],
                     round(x["monto"], 2), x["pct"] / 100, x["unidades"], x["clientes"]] for n, x in enumerate(filas, 1)]
         if cliente:
@@ -379,9 +314,9 @@ def lista():
     for r, fila in enumerate(valores, start=5):
         for i, v in enumerate(fila, start=1):
             c = ws.cell(row=r, column=i, value=v)
-            nombre = columnas[i - 1][0]
-            c.number_format = ("#,##0.00" if nombre == "Total C$" else "0.0%" if nombre.startswith("%")
-                               else "#,##0.##" if nombre == "Unidades" else c.number_format)
+            encab = columnas[i - 1][0]
+            c.number_format = ("#,##0.00" if encab == "Total C$" else "0.0%" if encab.startswith("%")
+                               else "#,##0.##" if encab == "Unidades" else c.number_format)
     col = [c[0] for c in columnas].index("Total C$") + 1
     fila_total = 5 + len(valores)
     ws.cell(row=fila_total, column=col - 1, value="TOTAL").font = Font(bold=True)
@@ -389,7 +324,7 @@ def lista():
     c.font = Font(bold=True)
     c.number_format = "#,##0.00"
     ws.auto_filter.ref = f"A4:{get_column_letter(len(columnas))}{max(fila_total - 1, 5)}"
-    return enviar(wb, f"{tipo}_zona_{compacto(cliente or zona).lower()}_{f['desde']}_al_{f['hasta']}.xlsx")
+    return enviar(wb, f"{tipo}_{compacto(cliente or depto).lower()}_{f['desde']}_al_{f['hasta']}.xlsx")
 
 
 @ventas_zonas_mes_bp.route("/ventas_zonas_mes/excel")
@@ -402,12 +337,12 @@ def descargar_excel():
     wb = Workbook()
 
     ws = wb.active
-    ws.title = "Zonas"
-    hoja_excel(ws, "Ventas por zona y mes", nota, [("Zona", 18)] + [(e, 13) for _, e in meses]
+    ws.title = "Departamentos"
+    hoja_excel(ws, "Ventas por vendedor y departamento, por mes", nota, [("Departamento", 20)] + [(e, 13) for _, e in meses]
                + [("Total C$", 15), ("% del total", 9), ("Vendedor principal", 28), ("% del vendedor", 9), ("Compraron", 10),
                   ("Clientes en cartera", 10), ("Var. último mes", 10)])
     for n, x in enumerate(d["filas"], start=5):
-        valores = ([x["zona"]] + [round(x["meses"].get(m, 0), 2) or None for m, _ in meses]
+        valores = ([x["nombre"]] + [round(x["meses"].get(m, 0), 2) or None for m, _ in meses]
                    + [round(x["total"], 2), x["pct"] / 100, x["vendedor"] or None, x["vendedor_pct"] / 100 if x["vendedor"] else None,
                       x["compraron"], x["cartera"], x["variacion"] / 100 if x["variacion"] is not None else None])
         for i, v in enumerate(valores, start=1):
@@ -419,15 +354,15 @@ def descargar_excel():
         ws.cell(row=n, column=len(meses) + 8).number_format = "+0.0%;-0.0%"
     totales_excel(ws, 5 + len(d["filas"]), 2, len(meses) + 2)
 
-    ws2 = wb.create_sheet("Segmentos por zona")
-    hoja_excel(ws2, "Segmentos de producto por zona y mes", nota, [("Zona", 18), ("Segmento", 24)] + [(e, 13) for _, e in meses]
-               + [("Total C$", 15), ("% de la zona", 9)])
+    ws2 = wb.create_sheet("Segmentos por departamento")
+    hoja_excel(ws2, "Segmentos de producto por departamento y mes", nota, [("Departamento", 20), ("Segmento", 24)] + [(e, 13) for _, e in meses]
+               + [("Total C$", 15), ("% del depto.", 9)])
     n = 5
     for x in d["filas"]:
-        if f["zona"] and x["zona"] != f["zona"]:
+        if f["depto"] and x["depto"] != f["depto"]:
             continue
         for s in x["segmentos"]:
-            valores = [x["zona"], s["segmento"]] + [round(s["meses"].get(m, 0), 2) or None for m, _ in meses] + [round(s["total"], 2), s["pct"] / 100]
+            valores = [x["nombre"], s["segmento"]] + [round(s["meses"].get(m, 0), 2) or None for m, _ in meses] + [round(s["total"], 2), s["pct"] / 100]
             for i, v in enumerate(valores, start=1):
                 c = ws2.cell(row=n, column=i, value=v)
                 if 2 < i <= len(meses) + 3:
@@ -437,11 +372,11 @@ def descargar_excel():
     ws2.freeze_panes = "C5"
     ws2.auto_filter.ref = f"A4:{get_column_letter(len(meses) + 4)}{max(n - 1, 5)}"
 
-    if f["zona"]:
+    if f["depto"]:
         ws3 = wb.create_sheet("Clientes")
-        hoja_excel(ws3, f"Clientes de la zona {f['zona']} por mes", nota, [("Cliente", 40), ("Vendedor", 28), ("Otros vendedores", 26),
+        hoja_excel(ws3, f"Clientes de {nombre(f['depto'])} por mes", nota, [("Cliente", 40), ("Vendedor", 28), ("Otros vendedores", 26),
                                                                           ("Segmento principal", 20)]
-                   + [(e, 13) for _, e in meses] + [("Total C$", 15), ("% de la zona", 9), ("Última compra", 12)])
+                   + [(e, 13) for _, e in meses] + [("Total C$", 15), ("% del depto.", 9), ("Última compra", 12)])
         for n, c in enumerate(d["clientes"], start=5):
             valores = ([c["cliente"], c["vendedor"], ", ".join(c["otros_vendedores"]) or None, c["segmento"]]
                        + [round(c["meses"].get(m, 0), 2) or None for m, _ in meses]
@@ -454,5 +389,5 @@ def descargar_excel():
             ws3.cell(row=n, column=len(meses) + 7).number_format = "dd/mm/yyyy"
         totales_excel(ws3, 5 + len(d["clientes"]), 5, len(meses) + 5)
 
-    sufijo = f"_{compacto(f['zona']).lower()}" if f["zona"] else ""
-    return enviar(wb, f"ventas_zona_mes{sufijo}_{f['desde']}_al_{f['hasta']}.xlsx")
+    sufijo = f"_{compacto(f['depto']).lower()}" if f["depto"] else ""
+    return enviar(wb, f"ventas_vendedor_departamento{sufijo}_{f['desde']}_al_{f['hasta']}.xlsx")

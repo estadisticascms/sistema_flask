@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block title %}Ventas por Zona y Mes{% endblock %}
+{% block title %}Ventas por Vendedor y Departamento{% endblock %}
 {% macro dinero(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
 {% macro fecha(t) %}{{ (t[8:10] ~ '/' ~ t[5:7] ~ '/' ~ t[:4]) if t else '' }}{% endmacro %}
 {% macro calor(v, maximo) %}{% if v > 0 and maximo %}style="background-color: rgba(2, 114, 102, {{ '%.2f'|format(0.05 + 0.35 * (v / maximo) ** 0.5) }})"{% endif %}{% endmacro %}
@@ -36,6 +36,18 @@
   .btn-mini[aria-expanded="true"] { background: var(--credito); color: #fff; border-color: var(--credito); }
   .btn-mini[aria-expanded="true"] .bi-chevron-right { transform: rotate(90deg); }
   .btn-mini .bi-chevron-right { display: inline-block; transition: transform .15s; }
+  .mapa-svg { width: 100%; height: auto; display: block; }
+  .mapa-svg path { stroke: #fff; stroke-width: 1.6; cursor: pointer; transition: fill .2s ease; }
+  .mapa-svg path:hover, .mapa-svg path:focus-visible, .mapa-svg path.activo { stroke: var(--contado); stroke-width: 3.5; outline: none; }
+  .mapa-svg text { font-size: 15px; font-weight: 700; fill: #1f1f1d; pointer-events: none; paint-order: stroke; stroke: rgba(255,255,255,.85); stroke-width: 3px; }
+  .mapa-svg text.monto { font-size: 13px; font-weight: 600; fill: #52514e; }
+  .info-mapa { margin-top: .4rem; background: #fff; border: 1px solid var(--grid); border-radius: 10px; padding: .5rem .7rem; font-size: .78rem; min-height: 70px; }
+  .info-mapa h6 { margin: 0 0 .15rem; color: var(--credito); font-weight: 700; }
+  .info-mapa .segs { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); column-gap: .8rem; }
+  .seg-fila { display: grid; grid-template-columns: 10px 1fr auto; gap: .4rem; align-items: center; margin: 1px 0; }
+  .seg-fila .pt { width: 10px; height: 10px; border-radius: 2px; }
+  .leyenda { display: flex; align-items: center; gap: .4rem; font-size: .72rem; color: var(--ink-3); }
+  .leyenda .escala { display: flex; } .leyenda .escala span { width: 24px; height: 10px; }
   .mezcla { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--grid); width: 90px; margin-top: 3px; }
   .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
   .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
@@ -43,21 +55,21 @@
 </style>
 
 {% set base = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor, 'segmento': f.segmento} %}
-{% set params = dict(base, zona=f.zona, q=f.q) %}
+{% set params = dict(base, depto=f.depto, q=f.q) %}
 {% set claves = d.meses|map(attribute=0)|list %}
-{% set zf = d.zona_fila %}
+{% set zf = d.fila_sel %}
 <div class="dash vzm container-fluid px-3 mt-2 mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
     <div>
-      <h4 class="mb-0"><i class="bi bi-diagram-3-fill" aria-hidden="true"></i> Ventas por zona · comparativo mensual</h4>
+      <h4 class="mb-0"><i class="bi bi-map" aria-hidden="true"></i> Ventas por vendedor y departamento · comparativo mensual</h4>
       <div class="text-muted small">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }} · venta neta sin IVA, sin anuladas{% if f.vendedor %} · {{ f.vendedor }}{% endif %}{% if f.segmento %} · segmento {{ f.segmento }}{% endif %}</div>
     </div>
     <a class="btn btn-verde btn-sm" href="{{ url_for('ventas_zonas_mes.descargar_excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
   </div>
   <nav class="migas mb-2" aria-label="Ruta">
-    {% if f.zona %}<a href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **base) }}"><i class="bi bi-diagram-3" aria-hidden="true"></i> Todas las zonas</a>
-      <i class="bi bi-chevron-right small text-muted" aria-hidden="true"></i> <strong>{{ f.zona }}</strong>
-    {% else %}<strong>Todas las zonas</strong> <span class="text-muted">· clic en una zona para ver sus clientes por mes</span>{% endif %}
+    {% if f.depto %}<a href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **base) }}"><i class="bi bi-map" aria-hidden="true"></i> Todos los departamentos</a>
+      <i class="bi bi-chevron-right small text-muted" aria-hidden="true"></i> <strong>{{ nombre(f.depto) }}</strong>
+    {% else %}<strong>Todos los departamentos</strong> <span class="text-muted">· clic en un departamento (en la tabla o en el mapa) para ver sus clientes por mes</span>{% endif %}
   </nav>
 
   <form method="get" class="card card-body py-2 mb-3">
@@ -66,72 +78,93 @@
         <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
       <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
         <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
-      <div class="col-6 col-lg-2"><label class="form-label" for="zona">Zona</label>
-        <select id="zona" name="zona" class="form-select form-select-sm"><option value="">Todas</option>
-          {% for z in zonas + [sin_zona, ocasional] %}<option {% if z == f.zona %}selected{% endif %}>{{ z }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="depto">Departamento</label>
+        <select id="depto" name="depto" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for g in grupos %}<option value="{{ g }}" {% if g == f.depto %}selected{% endif %}>{{ nombre(g) }}</option>{% endfor %}</select></div>
       <div class="col-6 col-lg-2"><label class="form-label" for="vendedor">Vendedor</label>
         <select id="vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
           {% for v in vendedores %}<option {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
       <div class="col-6 col-lg-2"><label class="form-label" for="segmento">Segmento</label>
         <select id="segmento" name="segmento" class="form-select form-select-sm"><option value="">Todos</option>
           {% for s in segmentos %}<option {% if s == f.segmento %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
-      {% if f.zona %}
+      {% if f.depto %}
       <div class="col-6 col-lg-1"><label class="form-label" for="q">Cliente o vendedor</label>
         <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Buscar"></div>
       {% endif %}
       <div class="col-12 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
     </div>
     <div class="small text-muted mt-1">Períodos:
-      {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(params, desde=i.isoformat(), hasta=fin.isoformat())) }}">{{ nombre }}</a>{% endfor %}
+      {% for etq, i, fin in rangos %}<a class="ms-2" href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(params, desde=i.isoformat(), hasta=fin.isoformat())) }}">{{ etq }}</a>{% endfor %}
       <a class="ms-2" href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(params, desde=f.ultima.isoformat()[:4] ~ '-01-01', hasta=f.ultima.isoformat())) }}">Año completo por mes</a>
     </div>
   </form>
 
-  {# ---------- Gráfico comparativo ---------- #}
-  <div class="card card-body mb-3">
-    <div class="d-flex justify-content-between align-items-center mb-1">
-      <h6 class="mb-0" style="color: var(--credito)">{% if f.zona %}Venta mensual de la zona {{ f.zona }} por segmento{% else %}Venta mensual por zona{% endif %}</h6>
-      <span class="small text-muted">C$ sin IVA</span>
+  {# ---------- Mapa y gráfico comparativo ---------- #}
+  <div class="row g-3 mb-3">
+    <div class="col-xl-5">
+      <div class="card card-body h-100">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <h6 class="mb-0" style="color: var(--credito)">Venta del período por departamento</h6>
+          <div class="leyenda"><span>Menos</span><span class="escala" id="escala"></span><span>Más</span></div>
+        </div>
+        <svg class="mapa-svg" viewBox="0 0 {{ mapa.ancho }} {{ mapa.alto }}" role="img" aria-label="Mapa de Nicaragua con la venta por departamento">
+          {% for dep in mapa.departamentos %}<path d="{{ dep.d }}" data-depto="{{ dep.nombre }}" tabindex="0" aria-label="{{ nombre(dep.nombre) }}"></path>{% endfor %}
+          {% for dep in mapa.departamentos %}
+            <text x="{{ dep.cx }}" y="{{ dep.cy - 4 }}" text-anchor="middle">{{ nombre(dep.nombre) }}</text>
+            <text class="monto" x="{{ dep.cx }}" y="{{ dep.cy + 13 }}" text-anchor="middle" data-monto="{{ dep.nombre }}"></text>
+          {% endfor %}
+        </svg>
+        <div class="info-mapa" id="info-mapa" aria-live="polite"><h6>Nicaragua</h6><div class="text-muted">Pase el cursor sobre un departamento; clic para ver sus clientes.</div></div>
+        <div class="small text-muted mt-1" style="font-size: .68rem">Límites: {{ mapa.fuente }}.</div>
+      </div>
     </div>
-    <div style="height: 260px"><canvas id="grafico" role="img" aria-label="Gráfico de ventas por mes"></canvas></div>
+    <div class="col-xl-7">
+      <div class="card card-body h-100">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <h6 class="mb-0" style="color: var(--credito)">{% if f.depto %}Venta mensual de {{ nombre(f.depto) }} por segmento{% else %}Venta mensual de los principales departamentos{% endif %}</h6>
+          <span class="small text-muted">C$ sin IVA</span>
+        </div>
+        <div style="height: 330px"><canvas id="grafico" role="img" aria-label="Gráfico de ventas por mes"></canvas></div>
+      </div>
+    </div>
   </div>
 
-{% if not f.zona %}
-  {# ===================== Nivel 1: zonas × meses ===================== #}
+{% if not f.depto %}
+  {# ===================== Nivel 1: departamentos × meses ===================== #}
   <div class="d-flex justify-content-end mb-1">
-    <button type="button" class="btn btn-link btn-sm p-0" id="desplegar-todo" aria-expanded="false"><i class="bi bi-arrows-expand" aria-hidden="true"></i> <span>Desplegar segmentos de todas las zonas</span></button>
+    <button type="button" class="btn btn-link btn-sm p-0" id="desplegar-todo" aria-expanded="false"><i class="bi bi-arrows-expand" aria-hidden="true"></i> <span>Desplegar segmentos de todos los departamentos</span></button>
   </div>
   <div class="table-responsive border rounded-3 bg-white" style="max-height: 72vh">
     <table class="tabla-m">
-      <caption class="visually-hidden">Venta por zona y mes, con sus segmentos de producto</caption>
-      <thead><tr><th class="fijo izq">Zona · vendedor principal</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}
+      <caption class="visually-hidden">Venta por departamento y mes, con sus segmentos de producto</caption>
+      <thead><tr><th class="fijo izq">Departamento · vendedor principal</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}
         <th>Total C$</th><th>%</th><th title="Último mes contra el anterior{{ ' (el último mes está incompleto)' if d.parcial }}">Var. mes{% if d.parcial %}*{% endif %}</th>
         <th class="izq">Clientes</th><th class="izq">Ver</th></tr></thead>
       <tbody>
         {% for x in d.filas %}{% set i = loop.index %}
         <tr>
-          <td class="fijo"><a href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(base, zona=x.zona)) }}" class="fw-semibold">{{ x.zona }}</a>
+          <td class="fijo"><a href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(base, depto=x.depto)) }}" class="fw-semibold">{{ x.nombre }}</a>
             {% if x.vendedor %}<div class="sub"><i class="bi bi-person" aria-hidden="true"></i> {{ x.vendedor }} · {{ "{:.0f}".format(x.vendedor_pct) }}%
               {% if x.otros_vendedores %}<span title="También vendieron: {{ x.otros_vendedores|join(', ') }}"> · +{{ x.otros_vendedores|length }}</span>{% endif %}</div>{% endif %}
             {% if x.segmentos %}<div class="mezcla" title="{% for s in x.segmentos %}{{ s.segmento }}: {{ '{:.0f}'.format(s.pct) }}%{{ ' · ' if not loop.last }}{% endfor %}">
               {% for s in x.segmentos %}<span data-color-seg="{{ s.segmento }}" style="width: {{ s.pct }}%"></span>{% endfor %}</div>{% endif %}</td>
-          {% for m in claves %}{% set v = x.meses.get(m, 0) %}<td {{ calor(v, d.maximo) if x.zona not in fuera }}>{{ dinero(v) if v else '—' }}</td>{% endfor %}
+          {% for m in claves %}{% set v = x.meses.get(m, 0) %}<td {{ calor(v, d.maximo) if x.depto not in fuera }}>{{ dinero(v) if v else '—' }}</td>{% endfor %}
           <td class="total">{{ dinero(x.total) }}</td>
           <td>{{ "{:.1f}".format(x.pct) }}%</td>
           <td>{% if x.variacion is not none %}<span class="var {{ 'sube' if x.variacion >= 0 else 'baja' }}"><i class="bi {{ 'bi-arrow-up' if x.variacion >= 0 else 'bi-arrow-down' }}" aria-hidden="true"></i> {{ "{:+.0f}".format(x.variacion) }}%</span>{% else %}—{% endif %}</td>
-          <td class="izq sub" title="Compraron en el período / clientes de la zona en la tabla ({{ x.activos }} activos{% if x.por_depto %}; {{ x.por_depto }} ubicados por la cabecera del departamento{% endif %})">
-            {% if x.zona == ocasional %}<strong>{{ x.compraron }}</strong> compradores<div>no están en la tabla de clientes</div>
+          <td class="izq sub" title="Compraron en el período / clientes del departamento en la tabla ({{ x.activos }} activos)">
+            {% if x.depto == ocasional %}<strong>{{ x.compraron }}</strong> compradores<div>no están en la tabla de clientes</div>
             {% else %}<strong>{{ x.compraron }}</strong> / {{ x.cartera }}{% if x.cartera %} · {{ "{:.0f}".format(x.compraron / x.cartera * 100) }}%{% endif %}{% endif %}</td>
           <td class="izq">{% if x.total %}<div class="d-flex gap-1">
             <button type="button" class="btn-mini btn-segmentos" aria-expanded="false" aria-controls="{% for s in x.segmentos %}seg-{{ i }}-{{ loop.index }} {% endfor %}" data-fila="{{ i }}"
                     title="Desplegar los segmentos de producto"><i class="bi bi-chevron-right" aria-hidden="true"></i> Segmentos</button>
-            <button type="button" class="btn-mini btn-lista" data-tipo="clientes" data-ver="{{ x.zona }}" title="Clientes que compraron"><i class="bi bi-people" aria-hidden="true"></i> Clientes</button>
-            <button type="button" class="btn-mini btn-lista" data-tipo="productos" data-ver="{{ x.zona }}" title="Productos vendidos en la zona"><i class="bi bi-box-seam" aria-hidden="true"></i><span class="visually-hidden">Productos de {{ x.zona }}</span></button>
+            <button type="button" class="btn-mini btn-lista" data-tipo="clientes" data-ver="{{ x.depto }}" title="Clientes que compraron"><i class="bi bi-people" aria-hidden="true"></i> Clientes</button>
+            <button type="button" class="btn-mini btn-lista" data-tipo="productos" data-ver="{{ x.depto }}" title="Productos vendidos en el departamento"><i class="bi bi-box-seam" aria-hidden="true"></i><span class="visually-hidden">Productos de {{ x.nombre }}</span></button>
           </div>{% endif %}</td>
         </tr>
         {% for s in x.segmentos %}
         <tr class="seg" id="seg-{{ i }}-{{ loop.index }}" data-fila="{{ i }}" hidden>
-          <td class="fijo"><span class="pt" data-color-seg="{{ s.segmento }}" aria-hidden="true"></span>{{ s.segmento }} <span class="sub">· {{ "{:.1f}".format(s.pct) }}% de la zona</span></td>
+          <td class="fijo"><span class="pt" data-color-seg="{{ s.segmento }}" aria-hidden="true"></span>{{ s.segmento }} <span class="sub">· {{ "{:.1f}".format(s.pct) }}% del departamento</span></td>
           {% for m in claves %}{% set v = s.meses.get(m, 0) %}<td>{{ dinero(v) if v else '—' }}</td>{% endfor %}
           <td class="total">{{ dinero(s.total) }}</td><td>{{ "{:.1f}".format(s.total / d.total * 100 if d.total else 0) }}%</td><td></td><td></td><td></td>
         </tr>
@@ -143,14 +176,14 @@
   </div>
 
 {% else %}
-  {# ===================== Nivel 2: la zona ===================== #}
+  {# ===================== Nivel 2: el departamento ===================== #}
   <div class="row g-2 mb-3">
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
-      <div class="etiqueta">Venta de la zona</div><div class="valor">C$ {{ dinero(zf.total if zf else 0) }}</div>
-      <div class="sub">{{ "{:.1f}".format(zf.pct if zf else 0) }}% del total de las zonas</div></div></div>
+      <div class="etiqueta">Venta del departamento</div><div class="valor">C$ {{ dinero(zf.total if zf else 0) }}</div>
+      <div class="sub">{{ "{:.1f}".format(zf.pct if zf else 0) }}% del total</div></div></div>
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Clientes que compraron</div>
-      <div class="valor">{{ zf.compraron if zf else 0 }}{% if zf and zf.zona != ocasional %} <span class="fs-6 text-muted">/ {{ zf.cartera }}</span>{% endif %}</div>
-      <div class="sub">{% if zf and zf.zona == ocasional %}compradores que no están en la tabla de clientes{% else %}clientes de la zona ({{ zf.activos if zf else 0 }} activos){% endif %}</div></div></div>
+      <div class="valor">{{ zf.compraron if zf else 0 }}{% if zf and zf.depto != ocasional %} <span class="fs-6 text-muted">/ {{ zf.cartera }}</span>{% endif %}</div>
+      <div class="sub">{% if zf and zf.depto == ocasional %}compradores que no están en la tabla de clientes{% else %}clientes del departamento ({{ zf.activos if zf else 0 }} activos){% endif %}</div></div></div>
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
       <div class="etiqueta">Vendedor principal</div>
       <div class="valor" style="font-size: 1rem; white-space: normal">{{ zf.vendedor if zf and zf.vendedor else '—' }}</div>
@@ -160,15 +193,15 @@
       <div class="sub">{{ d.meses[-1][1] }}{% if d.parcial %} (hasta el {{ f.hasta.strftime('%d') }}){% endif %} contra {{ d.meses[-2][1] if d.meses|length > 1 else '—' }}</div></div></div>
   </div>
 
-  {# Segmentos de la zona por mes #}
+  {# Segmentos del departamento por mes #}
   {% if zf and zf.segmentos %}
   <details class="card mb-3" open>
     <summary class="card-header bg-white fw-semibold" style="color: var(--credito); cursor: pointer">
-      <i class="bi bi-pie-chart" aria-hidden="true"></i> Segmentos de producto de la zona <span class="text-muted fw-normal small">· {{ zf.segmentos|length }} segmentos</span></summary>
+      <i class="bi bi-pie-chart" aria-hidden="true"></i> Segmentos de producto del departamento <span class="text-muted fw-normal small">· {{ zf.segmentos|length }} segmentos</span></summary>
     <div class="table-responsive">
       <table class="tabla-m">
-        <caption class="visually-hidden">Segmentos de producto de la zona por mes</caption>
-        <thead><tr><th class="fijo izq">Segmento</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}<th>Total C$</th><th>% de la zona</th></tr></thead>
+        <caption class="visually-hidden">Segmentos de producto del departamento por mes</caption>
+        <thead><tr><th class="fijo izq">Segmento</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}<th>Total C$</th><th>% del depto.</th></tr></thead>
         <tbody>{% for s in zf.segmentos %}<tr>
           <td class="fijo"><span class="d-inline-block me-1" data-color-seg="{{ s.segmento }}" style="width: 10px; height: 10px; border-radius: 2px" aria-hidden="true"></span>{{ s.segmento }}</td>
           {% for m in claves %}{% set v = s.meses.get(m, 0) %}<td>{{ dinero(v) if v else '—' }}</td>{% endfor %}
@@ -179,10 +212,10 @@
   </details>
   {% endif %}
 
-  {# Clientes de la zona por mes #}
+  {# Clientes del departamento por mes #}
   <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
     <table class="tabla-m">
-      <caption class="visually-hidden">Clientes de la zona por mes</caption>
+      <caption class="visually-hidden">Clientes del departamento por mes</caption>
       <thead><tr><th class="fijo izq">Cliente · vendedor</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}
         <th>Total C$</th><th>%</th><th class="izq">Segmento principal</th><th class="izq">Última</th><th class="izq"><span class="visually-hidden">Productos</span></th></tr></thead>
       <tbody>
@@ -197,10 +230,10 @@
           <td>{{ "{:.1f}".format(c.pct) }}%</td>
           <td class="izq small">{{ c.segmento }}</td>
           <td class="izq small">{{ fecha(c.ultima) }}</td>
-          <td class="izq"><button type="button" class="btn-mini btn-lista" data-tipo="productos" data-ver="{{ f.zona }}" data-cliente="{{ c.cliente }}"><i class="bi bi-box-seam" aria-hidden="true"></i> Productos<span class="visually-hidden"> de {{ c.cliente }}</span></button></td>
+          <td class="izq"><button type="button" class="btn-mini btn-lista" data-tipo="productos" data-ver="{{ f.depto }}" data-cliente="{{ c.cliente }}"><i class="bi bi-box-seam" aria-hidden="true"></i> Productos<span class="visually-hidden"> de {{ c.cliente }}</span></button></td>
         </tr>
         {% else %}
-        <tr><td colspan="{{ d.meses|length + 6 }}" class="text-center text-muted py-4">No hay ventas a clientes de esta zona con estos filtros.</td></tr>
+        <tr><td colspan="{{ d.meses|length + 6 }}" class="text-center text-muted py-4">No hay ventas a clientes de este departamento con estos filtros.</td></tr>
         {% endfor %}
       </tbody>
       {% if d.clientes %}
@@ -212,8 +245,8 @@
   </div>
 {% endif %}
   {% if d.parcial %}<div class="small text-muted mt-2">* {{ d.meses[-1][1] }} está incompleto (datos hasta el {{ f.hasta.strftime('%d/%m/%Y') }}): compare con cuidado contra meses completos.</div>{% endif %}
-  <div class="small text-muted mt-2">La zona sale del municipio de la ficha del cliente (tabla de zonas); si el municipio no está en la tabla, se usa la zona de la cabecera
-    de su departamento. El vendedor es quien más vendió en el período. Segmentos según Clasificación de productos.</div>
+  <div class="small text-muted mt-2">El departamento sale de la ficha del cliente (se reconocen municipios y nombres mal escritos). El vendedor es quien más vendió
+    en el período; con el filtro de vendedor todo el reporte muestra solo sus ventas. Segmentos según Clasificación de productos.</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -229,12 +262,12 @@
   // Gráfico
   const MESES = {{ d.meses|map(attribute=1)|list|tojson }};
   const CLAVES = {{ claves|tojson }};
-  {% if f.zona %}
+  {% if f.depto %}
   const SERIES = {{ (zf.segmentos if zf else [])|tojson }}.slice(0, 6).map(s => ({ label: s.segmento, data: CLAVES.map(m => s.meses[m] || 0), color: color(s.segmento) }));
   const apilado = true;
   {% else %}
-  const FILAS = {{ d.filas|rejectattr('zona', 'in', fuera)|selectattr('total')|list|tojson }};
-  const SERIES = FILAS.slice(0, 8).map((x, i) => ({ label: x.zona, data: CLAVES.map(m => x.meses[m] || 0), color: PALETA[i % PALETA.length] }));
+  const FILAS = {{ d.filas|rejectattr('depto', 'in', fuera)|selectattr('total')|list|tojson }};
+  const SERIES = FILAS.slice(0, 6).map((x, i) => ({ label: x.nombre, data: CLAVES.map(m => x.meses[m] || 0), color: PALETA[i % PALETA.length] }));
   const apilado = false;
   {% endif %}
   const fmt = (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + ' M' : v >= 1e3 ? Math.round(v / 1e3) + ' K' : Math.round(v);
@@ -248,7 +281,35 @@
       scales: { y: { beginAtZero: true, stacked: apilado, ticks: { callback: fmt }, grid: { color: '#ecebe8' } }, x: { stacked: apilado, grid: { display: false } } } }
   });
 
-  // Desplegar los segmentos de una zona (o de todas)
+  // Mapa: venta por departamento (con los filtros de vendedor y segmento)
+  const DATOS = {{ d.mapa_datos|tojson }};
+  const URL_DEPTO = {{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **base)|tojson }};
+  const SELECCION = {{ f.depto|tojson }};
+  const ESCALA = ['#e3f0ee', '#b9dad5', '#7fbab2', '#3f938a', '#027266'];
+  document.getElementById('escala').innerHTML = ESCALA.map(c => `<span style="background:${c}"></span>`).join('');
+  const maxMapa = Math.max(...Object.values(DATOS).map(x => x.total), 1);
+  const info = document.getElementById('info-mapa');
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
+  const dinero = (n) => 'C$ ' + Math.round(n).toLocaleString('en-US');
+  document.querySelectorAll('.mapa-svg path').forEach(p => {
+    const x = DATOS[p.dataset.depto];
+    p.style.fill = x ? ESCALA[Math.min(4, Math.floor(Math.sqrt(x.total / maxMapa) * 5))] : '#f1f0ec';   // raíz cuadrada: Managua no aplana al resto
+    p.classList.toggle('activo', p.dataset.depto === SELECCION);
+    const mostrar = () => {
+      if (!x) { info.innerHTML = `<h6>${esc(p.getAttribute('aria-label'))}</h6><div class="text-muted">Sin ventas con estos filtros</div>`; return; }
+      const segs = x.segmentos.map(([s, v]) => `<div class="seg-fila"><span class="pt" style="background:${color(s)}"></span><span>${esc(s)}</span><strong>${fmt(v)}</strong></div>`).join('');
+      info.innerHTML = `<h6>${esc(x.nombre)}</h6><div class="mb-1"><strong>${dinero(x.total)}</strong> · compraron <strong>${x.clientes}</strong> de ${x.cartera} clientes` +
+        (x.vendedor ? ` · <i class="bi bi-person" aria-hidden="true"></i> ${esc(x.vendedor)} (${x.vendedor_pct}%)` : '') + `</div><div class="segs">${segs}</div>`;
+    };
+    p.addEventListener('mouseenter', mostrar);
+    p.addEventListener('focus', mostrar);
+    const ir = () => { location.href = URL_DEPTO + (URL_DEPTO.includes('?') ? '&' : '?') + new URLSearchParams({depto: p.dataset.depto}); };
+    p.addEventListener('click', ir);
+    p.addEventListener('keydown', (e) => { if (e.key === 'Enter') ir(); });
+  });
+  document.querySelectorAll('[data-monto]').forEach(t => { const x = DATOS[t.dataset.monto]; t.textContent = x ? fmt(x.total) : ''; });
+
+  // Desplegar los segmentos de un departamento (o de todos)
   const botones = [...document.querySelectorAll('.btn-segmentos')];
   const abrir = (b, si) => {
     b.setAttribute('aria-expanded', si ? 'true' : 'false');
@@ -260,7 +321,7 @@
     const si = todo.getAttribute('aria-expanded') !== 'true';
     botones.forEach(b => abrir(b, si));
     todo.setAttribute('aria-expanded', si ? 'true' : 'false');
-    todo.querySelector('span').textContent = si ? 'Ocultar los segmentos' : 'Desplegar segmentos de todas las zonas';
+    todo.querySelector('span').textContent = si ? 'Ocultar los segmentos' : 'Desplegar segmentos de todos los departamentos';
   });
 
   // Clientes -> productos (con edición de segmento / familia / subfamilia)
@@ -268,6 +329,7 @@
     urlLista: {{ url_for('ventas_zonas_mes.lista')|tojson }},
     base: {{ {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor, 'segmento': f.segmento}|tojson }},
     urlClasificar: {{ url_for('ventas_departamento.clasificar')|tojson }},
+    nombre: (d) => ['RACCN', 'RACCS', 'Sin departamento', 'Cliente ocasional'].includes(d) ? d : d.charAt(0) + d.slice(1).toLowerCase(),
   });
 })();
 </script>
