@@ -11,7 +11,7 @@ import re
 import time
 from datetime import date, datetime
 
-from flask import Blueprint, current_app, render_template, request, send_file
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file, session
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -20,7 +20,9 @@ from utils.db import get_connection
 from router.accesos import requiere_acceso
 from router.cargar_catalogo import sin_tildes
 from router.dashboard import ultima_fecha_con_ventas
-from router.ventas_bodegas import en_cache
+from router import sugerencias_clase
+from router.clase_prod import LARGO_CAMPO, opciones as opciones_clase
+from router.ventas_bodegas import _CACHE, en_cache
 from router.ventas_vendedor import rangos_rapidos
 
 ventas_departamento_bp = Blueprint("ventas_departamento", __name__)
@@ -163,6 +165,20 @@ def clasificacion():
             cursor.close()
             conn.close()
     return en_cache("vd_clasificacion", leer)
+
+
+def catalogo_basico():
+    """Código -> (número de parte, marca) del catálogo de productos (10 minutos en memoria)."""
+    def leer():
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT `Codigo Producto`, `Numero Parte`, Marca FROM catalogo_productos WHERE `Codigo Producto` IS NOT NULL")
+            return {c: ((np or "").strip(), (m or "").strip()) for c, np, m in cursor.fetchall()}
+        finally:
+            cursor.close()
+            conn.close()
+    return en_cache("vd_catalogo", leer)
 
 
 def mapa():
@@ -323,12 +339,14 @@ def nombre_depto(depto):
     return None
 
 
-def lista_depto(f, depto, tipo):
-    """Clientes o productos que compraron en un departamento, con los filtros de segmento/familia."""
+def lista_depto(f, depto, tipo, solo_cliente=None):
+    """Clientes o productos que compraron en un departamento, con los filtros de segmento/familia.
+    Con solo_cliente: los productos que compró ese cliente."""
     deptos, clase = departamentos_clientes(), clasificacion()
+    catalogo = catalogo_basico() if tipo == "productos" else {}
     filas, total = {}, 0.0
     for cliente, codigo, monto, unidades, desc in ventas_periodo(f["desde"], f["hasta"]):
-        if deptos.get(clave_cliente(cliente), OCASIONAL) != depto:
+        if deptos.get(clave_cliente(cliente), OCASIONAL) != depto or (solo_cliente and cliente != solo_cliente):
             continue
         seg, fam, sub = clase.get(codigo, (SIN_SEGMENTO, SIN_SEGMENTO, SIN_SEGMENTO))
         if not pasa_filtro(f, seg, fam):
@@ -338,7 +356,9 @@ def lista_depto(f, depto, tipo):
             x = filas.setdefault(cliente, {"cliente": cliente, "monto": 0.0, "unidades": 0.0, "productos": set()})
             x["productos"].add(codigo)
         else:
-            x = filas.setdefault(codigo, {"codigo": codigo, "descripcion": desc, "segmento": seg, "familia": fam, "subfamilia": sub,
+            numero_parte, marca = catalogo.get(codigo, ("", ""))
+            x = filas.setdefault(codigo, {"codigo": codigo, "descripcion": desc, "numero_parte": numero_parte, "marca": marca,
+                                          "segmento": seg, "familia": fam, "subfamilia": sub,
                                           "monto": 0.0, "unidades": 0.0, "clientes": set()})
             x["clientes"].add(cliente)
         x["monto"] += monto
@@ -453,24 +473,38 @@ def lista():
     depto = nombre_depto(request.args.get("ver"))
     if not depto:
         return "Departamento no válido", 400
-    filas, total = lista_depto(f, depto, tipo)
+    cliente = (request.args.get("cliente") or "").strip() if tipo == "productos" else ""
+    filas, total = lista_depto(f, depto, tipo, cliente or None)
     filtro = texto_filtro(f)
     if request.args.get("formato") != "excel":
-        return render_template("ventas_departamento_lista.html", f=f, tipo=tipo, depto=depto, filas=filas, total=total, filtro=filtro)
+        editar, segmentos, arbol = tipo == "productos" and tiene_acceso("clase_prod"), [], {}
+        if editar:
+            conn = get_connection()
+            cursor = conn.cursor(dictionary=True)
+            try:
+                segmentos, arbol = opciones_clase(cursor)
+            finally:
+                cursor.close()
+                conn.close()
+        return render_template("ventas_departamento_lista.html", f=f, tipo=tipo, depto=depto, filas=filas, total=total, filtro=filtro,
+                               editar=editar, segmentos=segmentos, arbol=arbol, sin_segmento=SIN_SEGMENTO,
+                               cliente=cliente)
 
     wb = Workbook()
     ws = wb.active
     ws.title = tipo.capitalize()
-    titulo_excel(ws, f"{'Clientes' if tipo == 'clientes' else 'Productos'} de {depto} del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}"
+    titulo_excel(ws, f"{'Clientes' if tipo == 'clientes' else 'Productos'} de {cliente + ' · ' if cliente else ''}{depto} del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}"
                  + (f" · {filtro}" if filtro else ""), NOTA_EXCEL)
     if tipo == "clientes":
         columnas = [("#", 5), ("Cliente", 45), ("Total C$", 15), ("% del depto.", 10), ("Unidades", 11), ("Productos distintos", 11)]
         valores = [[n, x["cliente"], round(x["monto"], 2), x["pct"] / 100, x["unidades"], x["productos"]] for n, x in enumerate(filas, 1)]
     else:
-        columnas = [("#", 5), ("Código", 16), ("Descripción", 45), ("Segmento", 20), ("Familia", 26), ("Subfamilia", 30),
-                    ("Total C$", 15), ("% del depto.", 10), ("Unidades", 11), ("Clientes", 10)]
-        valores = [[n, x["codigo"], x["descripcion"], x["segmento"], x["familia"], x["subfamilia"], round(x["monto"], 2), x["pct"] / 100,
-                    x["unidades"], x["clientes"]] for n, x in enumerate(filas, 1)]
+        columnas = [("#", 5), ("Código", 12), ("Nº parte", 20), ("Descripción", 45), ("Marca", 16), ("Segmento", 20), ("Familia", 26),
+                    ("Subfamilia", 30), ("Total C$", 15), ("% del cliente" if cliente else "% del depto.", 10), ("Unidades", 11), ("Clientes", 10)]
+        valores = [[n, x["codigo"], x["numero_parte"], x["descripcion"], x["marca"], x["segmento"], x["familia"], x["subfamilia"],
+                    round(x["monto"], 2), x["pct"] / 100, x["unidades"], x["clientes"]] for n, x in enumerate(filas, 1)]
+        if cliente:   # un solo cliente: la columna Clientes no dice nada
+            columnas, valores = columnas[:-1], [v[:-1] for v in valores]
     encabezado_excel(ws, columnas)
     for r, fila in enumerate(valores, start=5):
         for i, v in enumerate(fila, start=1):
@@ -490,4 +524,50 @@ def lista():
     c.number_format = "#,##0.00"
     ws.freeze_panes = "A5"
     ws.auto_filter.ref = f"A4:{get_column_letter(len(columnas))}{max(tot - 1, 5)}"
-    return enviar_libro(wb, f"{tipo}_{normal(depto).replace(' ', '_').lower()}_{f['desde']}_al_{f['hasta']}.xlsx")
+    return enviar_libro(wb, f"{tipo}_{normal(cliente or depto).replace(' ', '_').lower()}_{f['desde']}_al_{f['hasta']}.xlsx")
+
+
+def tiene_acceso(vista):
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT permitido FROM accesos_vistas WHERE usuario = %s AND vista = %s", (session.get("usuario"), vista))
+        fila = cursor.fetchone()
+        return bool(fila and fila[0])
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@ventas_departamento_bp.route("/ventas_departamento/clasificar", methods=["POST"])
+@requiere_acceso("ventas_departamento")
+def clasificar():
+    """Cambia segmento, familia y subfamilia de un producto desde la lista de productos (tabla clase_prod).
+    Pide además el permiso de «Clasificación de productos». El grupo de equivalencia no se toca."""
+    if not tiene_acceso("clase_prod"):
+        return jsonify(ok=False, error="No tiene permiso de Clasificación de productos."), 403
+    codigo = (request.form.get("codigo") or "").strip()
+    datos = {c: (request.form.get(c) or "").strip() or None for c in ("segmento", "familia", "subfamilia")}
+    largos = [c for c, v in datos.items() if v and len(v) > LARGO_CAMPO]
+    if largos:
+        return jsonify(ok=False, error=f"{', '.join(largos)}: máximo {LARGO_CAMPO} caracteres."), 400
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM catalogo_productos WHERE `Codigo Producto` = %s LIMIT 1", (codigo,))
+        if not codigo or cursor.fetchone() is None:
+            return jsonify(ok=False, error=f"El código {codigo} no existe en el catálogo."), 400
+        cursor.execute("""
+            INSERT INTO clase_prod (codigo, segmento, familia, subfamilia) VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE segmento = VALUES(segmento), familia = VALUES(familia), subfamilia = VALUES(subfamilia)
+        """, (codigo, datos["segmento"], datos["familia"], datos["subfamilia"]))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        return jsonify(ok=False, error=f"Error de base de datos: {e}"), 500
+    finally:
+        cursor.close()
+        conn.close()
+    _CACHE.pop("vd_clasificacion", None)   # el reporte toma la clasificación nueva al recargar
+    sugerencias_clase.olvidar()
+    return jsonify(ok=True, codigo=codigo, **{c: v or SIN_SEGMENTO for c, v in datos.items()})

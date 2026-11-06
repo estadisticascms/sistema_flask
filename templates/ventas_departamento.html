@@ -50,6 +50,10 @@
   .filtrar-fam:hover, .filtrar-fam:focus-visible { text-decoration: underline; }
   .btn-lista { min-width: 34px; }
   .tabla-lista th { max-width: none; }
+  .tabla-lista .sin-clase { color: #9a3412; font-style: italic; }
+  .tabla-lista tr.editando td { background: #fff7f1; vertical-align: top; }
+  .tabla-lista tr.editando .form-control-sm { min-width: 140px; font-size: .78rem; }
+  .tabla-lista tr.guardado td { background: #e6f2f0; transition: background .4s; }
   .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
   .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
   @media (max-width: 575.98px) {
@@ -231,14 +235,13 @@
   const BASE = {{ {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'segmento': f.segmento, 'familia': f.familia}|tojson }};
   const titulo = document.getElementById('modalListaTitulo'), cuerpo = document.getElementById('modalListaCuerpo');
   const nombre = (d) => ['RACCN', 'RACCS'].includes(d) ? d : d.charAt(0) + d.slice(1).toLowerCase();
-  document.querySelectorAll('.btn-lista').forEach(b => b.addEventListener('click', async () => {
-    const tipo = b.dataset.tipo, dep = b.dataset.ver;
+  async function cargar(tipo, dep, cliente = '') {
     titulo.innerHTML = '<i class="bi ' + (tipo === 'clientes' ? 'bi-people' : 'bi-box-seam') + '" aria-hidden="true"></i> ';
     titulo.append((tipo === 'clientes' ? 'Clientes' : 'Productos') + ' · ' + nombre(dep));
     cuerpo.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm" role="status"></div> Cargando…</div>';
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalLista')).show();
     try {
-      const r = await fetch(URL_LISTA + '?' + new URLSearchParams({...BASE, tipo, ver: dep}));
+      const r = await fetch(URL_LISTA + '?' + new URLSearchParams({...BASE, tipo, ver: dep, cliente}));
       if (!r.ok) throw new Error(r.status);
       cuerpo.innerHTML = await r.text();
       const buscar = cuerpo.querySelector('[data-buscar-lista]');
@@ -246,8 +249,91 @@
         const q = buscar.value.trim().toLowerCase();
         cuerpo.querySelectorAll('tbody tr').forEach(tr => tr.hidden = !!q && !tr.textContent.toLowerCase().includes(q));
       });
+      cuerpo.closest('.modal-body').scrollTop = 0;
     } catch (e) { cuerpo.innerHTML = '<div class="alert alert-danger mb-0">No se pudo cargar la lista. Intente de nuevo.</div>'; }
-  }));
+  }
+  document.querySelectorAll('.btn-lista').forEach(b => b.addEventListener('click', () => cargar(b.dataset.tipo, b.dataset.ver)));
+  // Dentro de la ventana: productos de un cliente y regreso a la lista de clientes
+  cuerpo.addEventListener('click', (e) => {
+    const b = e.target.closest('.btn-productos-cliente, .btn-volver-clientes');
+    if (!b) return;
+    if (b.classList.contains('btn-productos-cliente')) cargar('productos', b.dataset.ver, b.dataset.cliente);
+    else cargar('clientes', b.dataset.ver);
+  });
+
+  // Cambiar segmento / familia / subfamilia de un producto desde la lista de productos
+  const URL_CLASIFICAR = {{ url_for('ventas_departamento.clasificar')|tojson }};
+  const CAMPOS = ['segmento', 'familia', 'subfamilia'];
+  let huboCambios = false;
+  const subfamilias = (familia) => {
+    const arbol = JSON.parse(cuerpo.querySelector('#arbol-clase')?.textContent || '{}');
+    const dl = cuerpo.querySelector('#dl-subfamilia');
+    if (!dl) return;
+    dl.replaceChildren(...(arbol[familia] || []).map(s => Object.assign(document.createElement('option'), {value: s})));
+  };
+  const celdas = (tr) => CAMPOS.map(c => tr.querySelector(`[data-campo="${c}"]`));
+  function abrir(tr) {
+    celdas(tr).forEach(td => {
+      const inp = Object.assign(document.createElement('input'), {type: 'text', value: td.dataset.valor, maxLength: 45,
+        className: 'form-control form-control-sm', name: td.dataset.campo});
+      inp.setAttribute('list', 'dl-' + td.dataset.campo);
+      inp.setAttribute('aria-label', td.dataset.campo.charAt(0).toUpperCase() + td.dataset.campo.slice(1) + ' de ' + tr.dataset.codigo);
+      td.replaceChildren(inp);
+    });
+    const fam = tr.querySelector('input[name=familia]');
+    subfamilias(fam.value);
+    fam.addEventListener('input', () => subfamilias(fam.value));
+    tr.querySelector('.acciones-clase').innerHTML =
+      '<div class="d-flex gap-1"><button type="button" class="btn btn-sm btn-verde btn-guardar-clase">Guardar</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary btn-cancelar-clase">Cancelar</button></div>';
+    tr.classList.add('editando');
+    tr.querySelector('input[name=segmento]').focus();
+  }
+  function cerrar(tr, valores) {
+    celdas(tr).forEach(td => {
+      const v = valores ? valores[td.dataset.campo] : td.dataset.valor;
+      if (valores) td.dataset.valor = v === 'Sin clasificar' ? '' : v;
+      td.textContent = v || 'Sin clasificar';
+      td.classList.toggle('sin-clase', !td.dataset.valor);
+    });
+    tr.querySelector('.acciones-clase').innerHTML = '<button type="button" class="btn btn-sm btn-outline-secondary btn-editar-clase" title="Cambiar segmento, familia y subfamilia">' +
+      '<i class="bi bi-pencil" aria-hidden="true"></i><span class="visually-hidden">Editar clasificación</span></button>';
+    tr.classList.remove('editando');
+  }
+  async function guardar(tr) {
+    const boton = tr.querySelector('.btn-guardar-clase');
+    const datos = new FormData();
+    datos.append('codigo', tr.dataset.codigo);
+    tr.querySelectorAll('input[name]').forEach(i => datos.append(i.name, i.value.trim()));
+    boton.disabled = true; boton.textContent = 'Guardando…';
+    try {
+      const r = await fetch(URL_CLASIFICAR, {method: 'POST', body: datos, headers: {'X-Requested-With': 'fetch'}});
+      const j = await r.json().catch(() => ({ok: false, error: 'Respuesta inesperada del servidor.'}));
+      if (!j.ok) throw new Error(j.error || 'No se pudo guardar.');
+      cerrar(tr, j);
+      tr.classList.add('guardado'); setTimeout(() => tr.classList.remove('guardado'), 2500);
+      huboCambios = true;
+    } catch (e) {
+      alert('No se guardó ' + tr.dataset.codigo + ': ' + e.message);
+      boton.disabled = false; boton.textContent = 'Guardar';
+    }
+  }
+  cuerpo.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-codigo]');
+    if (!tr) return;
+    if (e.target.closest('.btn-editar-clase')) abrir(tr);
+    else if (e.target.closest('.btn-guardar-clase')) guardar(tr);
+    else if (e.target.closest('.btn-cancelar-clase')) cerrar(tr);
+  });
+  cuerpo.addEventListener('keydown', (e) => {
+    const tr = e.target.closest('tr.editando');
+    if (!tr || e.target.tagName !== 'INPUT') return;
+    if (e.key === 'Enter') { e.preventDefault(); guardar(tr); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cerrar(tr); }
+  });
+  // Si se cambió alguna clasificación, el reporte se recalcula al cerrar la ventana
+  document.getElementById('modalLista').addEventListener('hidden.bs.modal', () => { if (huboCambios) location.reload(); });
+
   // Al cambiar de segmento, la familia elegida ya no aplica
   document.getElementById('segmento').addEventListener('change', (e) => { document.getElementById('familia').value = ''; e.target.form.submit(); });
   document.getElementById('familia').addEventListener('change', (e) => e.target.form.submit());

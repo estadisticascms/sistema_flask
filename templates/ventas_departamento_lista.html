@@ -1,10 +1,16 @@
 {# Fragmento para la ventana de Ventas por departamento: clientes o productos de un departamento #}
 {% macro dinero(v) %}{{ "{:,.2f}".format(v) }}{% endmacro %}
-{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'segmento': f.segmento, 'familia': f.familia, 'ver': depto, 'tipo': tipo} %}
+{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'segmento': f.segmento, 'familia': f.familia, 'ver': depto, 'tipo': tipo, 'cliente': cliente} %}
+{% if cliente %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+  <button type="button" class="btn btn-outline-secondary btn-sm btn-volver-clientes" data-ver="{{ depto }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Volver a clientes</button>
+  <span class="fw-semibold" style="color: var(--credito)"><i class="bi bi-person" aria-hidden="true"></i> {{ cliente }}</span>
+</div>
+{% endif %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
   <div class="small text-muted">
     Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}{% if filtro %} · <strong>{{ filtro }}</strong>{% endif %}
-    · <strong>{{ "{:,}".format(filas|length) }}</strong> {{ 'clientes' if tipo == 'clientes' else 'productos' }} · <strong>C$ {{ dinero(total) }}</strong>
+    · <strong>{{ "{:,}".format(filas|length) }}</strong> {{ 'clientes' if tipo == 'clientes' else 'productos' }}{{ ' comprados' if cliente }} · <strong>C$ {{ dinero(total) }}</strong>
   </div>
   <div class="d-flex gap-2">
     <input type="search" class="form-control form-control-sm" style="width: 220px" placeholder="Buscar…" aria-label="Buscar en la lista" data-buscar-lista>
@@ -12,27 +18,42 @@
   </div>
 </div>
 {% if not filas %}
-  <p class="text-muted text-center py-4 mb-0">No hay ventas en este departamento con estos filtros.</p>
+  <p class="text-muted text-center py-4 mb-0">No hay ventas {{ 'de este cliente' if cliente else 'en este departamento' }} con estos filtros.</p>
 {% else %}
 <div class="table-responsive" style="max-height: 62vh">
   <table class="tabla-vd tabla-lista">
     <caption class="visually-hidden">{{ 'Clientes' if tipo == 'clientes' else 'Productos' }} de {{ depto }}</caption>
     {% if tipo == 'clientes' %}
-    <thead><tr><th class="izq">#</th><th class="izq">Cliente</th><th>Total C$</th><th>% del depto.</th><th>Unidades</th><th>Productos</th></tr></thead>
+    <thead><tr><th class="izq">#</th><th class="izq">Cliente</th><th>Total C$</th><th>% del depto.</th><th>Unidades</th><th>Productos</th><th><span class="visually-hidden">Ver productos</span></th></tr></thead>
     <tbody>{% for x in filas %}<tr>
       <td class="izq text-muted">{{ loop.index }}</td><td class="izq" style="white-space: normal">{{ x.cliente }}</td>
       <td class="fw-bold">{{ dinero(x.monto) }}</td><td>{{ "{:.1f}".format(x.pct) }}%</td>
-      <td>{{ "{:,.0f}".format(x.unidades) }}</td><td>{{ x.productos }}</td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td></td><td class="izq">Total</td><td>{{ dinero(total) }}</td><td>100%</td><td>{{ "{:,.0f}".format(filas|sum(attribute='unidades')) }}</td><td></td></tr></tfoot>
+      <td>{{ "{:,.0f}".format(x.unidades) }}</td><td>{{ x.productos }}</td>
+      <td><button type="button" class="btn btn-sm btn-outline-secondary text-nowrap btn-productos-cliente" data-ver="{{ depto }}" data-cliente="{{ x.cliente }}" title="Ver los productos que compró">
+        <i class="bi bi-box-seam" aria-hidden="true"></i> Productos<span class="visually-hidden"> de {{ x.cliente }}</span></button></td></tr>{% endfor %}</tbody>
+    <tfoot><tr><td></td><td class="izq">Total</td><td>{{ dinero(total) }}</td><td>100%</td><td>{{ "{:,.0f}".format(filas|sum(attribute='unidades')) }}</td><td></td><td></td></tr></tfoot>
     {% else %}
-    <thead><tr><th class="izq">#</th><th class="izq">Código</th><th class="izq">Descripción</th><th class="izq">Familia / subfamilia</th><th>Total C$</th><th>% del depto.</th><th>Unidades</th><th>Clientes</th></tr></thead>
-    <tbody>{% for x in filas %}<tr>
-      <td class="izq text-muted">{{ loop.index }}</td><td class="izq">{{ x.codigo }}</td><td class="izq" style="white-space: normal">{{ x.descripcion or '' }}</td>
-      <td class="izq" style="white-space: normal"><span class="text-muted">{{ x.familia }}</span> · {{ x.subfamilia }}</td>
+    <thead><tr><th class="izq">#</th><th class="izq">Código</th><th class="izq">Nº parte</th><th class="izq">Descripción</th><th class="izq">Marca</th>
+      <th class="izq">Segmento</th><th class="izq">Familia</th><th class="izq">Subfamilia</th>
+      <th>Total C$</th><th>{{ '% del cliente' if cliente else '% del depto.' }}</th><th>Unidades</th>{% if not cliente %}<th>Clientes</th>{% endif %}{% if editar %}<th><span class="visually-hidden">Editar</span></th>{% endif %}</tr></thead>
+    <tbody>{% for x in filas %}<tr data-codigo="{{ x.codigo }}">
+      <td class="izq text-muted">{{ loop.index }}</td><td class="izq">{{ x.codigo }}</td><td class="izq">{{ x.numero_parte }}</td>
+      <td class="izq" style="white-space: normal; min-width: 180px">{{ x.descripcion or '' }}</td><td class="izq">{{ x.marca }}</td>
+      {% for campo in ('segmento', 'familia', 'subfamilia') %}<td class="izq clase-celda {{ 'sin-clase' if x[campo] == sin_segmento }}" data-campo="{{ campo }}" data-valor="{{ '' if x[campo] == sin_segmento else x[campo] }}" style="white-space: normal">{{ x[campo] }}</td>{% endfor %}
       <td class="fw-bold">{{ dinero(x.monto) }}</td><td>{{ "{:.1f}".format(x.pct) }}%</td>
-      <td>{{ "{:,.0f}".format(x.unidades) }}</td><td>{{ x.clientes }}</td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td></td><td class="izq" colspan="3">Total</td><td>{{ dinero(total) }}</td><td>100%</td><td>{{ "{:,.0f}".format(filas|sum(attribute='unidades')) }}</td><td></td></tr></tfoot>
+      <td>{{ "{:,.0f}".format(x.unidades) }}</td>{% if not cliente %}<td>{{ x.clientes }}</td>{% endif %}
+      {% if editar %}<td class="acciones-clase"><button type="button" class="btn btn-sm btn-outline-secondary btn-editar-clase" title="Cambiar segmento, familia y subfamilia">
+        <i class="bi bi-pencil" aria-hidden="true"></i><span class="visually-hidden">Editar clasificación de {{ x.codigo }}</span></button></td>{% endif %}</tr>{% endfor %}</tbody>
+    <tfoot><tr><td></td><td class="izq" colspan="7">Total</td><td>{{ dinero(total) }}</td><td>100%</td><td>{{ "{:,.0f}".format(filas|sum(attribute='unidades')) }}</td>{% if not cliente %}<td></td>{% endif %}{% if editar %}<td></td>{% endif %}</tr></tfoot>
     {% endif %}
   </table>
 </div>
+{% if editar %}
+<p class="small text-muted mt-2 mb-0"><i class="bi bi-pencil" aria-hidden="true"></i> Con el lápiz se cambia el segmento, la familia y la subfamilia del producto
+  (se guarda en Clasificación de productos y vale para todos los reportes). Al cerrar esta ventana el reporte se actualiza.</p>
+<datalist id="dl-segmento">{% for s in segmentos %}<option value="{{ s }}">{% endfor %}</datalist>
+<datalist id="dl-familia">{% for fa in arbol %}<option value="{{ fa }}">{% endfor %}</datalist>
+<datalist id="dl-subfamilia"></datalist>
+<script type="application/json" id="arbol-clase">{{ arbol|tojson }}</script>
+{% endif %}
 {% endif %}
