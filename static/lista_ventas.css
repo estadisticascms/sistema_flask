@@ -1,0 +1,14 @@
+/* Ventana de clientes / productos (static/lista_ventas.js) */
+.tabla-lista { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; }
+.tabla-lista th { background: #f6f5f1; color: var(--ink-2, #52514e); font-weight: 600; padding: .4rem; border-bottom: 1px solid var(--grid, #e5e3de);
+                  line-height: 1.15; text-align: right; vertical-align: bottom; position: sticky; top: 0; z-index: 1; }
+.tabla-lista th.izq, .tabla-lista td.izq { text-align: left; }
+.tabla-lista td { padding: .35rem .3rem; border-bottom: 1px solid var(--grid, #e5e3de); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tabla-lista tbody tr:hover td { background: #faf9f6; }
+.tabla-lista tfoot td { font-weight: 700; background: #f6f5f1; }
+.tabla-lista .sin-clase { color: #9a3412; font-style: italic; }
+.tabla-lista tr.editando td { background: #fff7f1; vertical-align: top; }
+.tabla-lista tr.editando .form-control-sm { min-width: 140px; font-size: .78rem; }
+.tabla-lista tr.guardado td { background: #e6f2f0; transition: background .4s; }
+#modalLista .btn-verde { background: var(--credito, #027266); border-color: var(--credito, #027266); color: #fff; }
+#modalLista .btn-verde:hover, #modalLista .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }

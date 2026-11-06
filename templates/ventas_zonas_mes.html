@@ -1,0 +1,274 @@
+{% extends "layout.html" %}
+{% block title %}Ventas por Zona y Mes{% endblock %}
+{% macro dinero(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
+{% macro fecha(t) %}{{ (t[8:10] ~ '/' ~ t[5:7] ~ '/' ~ t[:4]) if t else '' }}{% endmacro %}
+{% macro calor(v, maximo) %}{% if v > 0 and maximo %}style="background-color: rgba(2, 114, 102, {{ '%.2f'|format(0.05 + 0.35 * (v / maximo) ** 0.5) }})"{% endif %}{% endmacro %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='lista_ventas.css') }}">
+<style>
+  .vzm h4 { color: var(--credito); }
+  .vzm .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .vzm .form-control-sm, .vzm .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .migas { font-size: .85rem; }
+  .migas a { color: var(--credito); }
+  .tabla-m { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-m thead th { position: sticky; top: 0; z-index: 3; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .45rem;
+                      border-bottom: 1px solid var(--grid); white-space: nowrap; text-align: right; }
+  .tabla-m th.izq, .tabla-m td.izq { text-align: left; }
+  .tabla-m td { padding: .4rem .45rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; vertical-align: middle; }
+  .tabla-m .fijo { position: sticky; left: 0; background: #fff; z-index: 2; text-align: left; min-width: 210px; max-width: 320px; white-space: normal; }
+  .tabla-m thead .fijo { z-index: 4; background: #f6f5f1; }
+  .tabla-m tbody tr:hover td { background-color: #faf9f6; }
+  .tabla-m tfoot td { font-weight: 700; background: #f6f5f1; border-top: 2px solid var(--grid); }
+  .tabla-m tfoot .fijo { background: #f6f5f1; }
+  .tabla-m .total { font-weight: 700; color: var(--ink); }
+  .tabla-m tr.seg td { font-size: .76rem; color: var(--ink-2); background: #fbfaf7; border-bottom-style: dashed; }
+  .tabla-m tr.seg td.fijo { padding-left: 2rem; background: #fbfaf7; }
+  .tabla-m tr.seg .pt { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: .35rem; background: var(--contado); }
+  .sub { font-size: .7rem; color: var(--ink-3); }
+  .sub strong { color: var(--ink); }
+  .var { font-size: .74rem; font-weight: 700; white-space: nowrap; }
+  .var.sube { color: var(--credito); } .var.baja { color: #b42318; }
+  .btn-mini { border: 1px solid #b7d9d4; background: #fff; color: var(--credito); border-radius: 6px; font-size: .72rem; padding: .15rem .5rem; min-height: 28px; white-space: nowrap; }
+  .btn-mini:hover, .btn-mini:focus-visible { background: #e6f2f0; outline: none; }
+  .btn-mini[aria-expanded="true"] { background: var(--credito); color: #fff; border-color: var(--credito); }
+  .btn-mini[aria-expanded="true"] .bi-chevron-right { transform: rotate(90deg); }
+  .btn-mini .bi-chevron-right { display: inline-block; transition: transform .15s; }
+  .mezcla { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--grid); width: 90px; margin-top: 3px; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .vzm .btn:focus-visible, .vzm a:focus-visible, .vzm button:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+{% set base = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor, 'segmento': f.segmento} %}
+{% set params = dict(base, zona=f.zona, q=f.q) %}
+{% set claves = d.meses|map(attribute=0)|list %}
+{% set zf = d.zona_fila %}
+<div class="dash vzm container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-diagram-3-fill" aria-hidden="true"></i> Ventas por zona · comparativo mensual</h4>
+      <div class="text-muted small">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }} · venta neta sin IVA, sin anuladas{% if f.vendedor %} · {{ f.vendedor }}{% endif %}{% if f.segmento %} · segmento {{ f.segmento }}{% endif %}</div>
+    </div>
+    <a class="btn btn-verde btn-sm" href="{{ url_for('ventas_zonas_mes.descargar_excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+  </div>
+  <nav class="migas mb-2" aria-label="Ruta">
+    {% if f.zona %}<a href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **base) }}"><i class="bi bi-diagram-3" aria-hidden="true"></i> Todas las zonas</a>
+      <i class="bi bi-chevron-right small text-muted" aria-hidden="true"></i> <strong>{{ f.zona }}</strong>
+    {% else %}<strong>Todas las zonas</strong> <span class="text-muted">· clic en una zona para ver sus clientes por mes</span>{% endif %}
+  </nav>
+
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="zona">Zona</label>
+        <select id="zona" name="zona" class="form-select form-select-sm"><option value="">Todas</option>
+          {% for z in zonas + [sin_zona, ocasional] %}<option {% if z == f.zona %}selected{% endif %}>{{ z }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="vendedor">Vendedor</label>
+        <select id="vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for v in vendedores %}<option {% if v == f.vendedor %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="segmento">Segmento</label>
+        <select id="segmento" name="segmento" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for s in segmentos %}<option {% if s == f.segmento %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+      {% if f.zona %}
+      <div class="col-6 col-lg-1"><label class="form-label" for="q">Cliente o vendedor</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Buscar"></div>
+      {% endif %}
+      <div class="col-12 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+    <div class="small text-muted mt-1">Períodos:
+      {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(params, desde=i.isoformat(), hasta=fin.isoformat())) }}">{{ nombre }}</a>{% endfor %}
+      <a class="ms-2" href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(params, desde=f.ultima.isoformat()[:4] ~ '-01-01', hasta=f.ultima.isoformat())) }}">Año completo por mes</a>
+    </div>
+  </form>
+
+  {# ---------- Gráfico comparativo ---------- #}
+  <div class="card card-body mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <h6 class="mb-0" style="color: var(--credito)">{% if f.zona %}Venta mensual de la zona {{ f.zona }} por segmento{% else %}Venta mensual por zona{% endif %}</h6>
+      <span class="small text-muted">C$ sin IVA</span>
+    </div>
+    <div style="height: 260px"><canvas id="grafico" role="img" aria-label="Gráfico de ventas por mes"></canvas></div>
+  </div>
+
+{% if not f.zona %}
+  {# ===================== Nivel 1: zonas × meses ===================== #}
+  <div class="d-flex justify-content-end mb-1">
+    <button type="button" class="btn btn-link btn-sm p-0" id="desplegar-todo" aria-expanded="false"><i class="bi bi-arrows-expand" aria-hidden="true"></i> <span>Desplegar segmentos de todas las zonas</span></button>
+  </div>
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 72vh">
+    <table class="tabla-m">
+      <caption class="visually-hidden">Venta por zona y mes, con sus segmentos de producto</caption>
+      <thead><tr><th class="fijo izq">Zona · vendedor principal</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}
+        <th>Total C$</th><th>%</th><th title="Último mes contra el anterior{{ ' (el último mes está incompleto)' if d.parcial }}">Var. mes{% if d.parcial %}*{% endif %}</th>
+        <th class="izq">Clientes</th><th class="izq">Ver</th></tr></thead>
+      <tbody>
+        {% for x in d.filas %}{% set i = loop.index %}
+        <tr>
+          <td class="fijo"><a href="{{ url_for('ventas_zonas_mes.reporte_ventas_zonas_mes', **dict(base, zona=x.zona)) }}" class="fw-semibold">{{ x.zona }}</a>
+            {% if x.vendedor %}<div class="sub"><i class="bi bi-person" aria-hidden="true"></i> {{ x.vendedor }} · {{ "{:.0f}".format(x.vendedor_pct) }}%
+              {% if x.otros_vendedores %}<span title="También vendieron: {{ x.otros_vendedores|join(', ') }}"> · +{{ x.otros_vendedores|length }}</span>{% endif %}</div>{% endif %}
+            {% if x.segmentos %}<div class="mezcla" title="{% for s in x.segmentos %}{{ s.segmento }}: {{ '{:.0f}'.format(s.pct) }}%{{ ' · ' if not loop.last }}{% endfor %}">
+              {% for s in x.segmentos %}<span data-color-seg="{{ s.segmento }}" style="width: {{ s.pct }}%"></span>{% endfor %}</div>{% endif %}</td>
+          {% for m in claves %}{% set v = x.meses.get(m, 0) %}<td {{ calor(v, d.maximo) if x.zona not in fuera }}>{{ dinero(v) if v else '—' }}</td>{% endfor %}
+          <td class="total">{{ dinero(x.total) }}</td>
+          <td>{{ "{:.1f}".format(x.pct) }}%</td>
+          <td>{% if x.variacion is not none %}<span class="var {{ 'sube' if x.variacion >= 0 else 'baja' }}"><i class="bi {{ 'bi-arrow-up' if x.variacion >= 0 else 'bi-arrow-down' }}" aria-hidden="true"></i> {{ "{:+.0f}".format(x.variacion) }}%</span>{% else %}—{% endif %}</td>
+          <td class="izq sub" title="Compraron en el período / clientes de la zona en la tabla ({{ x.activos }} activos{% if x.por_depto %}; {{ x.por_depto }} ubicados por la cabecera del departamento{% endif %})">
+            {% if x.zona == ocasional %}<strong>{{ x.compraron }}</strong> compradores<div>no están en la tabla de clientes</div>
+            {% else %}<strong>{{ x.compraron }}</strong> / {{ x.cartera }}{% if x.cartera %} · {{ "{:.0f}".format(x.compraron / x.cartera * 100) }}%{% endif %}{% endif %}</td>
+          <td class="izq">{% if x.total %}<div class="d-flex gap-1">
+            <button type="button" class="btn-mini btn-segmentos" aria-expanded="false" aria-controls="{% for s in x.segmentos %}seg-{{ i }}-{{ loop.index }} {% endfor %}" data-fila="{{ i }}"
+                    title="Desplegar los segmentos de producto"><i class="bi bi-chevron-right" aria-hidden="true"></i> Segmentos</button>
+            <button type="button" class="btn-mini btn-lista" data-tipo="clientes" data-ver="{{ x.zona }}" title="Clientes que compraron"><i class="bi bi-people" aria-hidden="true"></i> Clientes</button>
+            <button type="button" class="btn-mini btn-lista" data-tipo="productos" data-ver="{{ x.zona }}" title="Productos vendidos en la zona"><i class="bi bi-box-seam" aria-hidden="true"></i><span class="visually-hidden">Productos de {{ x.zona }}</span></button>
+          </div>{% endif %}</td>
+        </tr>
+        {% for s in x.segmentos %}
+        <tr class="seg" id="seg-{{ i }}-{{ loop.index }}" data-fila="{{ i }}" hidden>
+          <td class="fijo"><span class="pt" data-color-seg="{{ s.segmento }}" aria-hidden="true"></span>{{ s.segmento }} <span class="sub">· {{ "{:.1f}".format(s.pct) }}% de la zona</span></td>
+          {% for m in claves %}{% set v = s.meses.get(m, 0) %}<td>{{ dinero(v) if v else '—' }}</td>{% endfor %}
+          <td class="total">{{ dinero(s.total) }}</td><td>{{ "{:.1f}".format(s.total / d.total * 100 if d.total else 0) }}%</td><td></td><td></td><td></td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><td class="fijo">Total</td>{% for m in claves %}<td>{{ dinero(d.por_mes[m]) }}</td>{% endfor %}<td>{{ dinero(d.total) }}</td><td>100%</td><td></td><td></td><td></td></tr></tfoot>
+    </table>
+  </div>
+
+{% else %}
+  {# ===================== Nivel 2: la zona ===================== #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Venta de la zona</div><div class="valor">C$ {{ dinero(zf.total if zf else 0) }}</div>
+      <div class="sub">{{ "{:.1f}".format(zf.pct if zf else 0) }}% del total de las zonas</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Clientes que compraron</div>
+      <div class="valor">{{ zf.compraron if zf else 0 }}{% if zf and zf.zona != ocasional %} <span class="fs-6 text-muted">/ {{ zf.cartera }}</span>{% endif %}</div>
+      <div class="sub">{% if zf and zf.zona == ocasional %}compradores que no están en la tabla de clientes{% else %}clientes de la zona ({{ zf.activos if zf else 0 }} activos){% endif %}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Vendedor principal</div>
+      <div class="valor" style="font-size: 1rem; white-space: normal">{{ zf.vendedor if zf and zf.vendedor else '—' }}</div>
+      <div class="sub">{% if zf and zf.vendedor %}{{ "{:.0f}".format(zf.vendedor_pct) }}% de la venta{% if zf.otros_vendedores %} · también: {{ zf.otros_vendedores[:3]|join(', ') }}{% if zf.otros_vendedores|length > 3 %}…{% endif %}{% endif %}{% endif %}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Último mes vs. anterior</div>
+      <div class="valor">{% if zf and zf.variacion is not none %}<span class="var {{ 'sube' if zf.variacion >= 0 else 'baja' }}" style="font-size: 1.3rem">{{ "{:+.1f}".format(zf.variacion) }}%</span>{% else %}—{% endif %}</div>
+      <div class="sub">{{ d.meses[-1][1] }}{% if d.parcial %} (hasta el {{ f.hasta.strftime('%d') }}){% endif %} contra {{ d.meses[-2][1] if d.meses|length > 1 else '—' }}</div></div></div>
+  </div>
+
+  {# Segmentos de la zona por mes #}
+  {% if zf and zf.segmentos %}
+  <details class="card mb-3" open>
+    <summary class="card-header bg-white fw-semibold" style="color: var(--credito); cursor: pointer">
+      <i class="bi bi-pie-chart" aria-hidden="true"></i> Segmentos de producto de la zona <span class="text-muted fw-normal small">· {{ zf.segmentos|length }} segmentos</span></summary>
+    <div class="table-responsive">
+      <table class="tabla-m">
+        <caption class="visually-hidden">Segmentos de producto de la zona por mes</caption>
+        <thead><tr><th class="fijo izq">Segmento</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}<th>Total C$</th><th>% de la zona</th></tr></thead>
+        <tbody>{% for s in zf.segmentos %}<tr>
+          <td class="fijo"><span class="d-inline-block me-1" data-color-seg="{{ s.segmento }}" style="width: 10px; height: 10px; border-radius: 2px" aria-hidden="true"></span>{{ s.segmento }}</td>
+          {% for m in claves %}{% set v = s.meses.get(m, 0) %}<td>{{ dinero(v) if v else '—' }}</td>{% endfor %}
+          <td class="total">{{ dinero(s.total) }}</td><td>{{ "{:.1f}".format(s.pct) }}%</td></tr>{% endfor %}</tbody>
+        <tfoot><tr><td class="fijo">Total</td>{% for m in claves %}<td>{{ dinero(zf.meses.get(m, 0)) }}</td>{% endfor %}<td>{{ dinero(zf.total) }}</td><td>100%</td></tr></tfoot>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
+  {# Clientes de la zona por mes #}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 70vh">
+    <table class="tabla-m">
+      <caption class="visually-hidden">Clientes de la zona por mes</caption>
+      <thead><tr><th class="fijo izq">Cliente · vendedor</th>{% for m, e in d.meses %}<th>{{ e }}</th>{% endfor %}
+        <th>Total C$</th><th>%</th><th class="izq">Segmento principal</th><th class="izq">Última</th><th class="izq"><span class="visually-hidden">Productos</span></th></tr></thead>
+      <tbody>
+        {% for c in d.clientes %}
+        <tr>
+          <td class="fijo"><div class="fw-semibold">{{ c.posicion }}. {{ c.cliente }}</div>
+            <div class="sub"><i class="bi bi-person" aria-hidden="true"></i> {{ c.vendedor or 'sin vendedor' }}
+              {% if c.otros_vendedores %}<span title="También le vendieron: {{ c.otros_vendedores|join(', ') }}"> · +{{ c.otros_vendedores|length }}</span>{% endif %}
+              {% if c.asignado and c.asignado != c.vendedor %}<span title="Vendedor asignado en la ficha del cliente"> · ficha: {{ c.asignado }}</span>{% endif %}</div></td>
+          {% for m in claves %}{% set v = c.meses.get(m, 0) %}<td {{ calor(v, d.maximo_cliente) }}>{{ dinero(v) if v else '—' }}</td>{% endfor %}
+          <td class="total">{{ dinero(c.total) }}</td>
+          <td>{{ "{:.1f}".format(c.pct) }}%</td>
+          <td class="izq small">{{ c.segmento }}</td>
+          <td class="izq small">{{ fecha(c.ultima) }}</td>
+          <td class="izq"><button type="button" class="btn-mini btn-lista" data-tipo="productos" data-ver="{{ f.zona }}" data-cliente="{{ c.cliente }}"><i class="bi bi-box-seam" aria-hidden="true"></i> Productos<span class="visually-hidden"> de {{ c.cliente }}</span></button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="{{ d.meses|length + 6 }}" class="text-center text-muted py-4">No hay ventas a clientes de esta zona con estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if d.clientes %}
+      <tfoot><tr><td class="fijo">Total ({{ d.clientes|length }} clientes)</td>
+        {% for m in claves %}<td>{{ dinero(d.clientes_mes[m]) }}</td>{% endfor %}
+        <td>{{ dinero(d.clientes|sum(attribute='total')) }}</td><td>{{ "{:.1f}".format(d.clientes|sum(attribute='pct')) }}%</td><td></td><td></td><td></td></tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+{% endif %}
+  {% if d.parcial %}<div class="small text-muted mt-2">* {{ d.meses[-1][1] }} está incompleto (datos hasta el {{ f.hasta.strftime('%d/%m/%Y') }}): compare con cuidado contra meses completos.</div>{% endif %}
+  <div class="small text-muted mt-2">La zona sale del municipio de la ficha del cliente (tabla de zonas); si el municipio no está en la tabla, se usa la zona de la cabecera
+    de su departamento. El vendedor es quien más vendió en el período. Segmentos según Clasificación de productos.</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='lista_ventas.js') }}"></script>
+<script>
+(() => {
+  // Colores de segmento: corporativos primero y luego neutros distinguibles (igual que Ventas por departamento)
+  const SEGMENTOS = {{ d.segmentos_todos|tojson }};
+  const PALETA = ['#027266', '#FE6412', '#4F6D8A', '#8AB17D', '#D9A441', '#9C6644', '#6D597A', '#A8A29E', '#C9ADA7', '#5E8C61'];
+  const color = (s) => s === 'Sin clasificar' ? '#D6D3CE' : PALETA[Math.max(0, SEGMENTOS.indexOf(s)) % PALETA.length];
+  document.querySelectorAll('[data-color-seg]').forEach(el => el.style.background = color(el.dataset.colorSeg));
+
+  // Gráfico
+  const MESES = {{ d.meses|map(attribute=1)|list|tojson }};
+  const CLAVES = {{ claves|tojson }};
+  {% if f.zona %}
+  const SERIES = {{ (zf.segmentos if zf else [])|tojson }}.slice(0, 6).map(s => ({ label: s.segmento, data: CLAVES.map(m => s.meses[m] || 0), color: color(s.segmento) }));
+  const apilado = true;
+  {% else %}
+  const FILAS = {{ d.filas|rejectattr('zona', 'in', fuera)|selectattr('total')|list|tojson }};
+  const SERIES = FILAS.slice(0, 8).map((x, i) => ({ label: x.zona, data: CLAVES.map(m => x.meses[m] || 0), color: PALETA[i % PALETA.length] }));
+  const apilado = false;
+  {% endif %}
+  const fmt = (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + ' M' : v >= 1e3 ? Math.round(v / 1e3) + ' K' : Math.round(v);
+  if (window.Chart && SERIES.length) new Chart(document.getElementById('grafico'), {
+    type: apilado ? 'bar' : 'line',
+    data: { labels: MESES, datasets: SERIES.map(s => ({ label: s.label, data: s.data, borderColor: s.color, backgroundColor: s.color,
+            tension: .25, pointRadius: 3, borderWidth: apilado ? 0 : 2, borderRadius: 3 })) },
+    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } },
+                 tooltip: { callbacks: { label: (c) => `${c.dataset.label}: C$ ${Math.round(c.parsed.y).toLocaleString('en-US')}` } } },
+      scales: { y: { beginAtZero: true, stacked: apilado, ticks: { callback: fmt }, grid: { color: '#ecebe8' } }, x: { stacked: apilado, grid: { display: false } } } }
+  });
+
+  // Desplegar los segmentos de una zona (o de todas)
+  const botones = [...document.querySelectorAll('.btn-segmentos')];
+  const abrir = (b, si) => {
+    b.setAttribute('aria-expanded', si ? 'true' : 'false');
+    document.querySelectorAll(`tr.seg[data-fila="${b.dataset.fila}"]`).forEach(tr => tr.hidden = !si);
+  };
+  botones.forEach(b => b.addEventListener('click', () => abrir(b, b.getAttribute('aria-expanded') !== 'true')));
+  const todo = document.getElementById('desplegar-todo');
+  todo?.addEventListener('click', () => {
+    const si = todo.getAttribute('aria-expanded') !== 'true';
+    botones.forEach(b => abrir(b, si));
+    todo.setAttribute('aria-expanded', si ? 'true' : 'false');
+    todo.querySelector('span').textContent = si ? 'Ocultar los segmentos' : 'Desplegar segmentos de todas las zonas';
+  });
+
+  // Clientes -> productos (con edición de segmento / familia / subfamilia)
+  ListaVentas.iniciar({
+    urlLista: {{ url_for('ventas_zonas_mes.lista')|tojson }},
+    base: {{ {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'vendedor': f.vendedor, 'segmento': f.segmento}|tojson }},
+    urlClasificar: {{ url_for('ventas_departamento.clasificar')|tojson }},
+  });
+})();
+</script>
+{% endblock %}

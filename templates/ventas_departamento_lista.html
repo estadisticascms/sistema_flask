@@ -1,6 +1,10 @@
-{# Fragmento para la ventana de Ventas por departamento: clientes o productos de un departamento #}
+{# Fragmento de la ventana de clientes / productos de un grupo (static/lista_ventas.js).
+   Lo usan Ventas por departamento (grupo = departamento) y Ventas por zona mensual (grupo = zona).
+   Recibe: tipo, depto (nombre del grupo), cliente, filas, total, filtro, excel_url, unidad ('depto.' / 'zona'),
+   editar, segmentos, arbol, sin_segmento. Si las filas de clientes traen 'vendedor', se muestra la columna. #}
 {% macro dinero(v) %}{{ "{:,.2f}".format(v) }}{% endmacro %}
-{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'segmento': f.segmento, 'familia': f.familia, 'ver': depto, 'tipo': tipo, 'cliente': cliente} %}
+{% set con_vendedor = tipo == 'clientes' and filas and filas[0].vendedor is defined %}
+{% set pct_txt = '% de la zona' if unidad == 'zona' else '% del depto.' %}
 {% if cliente %}
 <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
   <button type="button" class="btn btn-outline-secondary btn-sm btn-volver-clientes" data-ver="{{ depto }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Volver a clientes</button>
@@ -14,28 +18,29 @@
   </div>
   <div class="d-flex gap-2">
     <input type="search" class="form-control form-control-sm" style="width: 220px" placeholder="Buscar…" aria-label="Buscar en la lista" data-buscar-lista>
-    <a class="btn btn-verde btn-sm text-nowrap" href="{{ url_for('ventas_departamento.lista', formato='excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
+    <a class="btn btn-verde btn-sm text-nowrap" href="{{ excel_url }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
   </div>
 </div>
 {% if not filas %}
-  <p class="text-muted text-center py-4 mb-0">No hay ventas {{ 'de este cliente' if cliente else 'en este departamento' }} con estos filtros.</p>
+  <p class="text-muted text-center py-4 mb-0">No hay ventas {{ 'de este cliente' if cliente else ('en esta zona' if unidad == 'zona' else 'en este departamento') }} con estos filtros.</p>
 {% else %}
 <div class="table-responsive" style="max-height: 62vh">
-  <table class="tabla-vd tabla-lista">
+  <table class="tabla-lista">
     <caption class="visually-hidden">{{ 'Clientes' if tipo == 'clientes' else 'Productos' }} de {{ depto }}</caption>
     {% if tipo == 'clientes' %}
-    <thead><tr><th class="izq">#</th><th class="izq">Cliente</th><th>Total C$</th><th>% del depto.</th><th>Unidades</th><th>Productos</th><th><span class="visually-hidden">Ver productos</span></th></tr></thead>
+    <thead><tr><th class="izq">#</th><th class="izq">Cliente</th>{% if con_vendedor %}<th class="izq">Vendedor</th>{% endif %}<th>Total C$</th><th>{{ pct_txt }}</th><th>Unidades</th><th>Productos</th><th><span class="visually-hidden">Ver productos</span></th></tr></thead>
     <tbody>{% for x in filas %}<tr>
       <td class="izq text-muted">{{ loop.index }}</td><td class="izq" style="white-space: normal">{{ x.cliente }}</td>
+      {% if con_vendedor %}<td class="izq" style="white-space: normal">{{ x.vendedor or '—' }}{% if x.otros_vendedores %} <span class="text-muted" title="También le vendieron: {{ x.otros_vendedores|join(', ') }}">+{{ x.otros_vendedores|length }}</span>{% endif %}</td>{% endif %}
       <td class="fw-bold">{{ dinero(x.monto) }}</td><td>{{ "{:.1f}".format(x.pct) }}%</td>
       <td>{{ "{:,.0f}".format(x.unidades) }}</td><td>{{ x.productos }}</td>
       <td><button type="button" class="btn btn-sm btn-outline-secondary text-nowrap btn-productos-cliente" data-ver="{{ depto }}" data-cliente="{{ x.cliente }}" title="Ver los productos que compró">
         <i class="bi bi-box-seam" aria-hidden="true"></i> Productos<span class="visually-hidden"> de {{ x.cliente }}</span></button></td></tr>{% endfor %}</tbody>
-    <tfoot><tr><td></td><td class="izq">Total</td><td>{{ dinero(total) }}</td><td>100%</td><td>{{ "{:,.0f}".format(filas|sum(attribute='unidades')) }}</td><td></td><td></td></tr></tfoot>
+    <tfoot><tr><td></td><td class="izq">Total</td>{% if con_vendedor %}<td></td>{% endif %}<td>{{ dinero(total) }}</td><td>100%</td><td>{{ "{:,.0f}".format(filas|sum(attribute='unidades')) }}</td><td></td><td></td></tr></tfoot>
     {% else %}
     <thead><tr><th class="izq">#</th><th class="izq">Código</th><th class="izq">Nº parte</th><th class="izq">Descripción</th><th class="izq">Marca</th>
       <th class="izq">Segmento</th><th class="izq">Familia</th><th class="izq">Subfamilia</th>
-      <th>Total C$</th><th>{{ '% del cliente' if cliente else '% del depto.' }}</th><th>Unidades</th>{% if not cliente %}<th>Clientes</th>{% endif %}{% if editar %}<th><span class="visually-hidden">Editar</span></th>{% endif %}</tr></thead>
+      <th>Total C$</th><th>{{ '% del cliente' if cliente else pct_txt }}</th><th>Unidades</th>{% if not cliente %}<th>Clientes</th>{% endif %}{% if editar %}<th><span class="visually-hidden">Editar</span></th>{% endif %}</tr></thead>
     <tbody>{% for x in filas %}<tr data-codigo="{{ x.codigo }}">
       <td class="izq text-muted">{{ loop.index }}</td><td class="izq">{{ x.codigo }}</td><td class="izq">{{ x.numero_parte }}</td>
       <td class="izq" style="white-space: normal; min-width: 180px">{{ x.descripcion or '' }}</td><td class="izq">{{ x.marca }}</td>

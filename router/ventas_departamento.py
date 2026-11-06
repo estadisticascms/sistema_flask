@@ -11,7 +11,7 @@ import re
 import time
 from datetime import date, datetime
 
-from flask import Blueprint, current_app, jsonify, render_template, request, send_file, session
+from flask import Blueprint, current_app, jsonify, render_template, request, send_file, session, url_for
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -488,7 +488,8 @@ def lista():
                 conn.close()
         return render_template("ventas_departamento_lista.html", f=f, tipo=tipo, depto=depto, filas=filas, total=total, filtro=filtro,
                                editar=editar, segmentos=segmentos, arbol=arbol, sin_segmento=SIN_SEGMENTO,
-                               cliente=cliente)
+                               cliente=cliente, unidad="depto.",
+                               excel_url=url_for("ventas_departamento.lista", formato="excel", **request.args.to_dict()))
 
     wb = Workbook()
     ws = wb.active
@@ -540,10 +541,10 @@ def tiene_acceso(vista):
 
 
 @ventas_departamento_bp.route("/ventas_departamento/clasificar", methods=["POST"])
-@requiere_acceso("ventas_departamento")
 def clasificar():
     """Cambia segmento, familia y subfamilia de un producto desde la lista de productos (tabla clase_prod).
-    Pide además el permiso de «Clasificación de productos». El grupo de equivalencia no se toca."""
+    La usan Ventas por departamento y Ventas por zona mensual; pide el permiso de «Clasificación de productos».
+    El grupo de equivalencia no se toca."""
     if not tiene_acceso("clase_prod"):
         return jsonify(ok=False, error="No tiene permiso de Clasificación de productos."), 403
     codigo = (request.form.get("codigo") or "").strip()
