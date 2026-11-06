@@ -130,6 +130,9 @@ SECCIONES = [
                 ("Catálogo de productos", "/cargar_catalogo", "bi-journal-bookmark-fill", "Existencias, costos y precios", "subir excel"),
                 ("Clientes", "/cargar_clientes", "bi-person-vcard", "Actualiza la lista de clientes", "subir excel"),
             ]},
+            {"titulo": "Correcciones", "items": [
+                ("Anular facturas", "/anular_facturas", "bi-x-octagon", "Quitar de los reportes una factura ya cargada", "anulada anular borrar corregir restaurar"),
+            ]},
         ],
     },
     {

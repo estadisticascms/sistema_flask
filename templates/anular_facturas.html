@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+{% block title %}Anular facturas{% endblock %}
+
+{% block content %}
+<div class="container mt-3 mb-4" style="max-width: 1100px">
+  <h5><i class="bi bi-x-octagon" aria-hidden="true"></i> Anular facturas ya cargadas</h5>
+  <p class="text-muted small mb-3">
+    Para facturas que se anularon en el sistema después de subir las ventas. Busque el número; antes de anular se muestran todos
+    los datos de la factura para revisarlos. La factura sale de los reportes de ventas, queda en el historial de abajo y se puede restaurar.
+  </p>
+
+  <form method="get" class="card card-body shadow-sm mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-5 col-md-4">
+        <label class="form-label fw-semibold" for="factura">Número de factura</label>
+        <input type="text" id="factura" name="factura" value="{{ factura }}" class="form-control" inputmode="numeric" maxlength="15" required autofocus>
+      </div>
+      <div class="col-auto"><button type="submit" class="btn btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Buscar</button></div>
+    </div>
+  </form>
+
+  {% if resultados is not none %}
+    {% if not resultados %}
+      <div class="alert alert-warning">No hay ninguna factura <strong>{{ factura }}</strong> cargada.</div>
+    {% else %}
+      <p class="small mb-1">Se encontraron <strong>{{ resultados|length }}</strong> facturas con el número {{ factura }} (el número se repite entre bodegas). Elija la que quiere anular:</p>
+      <div class="table-responsive"><table class="table table-sm table-hover align-middle small">
+        <thead><tr><th>Fecha</th><th>Bodega</th><th>Tipo</th><th>Cliente</th><th>Vendedor</th><th class="text-end">Total</th><th>Estado</th><th></th></tr></thead>
+        <tbody>{% for r in resultados %}<tr>
+          <td>{{ r.fecha.strftime('%d/%m/%Y') }}</td><td>{{ r.bodega }}</td><td>{{ r.tipo or '' }}</td><td>{{ r.cliente or '' }}</td><td>{{ r.vendedor or '' }}</td>
+          <td class="text-end">{{ "C$ {:,.2f}".format(r.total) if r.total is not none else '—' }}</td>
+          <td>{% if r.ya_anulada %}<span class="badge text-bg-secondary">Anulada aquí {{ r.ya_anulada.anulado.strftime('%d/%m/%Y') }}</span>
+              {% elif not r.anulable %}<span class="badge text-bg-secondary">Anulada en el sistema</span>
+              {% else %}{{ r.estado or '' }}{% if not r.en_ventas %} <span class="badge text-bg-warning">solo en ventas por producto</span>{% endif %}{% endif %}</td>
+          <td class="text-end">{% if r.anulable and not r.ya_anulada %}<a class="btn btn-outline-danger btn-sm" href="{{ url_for('anular_facturas.revisar', clave=r.clave) }}">Revisar y anular</a>{% endif %}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>
+    {% endif %}
+  {% endif %}
+
+  {% if historial %}
+    <h6 class="mt-4"><i class="bi bi-clock-history" aria-hidden="true"></i> Facturas anuladas aquí</h6>
+    <div class="table-responsive"><table class="table table-sm table-striped align-middle small">
+      <thead><tr><th>Anulada</th><th>Factura</th><th>Fecha</th><th>Bodega</th><th>Cliente</th><th class="text-end">Total</th><th>Motivo</th><th>Por</th><th></th></tr></thead>
+      <tbody>{% for h in historial %}<tr class="{{ 'text-muted' if h.restaurado }}">
+        <td>{{ h.anulado.strftime('%d/%m/%Y %H:%M') }}</td><td><strong>{{ h.factura }}</strong></td><td>{{ h.fecha.strftime('%d/%m/%Y') }}</td><td>{{ h.bodega }}</td>
+        <td>{{ h.cliente or '' }}</td><td class="text-end">{{ "{:,.2f}".format(h.total) if h.total is not none else '—' }}</td>
+        <td>{{ h.motivo }}</td><td>{{ h.anulado_por or '' }}</td>
+        <td class="text-end">{% if h.restaurado %}<span class="badge text-bg-light">Restaurada {{ h.restaurado.strftime('%d/%m/%Y') }}{% if h.restaurado_por %} · {{ h.restaurado_por }}{% endif %}</span>
+          {% else %}<form method="post" action="{{ url_for('anular_facturas.restaurar', id_anulada=h.id) }}" class="d-inline form-restaurar"
+                data-msg="¿Restaurar la factura {{ h.factura }} ({{ h.bodega }}, {{ h.fecha.strftime('%d/%m/%Y') }})? Vuelve a contar en los reportes de ventas.">
+            <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Restaurar</button></form>{% endif %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.form-restaurar').forEach(f => f.addEventListener('submit', (e) => { if (!confirm(f.dataset.msg)) e.preventDefault(); }));
+</script>
+{% endblock %}

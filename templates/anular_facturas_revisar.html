@@ -1,0 +1,102 @@
+{% extends "layout.html" %}
+{% block title %}Anular factura {{ factura }}{% endblock %}
+{% macro m(x) %}{{ "{:,.2f}".format(x or 0) }}{% endmacro %}
+{% block content %}
+<div class="container mt-3 mb-4" style="max-width: 1100px">
+  <a href="{{ url_for('anular_facturas.inicio', factura=factura) }}" class="small"><i class="bi bi-arrow-left" aria-hidden="true"></i> Volver a la búsqueda</a>
+  <h5 class="mt-2"><i class="bi bi-x-octagon text-danger" aria-hidden="true"></i> Revise la factura antes de anularla</h5>
+
+  <div class="card shadow-sm mb-3 border-danger">
+    <div class="card-header bg-light d-flex flex-wrap justify-content-between gap-2">
+      <div><span class="fs-4 fw-bold">Factura {{ factura }}</span>
+        <span class="ms-2 text-muted">{{ bodega }} · {{ fecha.strftime('%d/%m/%Y') }}</span></div>
+      {% if v %}<div class="fs-4 fw-bold">C$ {{ m(v.Total) }}</div>{% endif %}
+    </div>
+    <div class="card-body">
+      {% if v %}
+      <div class="row g-3 small">
+        <div class="col-md-4"><div class="text-muted">Cliente</div><div class="fw-semibold fs-6">{{ v.cliente }}</div></div>
+        <div class="col-md-2"><div class="text-muted">Tipo de venta</div><div class="fw-semibold">{{ v.tipo_venta }}</div></div>
+        <div class="col-md-2"><div class="text-muted">Tipo de factura</div><div class="fw-semibold">{{ v['tipo factura'] }}</div></div>
+        <div class="col-md-2"><div class="text-muted">Estado</div><div class="fw-semibold">{{ v.estado_factura }}</div></div>
+        <div class="col-md-2"><div class="text-muted">Vence</div><div class="fw-semibold">{{ v.fecha_vencimiento.strftime('%d/%m/%Y') if v.fecha_vencimiento else '—' }}</div></div>
+        <div class="col-md-4"><div class="text-muted">Vendedor</div><div class="fw-semibold">{{ v.vendedor }}</div></div>
+        <div class="col-md-4"><div class="text-muted">Facturó</div><div class="fw-semibold">{{ v.facturador }}</div></div>
+        <div class="col-md-4"><div class="text-muted">Descripción</div><div class="fw-semibold">{{ v.descripcion or '—' }}</div></div>
+      </div>
+      <table class="table table-sm small mt-3 mb-0 w-auto">
+        <tbody>
+          <tr><td>Subtotal</td><td class="text-end">C$ {{ m(v.SubTotal) }}</td><td class="ps-4">Costo</td><td class="text-end">C$ {{ m(v['Costo Total']) }}</td></tr>
+          <tr><td>Descuento</td><td class="text-end">C$ {{ m(v.Descuento) }}</td><td class="ps-4">Venta neta</td><td class="text-end">C$ {{ m(v.neto) }}</td></tr>
+          <tr><td>IVA</td><td class="text-end">C$ {{ m(v.IVA) }}</td><td class="ps-4">Utilidad</td><td class="text-end">C$ {{ m(v.utilidad) }}</td></tr>
+          <tr class="fw-bold"><td>Total</td><td class="text-end">C$ {{ m(v.Total) }}</td><td></td><td></td></tr>
+        </tbody>
+      </table>
+      {% else %}
+        <div class="alert alert-warning small mb-0">Esta factura <strong>no está en Ventas del día</strong> (ventas_historicas); solo está en el detalle por producto{% if d.armados %} o en armados{% endif %}.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if d.productos %}
+  <h6>Productos ({{ d.productos|length }} líneas{% if d.vigentes < d.productos|length %}, {{ d.productos|length - d.vigentes }} ya anuladas{% endif %})</h6>
+  <div class="table-responsive mb-3"><table class="table table-sm table-striped small">
+    <thead><tr><th>Código</th><th>Nº parte</th><th>Descripción</th><th>Marca</th><th class="text-end">Cantidad</th><th class="text-end">Precio</th><th class="text-end">Subtotal</th><th>Estatus</th></tr></thead>
+    <tbody>{% for p in d.productos %}<tr class="{{ 'text-muted text-decoration-line-through' if p.Estatus == 'Anulado' }}">
+      <td>{{ p.Codigo }}</td><td>{{ p.Numero_parte or p['Num. Parte'] or '' }}</td><td>{{ p['Descrip Prod.'] }}</td><td>{{ p.Marca }}</td>
+      <td class="text-end">{{ "{:,.2f}".format(p['Cantidad Vendida'] or 0) }}</td><td class="text-end">{{ m(p['Precio Facturado']) }}</td>
+      <td class="text-end">{{ m(p['Sub-Total 2']) }}</td><td>{{ p.Estatus }}</td></tr>{% endfor %}</tbody>
+    <tfoot><tr class="fw-bold"><td colspan="6">Total productos vigentes</td>
+      <td class="text-end">{{ m(d.productos|rejectattr('Estatus', 'equalto', 'Anulado')|sum(attribute='Sub-Total 2')) }}</td><td></td></tr></tfoot>
+  </table></div>
+  {% endif %}
+
+  {% if d.armados %}
+  <h6>Armado de mangueras ({{ d.armados|length }} líneas)</h6>
+  <div class="table-responsive mb-3"><table class="table table-sm table-striped small w-auto">
+    <thead><tr><th>Producto</th><th class="text-end">Cant.</th><th class="text-end">Subtotal</th><th class="text-end">MO</th><th class="text-end">Soldadura</th></tr></thead>
+    <tbody>{% for a in d.armados %}<tr><td>{{ a.producto }}</td><td class="text-end">{{ "{:,.2f}".format(a.cantidad) }}</td><td class="text-end">{{ m(a.subtotal) }}</td>
+      <td class="text-end">{{ m(a.mano_obra) }}</td><td class="text-end">{{ m(a.otros) }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+
+  {% for a in d.avisos %}<div class="alert alert-warning small py-2"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ a }}</div>{% endfor %}
+
+  {% if d.ya_anulada %}
+    <div class="alert alert-secondary">Esta factura ya fue anulada aquí el {{ d.ya_anulada.anulado.strftime('%d/%m/%Y %H:%M') }}{% if d.ya_anulada.anulado_por %} por {{ d.ya_anulada.anulado_por }}{% endif %}.</div>
+  {% else %}
+  <div class="card card-body border-danger">
+    <h6 class="text-danger mb-2">Al anular:</h6>
+    <ul class="small mb-3">
+      {% if v %}<li>La factura sale de Ventas del día y de todos los reportes de ventas (C$ {{ m(v.Total) }}).</li>{% endif %}
+      {% if d.vigentes %}<li>{{ d.vigentes }} línea(s) de productos quedan como <strong>Anulado</strong>.</li>{% endif %}
+      {% if d.armados %}<li>Se quitan {{ d.armados|length }} línea(s) de Armado de mangueras.</li>{% endif %}
+      <li>Queda en el historial con su motivo y se puede restaurar. Si se vuelve a subir un archivo que la trae, no se carga.</li>
+    </ul>
+    <form method="post" action="{{ url_for('anular_facturas.anular') }}" id="formAnular">
+      <input type="hidden" name="clave" value="{{ clave }}">
+      <div class="mb-2" style="max-width: 640px">
+        <label class="form-label fw-semibold" for="motivo">Motivo <span class="text-danger">*</span></label>
+        <input type="text" id="motivo" name="motivo" class="form-control" maxlength="255" required placeholder="Ej.: anulada en el sistema el 05/11, se refacturó con la 237500">
+      </div>
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" id="confirmo" name="confirmo" value="si" required>
+        <label class="form-check-label" for="confirmo">Revisé los datos y quiero anular la factura <strong>{{ factura }}</strong> de {{ bodega }} del {{ fecha.strftime('%d/%m/%Y') }}{% if v %} ({{ v.cliente }}, C$ {{ m(v.Total) }}){% endif %}.</label>
+      </div>
+      <button type="submit" class="btn btn-danger"><i class="bi bi-x-octagon" aria-hidden="true"></i> Anular factura</button>
+      <a href="{{ url_for('anular_facturas.inicio', factura=factura) }}" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.getElementById('formAnular')?.addEventListener('submit', (e) => {
+    const msg = {{ ("¿Anular la factura " ~ factura ~ " de " ~ bodega ~ " del " ~ fecha.strftime("%d/%m/%Y") ~ ((" por C$ " ~ m(v.Total)) if v else "") ~ "?")|tojson }};
+    if (!confirm(msg)) { e.preventDefault(); return; }
+    const b = e.target.querySelector('button[type=submit]'); b.disabled = true; b.textContent = 'Anulando…';
+  });
+</script>
+{% endblock %}

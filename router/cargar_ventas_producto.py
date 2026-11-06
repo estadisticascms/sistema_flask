@@ -195,10 +195,16 @@ def separar_duplicadas(facturas):
         cursor.close()
         conn.close()
 
+    from router.anular_facturas import anuladas_activas
+    anuladas_aqui = anuladas_activas()["producto"]
     nuevas, duplicadas, posibles = [], [], []
     for f in facturas:
         fechas_bd = existentes.get((f["factura"], f["bodega"]))
-        if not fechas_bd:
+        if (f["factura"], f["bodega"], f["fecha"]) in anuladas_aqui:
+            f["motivo"] = "se anuló en «Anular facturas»"
+            duplicadas.append(f)
+            posibles.append(f"Factura {f['factura']} ({f['bodega']}): se anuló en «Anular facturas»; no se carga")
+        elif not fechas_bd:
             nuevas.append(f)
         elif f["fecha"] in fechas_bd:
             f["motivo"] = "ya existe"

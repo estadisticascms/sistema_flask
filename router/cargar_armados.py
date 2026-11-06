@@ -171,8 +171,13 @@ def comparar(registros):
         cursor.close()
         conn.close()
 
-    grupos = {}
+    from router.anular_facturas import anuladas_activas
+    anuladas_aqui = anuladas_activas()["armados"]
+    grupos, anuladas = {}, set()
     for r in registros:
+        if (r["nfactura"], r["fecha"]) in anuladas_aqui:   # se anuló a mano: no se vuelve a cargar
+            anuladas.add(f"{r['nfactura']} ({r['fecha']:%d/%m/%Y})")
+            continue
         grupos.setdefault((r["nfactura"], r["fecha"]), []).append(r)
 
     nuevos, modificados, sin_cambio = [], [], 0
@@ -190,7 +195,7 @@ def comparar(registros):
                 cambios = [(c, a[c], r[c]) for a, r in pares for c in CAMPOS if not iguales(c, a[c], r[c], NUMERICAS)]
             modificados.append({"registro": lineas[0], "lineas": lineas, "cambios": cambios, "ids": [a["id"] for a in en_bd]})
     sin_venta = sorted(f"{f} ({d:%d/%m/%Y})" for f, d in grupos if (f, d) not in en_ventas)
-    return {"nuevos": nuevos, "modificados": modificados, "sin_cambio": sin_cambio, "sin_venta": sin_venta}
+    return {"nuevos": nuevos, "modificados": modificados, "sin_cambio": sin_cambio, "sin_venta": sin_venta, "anuladas": sorted(anuladas)}
 
 
 def _json(v):
@@ -217,6 +222,8 @@ def cargar_armados():
     except Exception as e:
         return _pantalla(errores_archivo=[f"{archivo.filename}: error inesperado – {e}"])
 
+    if dif["anuladas"]:
+        advertencias.insert(0, f"{len(dif['anuladas'])} factura(s) se anularon en «Anular facturas» y no se cargan: {', '.join(dif['anuladas'][:20])}")
     if dif["sin_venta"]:
         advertencias.insert(0, f"{len(dif['sin_venta'])} factura(s) aún no están en Ventas del día, así que el reporte no tendrá su "
                                f"costo ni ganancia hasta cargarlas: {', '.join(dif['sin_venta'][:20])}"

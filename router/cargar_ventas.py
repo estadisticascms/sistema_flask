@@ -226,6 +226,8 @@ def diferencia_total(total_ventas, total_otro):
 def procesar(ventas, credito, contado, total_general):
     nuevos, errores, advertencias, duplicados = [], [], [], []
     vistos = set()
+    from router.anular_facturas import anuladas_activas
+    anuladas_aqui = anuladas_activas()["identificadores"]
 
     for v in ventas:
         ref = f"Factura {a_factura(v['# Factura'])} ({a_texto(v['Bodega'])}) fila {v['fila']}"
@@ -255,6 +257,9 @@ def procesar(ventas, credito, contado, total_general):
             errores.append(f"{ref}: viene repetida dentro del Reporte de Ventas")
             continue
         vistos.add(identificador)
+        if identificador in anuladas_aqui:
+            errores.append(f"{ref}: se anuló en «Anular facturas»; no se carga (si fue un error, restáurela allí)")
+            continue
 
         clave = (factura, bodega)
         estado, vencimiento = None, None
