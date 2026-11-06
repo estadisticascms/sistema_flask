@@ -45,6 +45,11 @@
   .fam .num { text-align: right; font-variant-numeric: tabular-nums; }
   .barra { height: 6px; background: var(--grid); border-radius: 3px; align-self: center; }
   .barra span { display: block; height: 100%; border-radius: 3px; background: var(--credito); }
+  .filtro-activo { background: var(--contado); color: #fff; font-weight: 600; font-size: .78rem; }
+  .filtrar-fam { color: var(--contado); text-decoration: none; }
+  .filtrar-fam:hover, .filtrar-fam:focus-visible { text-decoration: underline; }
+  .btn-lista { min-width: 34px; }
+  .tabla-lista th { max-width: none; }
   .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
   .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
   @media (max-width: 575.98px) {
@@ -52,12 +57,14 @@
   }
 </style>
 
-{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'depto': f.depto, 'segmento': f.segmento} %}
+{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'depto': f.depto, 'segmento': f.segmento, 'familia': f.familia} %}
 <div class="dash vd container-fluid px-3 mt-2 mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
     <div>
       <h4 class="mb-0"><i class="bi bi-map" aria-hidden="true"></i> Ventas por departamento</h4>
       <div class="text-muted small">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }} · venta neta sin IVA por segmento, familia y subfamilia de producto</div>
+      {% if filtro %}<div class="mt-1"><span class="badge filtro-activo"><i class="bi bi-funnel-fill" aria-hidden="true"></i> {{ filtro }}</span>
+        <a class="small ms-1" href="{{ url_for('ventas_departamento.reporte', **dict(params, segmento='', familia='')) }}">Quitar filtro</a></div>{% endif %}
     </div>
     <a class="btn btn-verde btn-sm" href="{{ url_for('ventas_departamento.descargar_excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
   </div>
@@ -71,11 +78,14 @@
       <div class="col-6 col-lg-2"><label class="form-label" for="depto">Departamento (detalle)</label>
         <select id="depto" name="depto" class="form-select form-select-sm"><option value="">Todos</option>
           {% for dep in departamentos + [sin_depto, ocasional] %}<option value="{{ dep }}" {% if dep|upper == f.depto %}selected{% endif %}>{{ dep|title if dep != 'RACCN' and dep != 'RACCS' else dep }}</option>{% endfor %}</select></div>
-      <div class="col-6 col-lg-2"><label class="form-label" for="segmento">Segmento (detalle)</label>
+      <div class="col-6 col-lg-2"><label class="form-label" for="segmento">Segmento</label>
         <select id="segmento" name="segmento" class="form-select form-select-sm"><option value="">Todos</option>
-          {% for s in d.segmentos %}<option {% if s == f.segmento %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+          {% for s in d.segmentos_todos %}<option {% if s == f.segmento %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="familia">Familia</label>
+        <select id="familia" name="familia" class="form-select form-select-sm"><option value="">Todas</option>
+          {% for fa in d.familias_opciones %}<option {% if fa == f.familia %}selected{% endif %}>{{ fa }}</option>{% endfor %}</select></div>
       <div class="col-12 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
-      <div class="col-12 col-lg-3 small text-muted">Períodos:
+      <div class="col-12 small text-muted">Períodos:
         {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('ventas_departamento.reporte', **dict(params, desde=i.isoformat(), hasta=fin.isoformat())) }}">{{ nombre }}</a>{% endfor %}</div>
     </div>
   </form>
@@ -84,13 +94,14 @@
   {% set con_venta = d.tabla|rejectattr('depto', 'in', fuera_del_mapa)|selectattr('total')|list %}
   <div class="row g-2 mb-3">
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
-      <div class="etiqueta">Venta del período</div><div class="valor">C$ {{ dinero(d.total) }}</div><div class="sub">sin IVA, sin anuladas</div></div></div>
+      <div class="etiqueta">{{ 'Venta de ' ~ filtro if filtro else 'Venta del período' }}</div><div class="valor">C$ {{ dinero(d.total) }}</div>
+      <div class="sub">{% if d.filtrado %}{{ "{:.1f}".format(d.total / d.total_general * 100 if d.total_general else 0) }}% de la venta total de C$ {{ dinero(d.total_general) }}{% else %}sin IVA, sin anuladas{% endif %}</div></div></div>
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Departamento principal</div>
       <div class="valor" style="font-size: 1.1rem">{{ con_venta[0].depto|title if con_venta else '—' }}</div>
       <div class="sub">{% if con_venta %}C$ {{ dinero(con_venta[0].total) }} · {{ "{:.1f}".format(con_venta[0].pct) }}%{% endif %}</div></div></div>
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
-      <div class="etiqueta">Segmento principal</div><div class="valor" style="font-size: 1.1rem">{{ d.segmentos[0] if d.segmentos else '—' }}</div>
-      <div class="sub">{% if d.segmentos %}C$ {{ dinero(d.totales_seg[d.segmentos[0]]) }} · {{ "{:.1f}".format(d.totales_seg[d.segmentos[0]] / d.total * 100 if d.total else 0) }}%{% endif %}</div></div></div>
+      <div class="etiqueta">{{ nombre_nivel }} principal</div><div class="valor" style="font-size: 1.1rem">{{ d.grupos[0] if d.grupos else '—' }}</div>
+      <div class="sub">{% if d.grupos %}C$ {{ dinero(d.totales_grupo[d.grupos[0]]) }} · {{ "{:.1f}".format(d.totales_grupo[d.grupos[0]] / d.total * 100 if d.total else 0) }}%{% endif %}</div></div></div>
     <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Sin departamento</div>
       <div class="valor" style="color: #9a3412">{{ "{:.1f}".format(d.sin_depto / d.total * 100 if d.total else 0) }}%</div>
       <div class="sub">C$ {{ dinero(d.sin_depto) }} · <a href="/clientes">completar en Clientes</a>
@@ -102,9 +113,9 @@
     <div class="col-xl-5">
       <div class="card card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-          <div class="chips-seg" role="group" aria-label="Colorear el mapa por segmento">
+          <div class="chips-seg" role="group" aria-label="Colorear el mapa por {{ nombre_nivel|lower }}">
             <button type="button" data-seg="" aria-pressed="true">Todos</button>
-            {% for s in d.segmentos[:6] %}<button type="button" data-seg="{{ s }}" aria-pressed="false">{{ s }}</button>{% endfor %}
+            {% for s in d.grupos[:6] %}<button type="button" data-seg="{{ s }}" aria-pressed="false">{{ s }}</button>{% endfor %}
           </div>
           <div class="leyenda"><span>Menos</span><span class="escala" id="escala"></span><span>Más</span></div>
         </div>
@@ -133,8 +144,10 @@
         <div class="table-responsive" style="max-height: 640px">
           {% set segs = d.principales %}
           <table class="tabla-vd">
-            <caption class="visually-hidden">Venta por departamento y segmento</caption>
-            <thead><tr><th class="izq">Departamento</th>{% for s in segs %}<th>{{ s }}</th>{% endfor %}<th>Otros</th><th>Total C$</th><th>%</th><th class="izq">Mezcla</th></tr></thead>
+            <caption class="visually-hidden">Venta por departamento y {{ nombre_nivel|lower }}</caption>
+            <thead><tr><th class="izq">Departamento</th>{% for s in segs %}<th>{{ s }}</th>{% endfor %}<th>Otros</th><th>Total C${% if d.filtrado %}<br><span class="fw-normal">{{ filtro }}</span>{% endif %}</th><th>%</th>
+              {% if d.filtrado %}<th title="Venta del departamento sin el filtro">Venta total depto.</th><th title="Qué parte de la venta del departamento es {{ filtro }}">% de su venta</th>{% endif %}
+              <th class="izq">Mezcla</th><th class="izq">Ver</th></tr></thead>
             <tbody>
               {% for x in d.tabla %}
               <tr class="{{ 'sel' if x.depto|upper == f.depto }}" data-depto="{{ x.depto }}">
@@ -142,21 +155,28 @@
                   <div class="cobertura" title="{{ x.clientes }} compraron en el período de {{ x.cartera }} clientes en la tabla ({{ x.activos }} activos)">
                     {% if x.depto == ocasional %}<strong>{{ x.clientes }}</strong> compradores · no están en Clientes
                     {% else %}<strong>{{ x.clientes }}</strong> / {{ x.cartera }} clientes{% if x.cartera %} · {{ "{:.0f}".format(x.clientes / x.cartera * 100) }}%{% endif %}{% endif %}</div></td>
-                {% for s in segs %}<td>{{ dinero(x.segmentos.get(s, 0)) if x.segmentos.get(s) else '—' }}</td>{% endfor %}
+                {% for s in segs %}<td>{{ dinero(x.grupos.get(s, 0)) if x.grupos.get(s) else '—' }}</td>{% endfor %}
                 <td>{{ dinero(x.otros) if x.otros > 0.5 else '—' }}</td>
                 <td class="fw-bold">{{ dinero(x.total) }}</td>
                 <td>{{ "{:.1f}".format(x.pct) }}%</td>
-                <td class="izq"><div class="apilada" title="{% for s, v in x.segmentos|dictsort(by='value', reverse=true) %}{{ s }}: {{ '{:.0f}'.format(v / x.total * 100 if x.total else 0) }}%{{ ' · ' if not loop.last }}{% endfor %}">
-                  {% for s in d.segmentos %}{% if x.segmentos.get(s) %}<span data-color-seg="{{ s }}" style="width: {{ x.segmentos[s] / x.total * 100 if x.total else 0 }}%"></span>{% endif %}{% endfor %}</div></td>
+                {% if d.filtrado %}<td class="text-muted">{{ dinero(x.general) if x.general else '—' }}</td><td>{{ "{:.1f}".format(x.peso) ~ '%' if x.general else '—' }}</td>{% endif %}
+                <td class="izq"><div class="apilada" title="{% for s, v in x.grupos|dictsort(by='value', reverse=true) %}{{ s }}: {{ '{:.0f}'.format(v / x.total * 100 if x.total else 0) }}%{{ ' · ' if not loop.last }}{% endfor %}">
+                  {% for s in d.grupos %}{% if x.grupos.get(s) %}<span data-color-seg="{{ s }}" style="width: {{ x.grupos[s] / x.total * 100 if x.total else 0 }}%"></span>{% endif %}{% endfor %}</div></td>
+                <td class="izq">{% if x.total > 0 %}<div class="btn-group btn-group-sm" role="group" aria-label="Ver detalle de {{ x.depto }}">
+                  <button type="button" class="btn btn-outline-secondary btn-lista" data-tipo="clientes" data-ver="{{ x.depto }}" title="Clientes que compraron"><i class="bi bi-people" aria-hidden="true"></i><span class="visually-hidden">Clientes de {{ x.depto }}</span></button>
+                  <button type="button" class="btn btn-outline-secondary btn-lista" data-tipo="productos" data-ver="{{ x.depto }}" title="Productos vendidos"><i class="bi bi-box-seam" aria-hidden="true"></i><span class="visually-hidden">Productos de {{ x.depto }}</span></button>
+                </div>{% endif %}</td>
               </tr>
               {% endfor %}
             </tbody>
-            <tfoot><tr><td class="izq">Total<div class="cobertura"><strong>{{ "{:,}".format(d.compraron_total) }}</strong> / {{ "{:,}".format(d.cartera_total) }} clientes</div></td>{% for s in segs %}<td>{{ dinero(d.totales_seg.get(s, 0)) }}</td>{% endfor %}
-              <td>{{ dinero(d.otros_total) }}</td><td>{{ dinero(d.total) }}</td><td>100%</td><td></td></tr></tfoot>
+            <tfoot><tr><td class="izq">Total<div class="cobertura"><strong>{{ "{:,}".format(d.compraron_total) }}</strong> / {{ "{:,}".format(d.cartera_total) }} clientes</div></td>{% for s in segs %}<td>{{ dinero(d.totales_grupo.get(s, 0)) }}</td>{% endfor %}
+              <td>{{ dinero(d.otros_total) }}</td><td>{{ dinero(d.total) }}</td><td>100%</td>
+              {% if d.filtrado %}<td class="text-muted">{{ dinero(d.total_general) }}</td><td>{{ "{:.1f}".format(d.total / d.total_general * 100 if d.total_general else 0) }}%</td>{% endif %}
+              <td></td><td></td></tr></tfoot>
           </table>
         </div>
-        <div class="d-flex flex-wrap gap-2 p-2 small" aria-label="Colores de segmento">
-          {% for s in d.segmentos %}<span class="d-inline-flex align-items-center gap-1"><span data-color-seg="{{ s }}" style="width: 10px; height: 10px; border-radius: 2px; display: inline-block"></span>{{ s }}</span>{% endfor %}
+        <div class="d-flex flex-wrap gap-2 p-2 small" aria-label="Colores de {{ nombre_nivel|lower }}">
+          {% for s in d.grupos %}<span class="d-inline-flex align-items-center gap-1"><span data-color-seg="{{ s }}" style="width: 10px; height: 10px; border-radius: 2px; display: inline-block"></span>{{ s }}</span>{% endfor %}
         </div>
       </div>
     </div>
@@ -166,7 +186,7 @@
   <div class="card card-body mt-3 p-0">
     <div class="d-flex flex-wrap justify-content-between align-items-center px-3 pt-3 pb-2">
       <h6 class="mb-0" style="color: var(--credito)"><i class="bi bi-diagram-3" aria-hidden="true"></i> Familias y subfamilias vendidas
-        <span class="text-muted fw-normal small">· {{ (f.depto|title) if f.depto else 'todos los departamentos' }}{{ (' · ' ~ f.segmento) if f.segmento else '' }}</span></h6>
+        <span class="text-muted fw-normal small">· {{ (f.depto|title) if f.depto else 'todos los departamentos' }}{{ (' · ' ~ filtro) if filtro else '' }}</span></h6>
       <span class="small text-muted">C$ {{ dinero(d.total_familias) }} · clic en una familia para ver sus subfamilias</span>
     </div>
     <div class="fam">
@@ -176,7 +196,8 @@
       {% set pct = fa.monto / d.total_familias * 100 if d.total_familias else 0 %}
       <details>
         <summary><span><i class="bi bi-chevron-right small" aria-hidden="true"></i> <strong>{{ fa.familia }}</strong>
-          <span class="text-muted small">· {{ fa.subfamilias|length }} subfamilia{{ 's' if fa.subfamilias|length != 1 }}</span></span>
+          <span class="text-muted small">· {{ fa.subfamilias|length }} subfamilia{{ 's' if fa.subfamilias|length != 1 }}</span>
+          {% if fa.familia != f.familia %}<a class="small ms-1 filtrar-fam" href="{{ url_for('ventas_departamento.reporte', **dict(params, familia=fa.familia)) }}" title="Filtrar todo el reporte por esta familia"><i class="bi bi-funnel" aria-hidden="true"></i> filtrar</a>{% endif %}</span>
           <span class="num fw-bold">{{ dinero(fa.monto) }}</span><span class="num col-ocultable">{{ "{:.1f}".format(pct) }}%</span>
           <span class="barra col-ocultable"><span style="width: {{ pct }}%"></span></span></summary>
         {% for sf in fa.subfamilias %}
@@ -195,10 +216,46 @@
     Las ventas de clientes sin departamento o de mostrador se muestran como "Sin departamento". Segmento, familia y subfamilia salen de Clasificación de productos.</div>
 </div>
 
+<div class="modal fade" id="modalLista" tabindex="-1" aria-labelledby="modalListaTitulo" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header py-2"><h5 class="modal-title" id="modalListaTitulo" style="color: var(--credito)"></h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <div class="modal-body" id="modalListaCuerpo"></div>
+  </div></div>
+</div>
+
 <script>
 (() => {
+  // Clientes / productos de un departamento (con el período y el filtro de segmento/familia)
+  const URL_LISTA = {{ url_for('ventas_departamento.lista')|tojson }};
+  const BASE = {{ {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'segmento': f.segmento, 'familia': f.familia}|tojson }};
+  const titulo = document.getElementById('modalListaTitulo'), cuerpo = document.getElementById('modalListaCuerpo');
+  const nombre = (d) => ['RACCN', 'RACCS'].includes(d) ? d : d.charAt(0) + d.slice(1).toLowerCase();
+  document.querySelectorAll('.btn-lista').forEach(b => b.addEventListener('click', async () => {
+    const tipo = b.dataset.tipo, dep = b.dataset.ver;
+    titulo.innerHTML = '<i class="bi ' + (tipo === 'clientes' ? 'bi-people' : 'bi-box-seam') + '" aria-hidden="true"></i> ';
+    titulo.append((tipo === 'clientes' ? 'Clientes' : 'Productos') + ' · ' + nombre(dep));
+    cuerpo.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm" role="status"></div> Cargando…</div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalLista')).show();
+    try {
+      const r = await fetch(URL_LISTA + '?' + new URLSearchParams({...BASE, tipo, ver: dep}));
+      if (!r.ok) throw new Error(r.status);
+      cuerpo.innerHTML = await r.text();
+      const buscar = cuerpo.querySelector('[data-buscar-lista]');
+      buscar?.addEventListener('input', () => {
+        const q = buscar.value.trim().toLowerCase();
+        cuerpo.querySelectorAll('tbody tr').forEach(tr => tr.hidden = !!q && !tr.textContent.toLowerCase().includes(q));
+      });
+    } catch (e) { cuerpo.innerHTML = '<div class="alert alert-danger mb-0">No se pudo cargar la lista. Intente de nuevo.</div>'; }
+  }));
+  // Al cambiar de segmento, la familia elegida ya no aplica
+  document.getElementById('segmento').addEventListener('change', (e) => { document.getElementById('familia').value = ''; e.target.form.submit(); });
+  document.getElementById('familia').addEventListener('change', (e) => e.target.form.submit());
+})();
+
+(() => {
   const DATOS = {{ d.mapa_datos|tojson }};
-  const SEGMENTOS = {{ d.segmentos|tojson }};
+  const SEGMENTOS = {{ d.grupos|tojson }};
   // Colores de segmento: corporativos primero y luego neutros distinguibles
   const PALETA = ['#027266', '#FE6412', '#4F6D8A', '#8AB17D', '#D9A441', '#9C6644', '#6D597A', '#A8A29E', '#C9ADA7', '#5E8C61'];
   const color = (s) => s === 'Sin clasificar' ? '#D6D3CE' : PALETA[SEGMENTOS.indexOf(s) % PALETA.length];

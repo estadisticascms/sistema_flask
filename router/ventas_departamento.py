@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import time
 from datetime import date, datetime
 
 from flask import Blueprint, current_app, render_template, request, send_file
@@ -185,69 +186,104 @@ def leer_filtros(args):
     hasta = fecha_param(args.get("hasta"), ultima)
     desde = min(fecha_param(args.get("desde"), ultima.replace(day=1)), hasta)
     return {"desde": desde, "hasta": hasta, "ultima": ultima,
-            "depto": (args.get("depto") or "").strip().upper(), "segmento": (args.get("segmento") or "").strip()}
+            "depto": (args.get("depto") or "").strip().upper(), "segmento": (args.get("segmento") or "").strip(),
+            "familia": (args.get("familia") or "").strip()}
 
 
-def calcular(f):
+_VENTAS = {}   # (desde, hasta) -> (hora, filas): la página y las listas de clientes/productos leen lo mismo
+
+
+def ventas_periodo(desde, hasta):
+    """(cliente, código, monto, unidades, descripción) del período; 5 minutos en memoria (ventas_por_producto no tiene índices)."""
+    clave, ahora = (desde, hasta), time.time()
+    if clave in _VENTAS and ahora - _VENTAS[clave][0] < 300:
+        return _VENTAS[clave][1]
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # Una sola lectura de ventas_por_producto (no tiene índices)
         cursor.execute("""
-            SELECT TRIM(Cliente), Codigo, SUM(`Sub-Total 2`), SUM(`Cantidad Vendida`)
+            SELECT TRIM(Cliente), Codigo, SUM(`Sub-Total 2`), SUM(`Cantidad Vendida`), MAX(`Descrip Prod.`)
             FROM ventas_por_producto WHERE Fecha BETWEEN %s AND %s AND Estatus <> 'Anulado'
             GROUP BY TRIM(Cliente), Codigo
-        """, (f["desde"].isoformat(), f["hasta"].isoformat()))
-        filas = cursor.fetchall()
+        """, (desde.isoformat(), hasta.isoformat()))
+        filas = [(c, cod, float(m or 0), float(u or 0), desc) for c, cod, m, u, desc in cursor.fetchall()]
     finally:
         cursor.close()
         conn.close()
+    for k in [k for k, v in _VENTAS.items() if ahora - v[0] >= 300]:
+        del _VENTAS[k]
+    _VENTAS[clave] = (ahora, filas)
+    return filas
 
+
+def nivel_de(f):
+    """Qué desglosan las columnas: segmentos, las familias del segmento elegido o las subfamilias de la familia elegida."""
+    return "subfamilia" if f["familia"] else "familia" if f["segmento"] else "segmento"
+
+
+def pasa_filtro(f, seg, fam):
+    return (not f["segmento"] or seg == f["segmento"]) and (not f["familia"] or fam == f["familia"])
+
+
+def clave_cliente(cliente):
+    return " ".join((cliente or "").upper().split())
+
+
+def calcular(f):
     deptos, clase = departamentos_clientes(), clasificacion()
-    por_depto = {}      # depto -> {total, segmentos:{}, clientes:set}
-    detalle = {}        # (depto, segmento, familia, subfamilia) -> [monto, unidades]
-    total = 0.0
-    for cliente, codigo, monto, unidades in filas:
-        monto, unidades = float(monto or 0), float(unidades or 0)
-        depto = deptos.get(" ".join((cliente or "").upper().split()), OCASIONAL)
+    nivel = nivel_de(f)
+    por_depto = {}      # depto -> {total (con filtro), general (sin filtro), grupos:{}, clientes:set}
+    detalle = {}        # (depto, segmento, familia, subfamilia) -> [monto, unidades]   (con filtro)
+    seg_todos, fam_opciones = {}, {}
+    total = total_general = 0.0
+    for cliente, codigo, monto, unidades, _desc in ventas_periodo(f["desde"], f["hasta"]):
+        depto = deptos.get(clave_cliente(cliente), OCASIONAL)
         seg, fam, sub = clase.get(codigo, (SIN_SEGMENTO, SIN_SEGMENTO, SIN_SEGMENTO))
-        d = por_depto.setdefault(depto, {"total": 0.0, "segmentos": {}, "clientes": set()})
+        d = por_depto.setdefault(depto, {"total": 0.0, "general": 0.0, "grupos": {}, "clientes": set()})
+        d["general"] += monto
+        total_general += monto
+        seg_todos[seg] = seg_todos.get(seg, 0.0) + monto
+        if not f["segmento"] or seg == f["segmento"]:
+            fam_opciones[fam] = fam_opciones.get(fam, 0.0) + monto
+        if not pasa_filtro(f, seg, fam):
+            continue
+        grupo = sub if nivel == "subfamilia" else fam if nivel == "familia" else seg
         d["total"] += monto
-        d["segmentos"][seg] = d["segmentos"].get(seg, 0.0) + monto
+        d["grupos"][grupo] = d["grupos"].get(grupo, 0.0) + monto
         d["clientes"].add(cliente)
         x = detalle.setdefault((depto, seg, fam, sub), [0.0, 0.0])
         x[0] += monto
         x[1] += unidades
         total += monto
 
-    totales_seg = {}
+    totales_grupo = {}
     for d in por_depto.values():
-        for s, v in d["segmentos"].items():
-            totales_seg[s] = totales_seg.get(s, 0.0) + v
-    segmentos = [s for s, _ in sorted(totales_seg.items(), key=lambda x: -x[1])]
+        for g, v in d["grupos"].items():
+            totales_grupo[g] = totales_grupo.get(g, 0.0) + v
+    grupos = [g for g, _ in sorted(totales_grupo.items(), key=lambda x: -x[1])]
 
     cartera = cartera_por_departamento()
     tabla = []
     for nombre, d in por_depto.items():
         c = cartera.get(nombre, {"total": 0, "activos": 0})
-        tabla.append({"depto": nombre, "total": d["total"], "segmentos": d["segmentos"], "clientes": len(d["clientes"]),
+        tabla.append({"depto": nombre, "total": d["total"], "general": d["general"], "grupos": d["grupos"], "clientes": len(d["clientes"]),
                       "cartera": c["total"], "activos": c["activos"],
                       "pct": d["total"] / total * 100 if total else 0,
-                      "principal": max(d["segmentos"].items(), key=lambda x: x[1])[0] if d["segmentos"] else None})
+                      "peso": d["total"] / d["general"] * 100 if d["general"] else 0})
     for nombre, c in cartera.items():
         if nombre not in por_depto:
-            tabla.append({"depto": nombre, "total": 0.0, "segmentos": {}, "clientes": 0, "cartera": c["total"],
-                          "activos": c["activos"], "pct": 0, "principal": None})
-    tabla.sort(key=lambda x: (x["depto"] in FUERA_DEL_MAPA, x["depto"] == OCASIONAL, -x["total"]))
-    principales = segmentos[:5]   # columnas de la tabla; el resto va en "Otros"
+            tabla.append({"depto": nombre, "total": 0.0, "general": 0.0, "grupos": {}, "clientes": 0, "cartera": c["total"],
+                          "activos": c["activos"], "pct": 0, "peso": 0})
+    tabla.sort(key=lambda x: (x["depto"] in FUERA_DEL_MAPA, x["depto"] == OCASIONAL, -x["total"], -x["general"]))
+    principales = grupos[:5]   # columnas de la tabla; el resto va en "Otros"
     for x in tabla:
-        x["otros"] = x["total"] - sum(x["segmentos"].get(sg, 0) for sg in principales)
-    otros_total = total - sum(totales_seg.get(sg, 0) for sg in principales)
+        x["otros"] = x["total"] - sum(x["grupos"].get(g, 0) for g in principales)
+    otros_total = total - sum(totales_grupo.get(g, 0) for g in principales)
 
-    # Familia / subfamilia (del departamento y segmento elegidos, o de todo)
+    # Familia / subfamilia (del departamento elegido, o de todo; ya con segmento/familia aplicados)
     familias = {}
     for (depto, seg, fam, sub), (monto, unidades) in detalle.items():
-        if (f["depto"] and depto.upper() != f["depto"]) or (f["segmento"] and seg != f["segmento"]):
+        if f["depto"] and depto.upper() != f["depto"]:
             continue
         fa = familias.setdefault(fam, {"familia": fam, "monto": 0.0, "unidades": 0.0, "subfamilias": {}})
         fa["monto"] += monto
@@ -262,13 +298,61 @@ def calcular(f):
 
     sin = por_depto.get(SIN_DEPTO, {"total": 0.0})["total"]
     ocasional = por_depto.get(OCASIONAL, {"total": 0.0})["total"]
-    return {"tabla": tabla, "segmentos": segmentos, "principales": principales, "otros_total": otros_total, "totales_seg": totales_seg, "total": total, "sin_depto": sin, "ocasional": ocasional,
+    return {"tabla": tabla, "nivel": nivel, "filtrado": bool(f["segmento"] or f["familia"]), "grupos": grupos,
+            "principales": principales, "otros_total": otros_total, "totales_grupo": totales_grupo,
+            "total": total, "total_general": total_general,
+            "segmentos_todos": [s for s, _ in sorted(seg_todos.items(), key=lambda x: -x[1])],
+            "familias_opciones": [fa for fa, _ in sorted(fam_opciones.items(), key=lambda x: -x[1])],
+            "sin_depto": sin, "ocasional": ocasional,
             "familias": lista_fam, "total_familias": total_fam, "detalle": detalle,
-            "mapa_datos": {d["depto"]: {"total": round(d["total"], 2), "segmentos": {s: round(v, 2) for s, v in d["segmentos"].items()},
+            "mapa_datos": {d["depto"]: {"total": round(d["total"], 2), "segmentos": {g: round(v, 2) for g, v in d["grupos"].items()},
                                         "clientes": d["clientes"], "cartera": d["cartera"], "activos": d["activos"]}
                            for d in tabla if d["depto"] not in FUERA_DEL_MAPA and d["total"] > 0},
             "cartera_total": sum(c["total"] for c in cartera.values()),
             "compraron_total": sum(x["clientes"] for x in tabla)}
+
+
+def texto_filtro(f):
+    return " · ".join(x for x in (f["segmento"], f["familia"]) if x)
+
+
+def nombre_depto(depto):
+    for d in DEPARTAMENTOS + [SIN_DEPTO, OCASIONAL]:
+        if d.upper() == (depto or "").upper():
+            return d
+    return None
+
+
+def lista_depto(f, depto, tipo):
+    """Clientes o productos que compraron en un departamento, con los filtros de segmento/familia."""
+    deptos, clase = departamentos_clientes(), clasificacion()
+    filas, total = {}, 0.0
+    for cliente, codigo, monto, unidades, desc in ventas_periodo(f["desde"], f["hasta"]):
+        if deptos.get(clave_cliente(cliente), OCASIONAL) != depto:
+            continue
+        seg, fam, sub = clase.get(codigo, (SIN_SEGMENTO, SIN_SEGMENTO, SIN_SEGMENTO))
+        if not pasa_filtro(f, seg, fam):
+            continue
+        total += monto
+        if tipo == "clientes":
+            x = filas.setdefault(cliente, {"cliente": cliente, "monto": 0.0, "unidades": 0.0, "productos": set()})
+            x["productos"].add(codigo)
+        else:
+            x = filas.setdefault(codigo, {"codigo": codigo, "descripcion": desc, "segmento": seg, "familia": fam, "subfamilia": sub,
+                                          "monto": 0.0, "unidades": 0.0, "clientes": set()})
+            x["clientes"].add(cliente)
+        x["monto"] += monto
+        x["unidades"] += unidades
+    lista = sorted(filas.values(), key=lambda x: -x["monto"])
+    for x in lista:
+        for campo in ("productos", "clientes"):
+            if campo in x:
+                x[campo] = len(x[campo])
+        x["pct"] = x["monto"] / total * 100 if total else 0
+    return lista, total
+
+
+NIVELES = {"segmento": "Segmento", "familia": "Familia", "subfamilia": "Subfamilia"}
 
 
 @ventas_departamento_bp.route("/ventas_departamento")
@@ -277,7 +361,34 @@ def reporte():
     f = leer_filtros(request.args)
     d = calcular(f)
     return render_template("ventas_departamento.html", f=f, d=d, mapa=mapa(), rangos=rangos_rapidos(f["ultima"]),
-                           departamentos=DEPARTAMENTOS, sin_depto=SIN_DEPTO, ocasional=OCASIONAL, fuera_del_mapa=FUERA_DEL_MAPA)
+                           departamentos=DEPARTAMENTOS, sin_depto=SIN_DEPTO, ocasional=OCASIONAL, fuera_del_mapa=FUERA_DEL_MAPA,
+                           filtro=texto_filtro(f), nombre_nivel=NIVELES[d["nivel"]])
+
+
+def encabezado_excel(ws, columnas, fila=4):
+    for i, (nombre, ancho) in enumerate(columnas, start=1):
+        c = ws.cell(row=fila, column=i, value=nombre)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=NARANJA if nombre.startswith("Total C$") else VERDE)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(i)].width = ancho
+
+
+def titulo_excel(ws, titulo, nota):
+    ws["A1"], ws["A2"] = titulo, nota
+    ws["A1"].font = Font(bold=True, size=14, color=VERDE)
+    ws["A2"].font = Font(size=9, color="52514E")
+
+
+def enviar_libro(wb, nombre):
+    salida = io.BytesIO()
+    wb.save(salida)
+    salida.seek(0)
+    return send_file(salida, as_attachment=True, download_name=nombre,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+NOTA_EXCEL = "Venta neta sin IVA (después de descuentos, sin facturas anuladas). Departamento según la ficha del cliente."
 
 
 @ventas_departamento_bp.route("/ventas_departamento/excel")
@@ -285,38 +396,34 @@ def reporte():
 def descargar_excel():
     f = leer_filtros(request.args)
     d = calcular(f)
+    filtro = texto_filtro(f)
     wb = Workbook()
-    titulo = f"Ventas por departamento del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}"
-    nota = "Venta neta sin IVA (después de descuentos, sin facturas anuladas). Departamento según la ficha del cliente."
-
-    def encabezado(ws, columnas, fila=4):
-        for i, (nombre, ancho) in enumerate(columnas, start=1):
-            c = ws.cell(row=fila, column=i, value=nombre)
-            c.font = Font(bold=True, color="FFFFFF")
-            c.fill = PatternFill("solid", fgColor=NARANJA if nombre == "Total C$" else VERDE)
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            ws.column_dimensions[get_column_letter(i)].width = ancho
+    titulo = f"Ventas por departamento del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}" + (f" · {filtro}" if filtro else "")
 
     ws = wb.active
-    ws.title = "Departamento y segmento"
-    ws["A1"], ws["A2"] = titulo, nota
-    ws["A1"].font = Font(bold=True, size=14, color=VERDE)
-    ws["A2"].font = Font(size=9, color="52514E")
-    columnas = [("Departamento", 20)] + [(s, 14) for s in d["segmentos"]] + [("Total C$", 15), ("% del total", 10), ("Clientes que compraron", 11),
-                                                                                ("Clientes en cartera", 10), ("Activos en cartera", 10), ("% que compró", 10)]
-    encabezado(ws, columnas)
+    ws.title = "Departamento"
+    titulo_excel(ws, titulo, NOTA_EXCEL)
+    grupos = d["grupos"]
+    columnas = ([("Departamento", 20)] + [(g, 14) for g in grupos]
+                + [("Total C$" + (" (filtro)" if d["filtrado"] else ""), 15), ("% del total", 10)]
+                + ([("Venta total del depto. C$", 15), ("% de la venta del depto.", 11)] if d["filtrado"] else [])
+                + [("Clientes que compraron", 11), ("Clientes en cartera", 10), ("Activos en cartera", 10), ("% que compró", 10)])
+    encabezado_excel(ws, columnas)
+    col_total = len(grupos) + 2
     for n, x in enumerate(d["tabla"], start=5):
-        valores = ([x["depto"]] + [round(x["segmentos"].get(s, 0), 2) or None for s in d["segmentos"]]
-                   + [round(x["total"], 2), x["pct"] / 100, x["clientes"], x["cartera"], x["activos"],
-                      x["clientes"] / x["cartera"] if x["cartera"] else None])
-        pct_cols = {len(d["segmentos"]) + 3, len(valores)}
+        valores = ([x["depto"]] + [round(x["grupos"].get(g, 0), 2) or None for g in grupos]
+                   + [round(x["total"], 2), x["pct"] / 100]
+                   + ([round(x["general"], 2), x["peso"] / 100] if d["filtrado"] else [])
+                   + [x["clientes"], x["cartera"], x["activos"], x["clientes"] / x["cartera"] if x["cartera"] else None])
         for i, v in enumerate(valores, start=1):
             c = ws.cell(row=n, column=i, value=v)
-            c.number_format = "0.0%" if i in pct_cols else ("#,##0" if i > len(d["segmentos"]) + 3 else "#,##0.00")
-        ws.cell(row=n, column=len(d["segmentos"]) + 2).font = Font(bold=True)
+            nombre = columnas[i - 1][0]
+            c.number_format = "0.0%" if nombre.startswith("%") else ("#,##0" if nombre.startswith(("Clientes", "Activos")) else "#,##0.00")
+        ws.cell(row=n, column=col_total).font = Font(bold=True)
     tot = 5 + len(d["tabla"])
     ws.cell(row=tot, column=1, value="TOTAL").font = Font(bold=True)
-    for i in range(2, len(d["segmentos"]) + 3):
+    sumar = list(range(2, col_total + 1)) + ([col_total + 2] if d["filtrado"] else [])
+    for i in sumar:
         l = get_column_letter(i)
         c = ws.cell(row=tot, column=i, value=f"=SUM({l}5:{l}{tot - 1})")
         c.font = Font(bold=True)
@@ -324,10 +431,8 @@ def descargar_excel():
     ws.freeze_panes = "B5"
 
     ws2 = wb.create_sheet("Familia y subfamilia")
-    ws2["A1"], ws2["A2"] = titulo + " · detalle", nota
-    ws2["A1"].font = Font(bold=True, size=14, color=VERDE)
-    ws2["A2"].font = Font(size=9, color="52514E")
-    encabezado(ws2, [("Departamento", 20), ("Segmento", 22), ("Familia", 30), ("Subfamilia", 36), ("Total C$", 15), ("Unidades", 11)])
+    titulo_excel(ws2, titulo + " · detalle", NOTA_EXCEL)
+    encabezado_excel(ws2, [("Departamento", 20), ("Segmento", 22), ("Familia", 30), ("Subfamilia", 36), ("Total C$", 15), ("Unidades", 11)])
     filas = sorted(d["detalle"].items(), key=lambda x: (x[0][0] in FUERA_DEL_MAPA, x[0][0], -x[1][0]))
     for n, ((depto, seg, fam, sub), (monto, unidades)) in enumerate(filas, start=5):
         for i, v in enumerate([depto, seg, fam, sub, round(monto, 2), unidades], start=1):
@@ -336,9 +441,53 @@ def descargar_excel():
         ws2.cell(row=n, column=6).number_format = "#,##0.##"
     ws2.freeze_panes = "A5"
     ws2.auto_filter.ref = f"A4:F{4 + max(len(filas), 1)}"
+    return enviar_libro(wb, f"ventas_departamento_{f['desde']}_al_{f['hasta']}.xlsx")
 
-    salida = io.BytesIO()
-    wb.save(salida)
-    salida.seek(0)
-    return send_file(salida, as_attachment=True, download_name=f"ventas_departamento_{f['desde']}_al_{f['hasta']}.xlsx",
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@ventas_departamento_bp.route("/ventas_departamento/lista")
+@requiere_acceso("ventas_departamento")
+def lista():
+    """Clientes (tipo=clientes) o productos (tipo=productos) de un departamento; HTML para la ventana o Excel."""
+    f = leer_filtros(request.args)
+    tipo = "productos" if request.args.get("tipo") == "productos" else "clientes"
+    depto = nombre_depto(request.args.get("ver"))
+    if not depto:
+        return "Departamento no válido", 400
+    filas, total = lista_depto(f, depto, tipo)
+    filtro = texto_filtro(f)
+    if request.args.get("formato") != "excel":
+        return render_template("ventas_departamento_lista.html", f=f, tipo=tipo, depto=depto, filas=filas, total=total, filtro=filtro)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = tipo.capitalize()
+    titulo_excel(ws, f"{'Clientes' if tipo == 'clientes' else 'Productos'} de {depto} del {f['desde']:%d/%m/%Y} al {f['hasta']:%d/%m/%Y}"
+                 + (f" · {filtro}" if filtro else ""), NOTA_EXCEL)
+    if tipo == "clientes":
+        columnas = [("#", 5), ("Cliente", 45), ("Total C$", 15), ("% del depto.", 10), ("Unidades", 11), ("Productos distintos", 11)]
+        valores = [[n, x["cliente"], round(x["monto"], 2), x["pct"] / 100, x["unidades"], x["productos"]] for n, x in enumerate(filas, 1)]
+    else:
+        columnas = [("#", 5), ("Código", 16), ("Descripción", 45), ("Segmento", 20), ("Familia", 26), ("Subfamilia", 30),
+                    ("Total C$", 15), ("% del depto.", 10), ("Unidades", 11), ("Clientes", 10)]
+        valores = [[n, x["codigo"], x["descripcion"], x["segmento"], x["familia"], x["subfamilia"], round(x["monto"], 2), x["pct"] / 100,
+                    x["unidades"], x["clientes"]] for n, x in enumerate(filas, 1)]
+    encabezado_excel(ws, columnas)
+    for r, fila in enumerate(valores, start=5):
+        for i, v in enumerate(fila, start=1):
+            c = ws.cell(row=r, column=i, value=v)
+            nombre = columnas[i - 1][0]
+            if nombre == "Total C$":
+                c.number_format = "#,##0.00"
+            elif nombre.startswith("%"):
+                c.number_format = "0.0%"
+            elif nombre == "Unidades":
+                c.number_format = "#,##0.##"
+    tot = 5 + len(valores)
+    col = [c[0] for c in columnas].index("Total C$") + 1
+    ws.cell(row=tot, column=col - 1, value="TOTAL").font = Font(bold=True)
+    c = ws.cell(row=tot, column=col, value=round(total, 2))
+    c.font = Font(bold=True)
+    c.number_format = "#,##0.00"
+    ws.freeze_panes = "A5"
+    ws.auto_filter.ref = f"A4:{get_column_letter(len(columnas))}{max(tot - 1, 5)}"
+    return enviar_libro(wb, f"{tipo}_{normal(depto).replace(' ', '_').lower()}_{f['desde']}_al_{f['hasta']}.xlsx")
