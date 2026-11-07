@@ -86,6 +86,20 @@
         </div>
       </form>
     </div>
+    <hr class="my-3">
+    <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end"
+          onsubmit="const b = this.querySelector('button[type=submit]'); b.disabled = true; b.innerText = 'Subiendo…';">
+      <input type="hidden" name="accion" value="subir">
+      <div class="col-12 fw-semibold" style="color: var(--credito)"><i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Subir desde Excel</div>
+      <div class="col-12 small text-muted">Para listas largas: descargue la plantilla, llene una fila por producto (código o número de parte, y una nota opcional) y súbala.
+        Los que ya están en la campaña no se duplican; si traen nota, se actualiza.</div>
+      <div class="col-md-auto"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('estrategia_productos.plantilla_campana') }}">
+        <i class="bi bi-download" aria-hidden="true"></i> Descargar plantilla</a></div>
+      <div class="col-md">
+        <label class="form-label visually-hidden" for="archivo-productos">Excel con la lista de productos</label>
+        <input type="file" id="archivo-productos" name="archivo" accept=".xlsx,.xls" class="form-control form-control-sm" required></div>
+      <div class="col-md-auto"><button type="submit" class="btn btn-success btn-sm"><i class="bi bi-upload" aria-hidden="true"></i> Subir y agregar</button></div>
+    </form>
   </div>
   {% endif %}
   <form method="post" id="form-eliminar" onsubmit="return confirm('¿Eliminar la campaña y su lista de productos? Las ventas no se tocan.');"><input type="hidden" name="accion" value="eliminar"></form>

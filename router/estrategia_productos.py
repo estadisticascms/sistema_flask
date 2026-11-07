@@ -22,6 +22,8 @@ from router.productos_incompletos import tiene_valor
 from router.productos_sin_movimiento import DIAS_MES, PRECIOS, TC_DEFECTO
 from router.sugerido_compras import a_fecha
 from router.ventas_bodegas import en_cache
+from router.cargar_catalogo import sin_tildes
+from router.cargar_ventas import ErrorArchivo, a_texto, leer_filas
 
 estrategia_bp = Blueprint("estrategia_productos", __name__)
 
@@ -312,8 +314,14 @@ def resolver_codigos(texto):
     """Texto pegado (códigos o números de parte, uno por línea o separados por coma, punto y coma o tabulador) ->
     (códigos del catálogo, no encontrados, números de parte que corresponden a varios códigos)."""
     tokens = list(dict.fromkeys(t.strip().upper() for t in re.split(r"[\n\r,;\t]+", texto or "") if t.strip()))
+    encontrados, no_encontrados, varios = mapa_codigos(tokens)
+    return list(dict.fromkeys(encontrados[t] for t in tokens if t in encontrados)), no_encontrados, varios
+
+
+def mapa_codigos(tokens):
+    """Códigos o números de parte (en mayúsculas) -> ({token: código del catálogo}, no encontrados, partes con varios códigos)."""
     if not tokens:
-        return [], [], []
+        return {}, [], []
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -328,17 +336,17 @@ def resolver_codigos(texto):
     por_parte = {}
     for c, p in filas:
         por_parte.setdefault(p, []).append(c)
-    codigos, no_encontrados, varios = [], [], []
+    encontrados, no_encontrados, varios = {}, [], []
     for t in tokens:
         if t in por_codigo:                     # el código manda sobre el número de parte
-            codigos.append(por_codigo[t])
+            encontrados[t] = por_codigo[t]
         elif len(por_parte.get(t, [])) == 1:
-            codigos.append(por_parte[t][0])
+            encontrados[t] = por_parte[t][0]
         elif por_parte.get(t):
             varios.append(f"{t} ({', '.join(por_parte[t][:5])})")
         else:
             no_encontrados.append(t)
-    return list(dict.fromkeys(codigos)), no_encontrados, varios
+    return encontrados, no_encontrados, varios
 
 
 @estrategia_bp.route("/campanas_mkt/buscar")
@@ -646,6 +654,8 @@ def nueva_campana():
 def campana(id_):
     if request.method == "POST" and request.form.get("accion") == "agregar":
         return agregar_productos(id_)
+    if request.method == "POST" and request.form.get("accion") == "subir":
+        return subir_productos(id_)
     if request.method == "POST":
         accion = request.form.get("accion")
         conn = get_connection()
@@ -727,6 +737,157 @@ def agregar_productos(id_):
         flash("Estos números de parte corresponden a varios códigos; agréguelos por código: " + "; ".join(varios[:15]), "warning")
     if not (codigos or no_encontrados or varios):
         flash("Escriba o pegue al menos un código o número de parte.", "warning")
+    return volver
+
+
+# -----------------------------
+# Plantilla de Excel para subir la lista de productos de una campaña
+# -----------------------------
+ENCABEZADOS_PLANTILLA = ["Codigo", "Numero de parte", "Nota"]
+MAX_FILAS_PLANTILLA = 5000
+# Encabezados aceptados (sin tildes, espacios ni signos), por si la lista viene de otro reporte
+COLUMNAS_CODIGO = {"CODIGO", "CODIGOPRODUCTO", "COD", "CODPRODUCTO"}
+COLUMNAS_PARTE = {"NUMERODEPARTE", "NUMEROPARTE", "NPARTE", "NOPARTE", "NUMPARTE", "PARTE", "NUMERO_PARTE"}
+COLUMNAS_NOTA = {"NOTA", "NOTAS", "COMENTARIO", "OBSERVACION", "OBSERVACIONES"}
+
+
+def nombre_columna(valor):
+    return re.sub(r"[^A-Z0-9]", "", sin_tildes(a_texto(valor)).upper())
+
+
+@estrategia_bp.route("/campanas_mkt/plantilla")
+@requiere_acceso("estrategia_productos")
+def plantilla_campana():
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Productos"
+    for i, (nombre, ancho) in enumerate(zip(ENCABEZADOS_PLANTILLA, (16, 24, 50)), start=1):
+        c = ws.cell(row=1, column=i, value=nombre)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=NARANJA if nombre == "Nota" else VERDE)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        ws.column_dimensions[get_column_letter(i)].width = ancho
+    for fila in range(2, 502):   # como texto, para que Excel no quite ceros ni cambie números de parte
+        for col in (1, 2):
+            ws.cell(row=fila, column=col).number_format = "@"
+    ws.freeze_panes = "A2"
+
+    ayuda = wb.create_sheet("Instrucciones")
+    ayuda.column_dimensions["A"].width = 100
+    lineas = [
+        ("Cómo llenar la plantilla de productos para una campaña", True),
+        ("", False),
+        ("1. Llene la hoja «Productos» desde la fila 2: un producto por fila.", False),
+        ("2. Codigo: el código del producto en el catálogo (ej. COM41442). Es lo más seguro.", False),
+        ("3. Numero de parte: úselo si no tiene el código. Si ese número de parte corresponde a varios códigos, el producto no se agrega", False),
+        ("   y se le avisa para que ponga el código.", False),
+        ("4. Si llena las dos columnas, manda el código.", False),
+        ("5. Nota (opcional): comentario del producto en la campaña (ej. «combo con filtro», «precio especial C$ 450»).", False),
+        ("6. No cambie los nombres de los encabezados. Las filas vacías se ignoran; los productos repetidos se agregan una sola vez.", False),
+        ("7. En la campaña: «Agregar productos» → «Subir desde Excel». Los productos que ya estaban en la campaña no se duplican;", False),
+        ("   si traen nota, se les actualiza.", False),
+        ("", False),
+        (f"Máximo {MAX_FILAS_PLANTILLA:,} productos por archivo. Al agregarlos se guarda su existencia, costo, precio y venta mensual de hoy", False),
+        ("para medir el avance de la campaña.", False),
+    ]
+    for n, (texto, negrita) in enumerate(lineas, start=1):
+        c = ayuda.cell(row=n, column=1, value=texto)
+        c.font = Font(bold=True, size=13, color=VERDE) if negrita else Font(size=10)
+    salida = io.BytesIO()
+    wb.save(salida)
+    salida.seek(0)
+    return send_file(salida, as_attachment=True, download_name="plantilla_productos_campana.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+def leer_plantilla(archivo):
+    """Filas (código o número de parte, nota) del Excel. Busca los encabezados en las primeras filas; si no los hay,
+    toma la primera columna como códigos / números de parte."""
+    try:
+        filas = leer_filas(archivo, "Productos")
+    except ErrorArchivo as e:
+        if "no tiene la hoja" not in str(e):
+            raise
+        archivo.seek(0)
+        filas = leer_filas(archivo)
+    col_cod = col_parte = col_nota = None
+    inicio = 0
+    for i, fila in enumerate(filas[:20]):
+        nombres = [nombre_columna(v) for v in fila]
+        cod = next((j for j, n in enumerate(nombres) if n in COLUMNAS_CODIGO), None)
+        parte = next((j for j, n in enumerate(nombres) if n in COLUMNAS_PARTE), None)
+        if cod is not None or parte is not None:
+            col_cod, col_parte = cod, parte
+            col_nota = next((j for j, n in enumerate(nombres) if n in COLUMNAS_NOTA), None)
+            inicio = i + 1
+            break
+    else:
+        col_cod = 0
+    datos = []
+    for fila in filas[inicio:]:
+        valor = lambda j: a_texto(fila[j]) if j is not None and j < len(fila) else ""
+        token = (valor(col_cod) or valor(col_parte)).strip().upper()
+        if token:
+            datos.append((token, " ".join(valor(col_nota).split())[:255]))
+    return datos
+
+
+def subir_productos(id_):
+    """Agrega a la campaña los productos de la plantilla de Excel (con su nota, si trae)."""
+    volver = redirect(url_for("estrategia_productos.campana", id_=id_))
+    c, _ = cargar_campana(id_)
+    if not c or c["estado"] != "Activa":
+        flash("Solo se pueden agregar productos a una campaña activa.", "warning")
+        return volver
+    archivo = request.files.get("archivo")
+    if not archivo or not archivo.filename:
+        flash("Seleccione el Excel con la lista de productos.", "warning")
+        return volver
+    if not archivo.filename.lower().endswith((".xlsx", ".xls")):
+        flash("El archivo debe ser Excel (.xlsx o .xls). Puede descargar la plantilla.", "warning")
+        return volver
+    try:
+        datos = leer_plantilla(archivo)
+    except ErrorArchivo as e:
+        flash(f"❌ No se pudo leer {archivo.filename}: {e}", "danger")
+        return volver
+    if not datos:
+        flash("El archivo no trae productos (llene la hoja «Productos» desde la fila 2).", "warning")
+        return volver
+    if len(datos) > MAX_FILAS_PLANTILLA:
+        flash(f"El archivo trae {len(datos):,} filas; el máximo es {MAX_FILAS_PLANTILLA:,}. Divídalo en varios archivos.", "warning")
+        return volver
+
+    tokens = list(dict.fromkeys(t for t, _ in datos))
+    encontrados, no_encontrados, varios = mapa_codigos(tokens)
+    codigos = list(dict.fromkeys(encontrados[t] for t in tokens if t in encontrados))
+    notas = {}
+    for t, nota in datos:
+        if nota and t in encontrados:
+            notas[encontrados[t]] = nota   # si un producto viene repetido, queda la última nota
+    nuevos = 0
+    if codigos:
+        cat = catalogo(codigos)
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            nuevos = guardar_productos(cursor, id_, codigos, cat, datos_base(), leer_filtros({}))
+            for cod, nota in notas.items():
+                cursor.execute("UPDATE mkt_campana_productos SET nota = %s WHERE campana_id = %s AND codigo = %s", (nota, id_, cod))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+        ya = len(codigos) - nuevos
+        flash(f"✅ {archivo.filename}: {nuevos} producto(s) agregados a la campaña" + (f", {ya} ya estaban" if ya else "")
+              + (f", {len(notas)} con nota" if notas else "") + ".", "success")
+    if no_encontrados:
+        flash(f"No están en el catálogo ({len(no_encontrados)}): {', '.join(no_encontrados[:30])}{' …' if len(no_encontrados) > 30 else ''}", "warning")
+    if varios:
+        flash(f"Números de parte que corresponden a varios códigos ({len(varios)}); póngalos por código: " + "; ".join(varios[:15]), "warning")
     return volver
 
 
