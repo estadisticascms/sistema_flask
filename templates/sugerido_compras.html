@@ -25,6 +25,7 @@
   .nhe { color: var(--contado); font-weight: 700; }
   .bajo { color: #c4320a; font-weight: 700; }
   .pedido { width: 84px; min-height: 32px; text-align: right; font-weight: 700; border: 1px solid #cfccc4; border-radius: 6px; padding: .2rem .4rem; }
+  .ajustado { color: var(--contado); }
   .pedido:focus { outline: none; border-color: var(--credito); box-shadow: 0 0 0 3px rgba(2,114,102,.18); }
   tr.editado .pedido { border-color: var(--contado); background: #fff; }
   .sistema { font-size: .7rem; color: var(--ink-3); }
@@ -71,7 +72,8 @@
     <div>
       <h4 class="mb-0"><i class="bi bi-cart-plus-fill" aria-hidden="true"></i> Sugerido de compras</h4>
       <div class="text-muted small">Pedido sugerido = promedio mensual de ventas × meses a cubrir − existencia disponible
-        (sin la mercadería faltante de bodegas NHE).</div>
+        (sin la mercadería faltante de bodegas NHE). El <strong>sugerido ajustado</strong> lo sube al múltiplo de la
+        <a href="{{ url_for('cantidades_minimas.pantalla') }}">cantidad mínima de compra</a>; el pedido y el FOB parten de él.</div>
     </div>
   </div>
 
@@ -222,6 +224,7 @@
           <th scope="col" title="Productos del mismo grupo de equivalencia (Clasificación de productos)">Equivalentes</th>
           <th scope="col">Últimos 3 ingresos</th>
           <th scope="col">Última venta</th>
+          <th scope="col" class="num" title="Sugerido subido al siguiente múltiplo de la cantidad mínima de compra (Cantidades mínimas)">Sugerido ajustado</th>
           <th scope="col" class="num">Pedido</th>
           <th scope="col" class="num" title="Último precio FOB (moneda base, US$) del catálogo">Precio FOB</th>
           <th scope="col" class="num">Total FOB</th>
@@ -232,10 +235,10 @@
         {% for f in filas %}
           {% set g = f.proveedor if p.agrupar == 'proveedor' else f.marca %}
           {% if loop.first or g != ns.grupo %}{% set ns.grupo = g %}
-            <tr class="marca-grupo"><td colspan="13"><i class="bi {{ 'bi-truck' if p.agrupar == 'proveedor' else 'bi-bookmark-fill' }}" aria-hidden="true"></i>
+            <tr class="marca-grupo"><td colspan="14"><i class="bi {{ 'bi-truck' if p.agrupar == 'proveedor' else 'bi-bookmark-fill' }}" aria-hidden="true"></i>
               {{ g or ('Sin proveedor registrado' if p.agrupar == 'proveedor' else 'Sin marca') }}</td></tr>
           {% endif %}
-          <tr data-codigo="{{ f.codigo }}" data-sugerido="{{ f.sugerido }}" data-costo="{{ f.fob or 0 }}">
+          <tr data-codigo="{{ f.codigo }}" data-sugerido="{{ f.sugerido_ajustado }}" data-costo="{{ f.fob or 0 }}">
             <td class="prod">
               <div class="desc"><span class="abc {{ f.abc }}" title="{{ 'Clase ' ~ f.abc ~ ': ' ~ clases_abc[f.abc] ~ (' · acumulado ' ~ '%.1f'|format(f.abc_acum) ~ '%' if f.abc_acum else '') if f.abc != 'N' else 'Sin venta en el período' }}">{{ f.abc if f.abc != 'N' else '–' }}</span>{{ f.nombre }}</div>
               <div class="meta">{{ f.codigo }}{% if f.numero_parte %} · Nº {{ f.numero_parte }}{% endif %}{% if p.agrupar == 'proveedor' and f.marca %} · {{ f.marca }}{% endif %}{% if f.segmento %} · {{ f.segmento }}{% endif %}{% if f.familia %} · {{ f.familia }}{% if f.subfamilia %} / {{ f.subfamilia }}{% endif %}{% endif %}</div>
@@ -275,9 +278,12 @@
               {% if f.dias_compra is not none %}<div class="text-muted">hace {{ f.dias_compra }} días</div>{% endif %}
             </td>
             <td class="ingresos">{{ f.ultima_venta.strftime('%d/%m/%Y') if f.ultima_venta else '—' }}</td>
+            <td class="num">{% if f.minimo %}<span class="fw-bold {{ 'ajustado' if f.sugerido_ajustado != f.sugerido }}">{{ "{:,}".format(f.sugerido_ajustado) }}</span>
+              <div class="sistema" title="Cantidad mínima de compra: se pide en múltiplos de {{ '{:g}'.format(f.minimo) }}">mín. {{ "{:g}".format(f.minimo) }}</div>
+              {% else %}<span class="text-muted">{{ "{:,}".format(f.sugerido_ajustado) }}</span><div class="sistema">sin mínimo</div>{% endif %}</td>
             <td class="num">
-              <input type="number" min="0" step="1" class="pedido" value="{{ f.sugerido }}" inputmode="numeric"
-                     aria-label="Pedido de {{ f.codigo }} (sugerido {{ f.sugerido }})">
+              <input type="number" min="0" step="1" class="pedido" value="{{ f.sugerido_ajustado }}" inputmode="numeric"
+                     aria-label="Pedido de {{ f.codigo }} (sugerido ajustado {{ f.sugerido_ajustado }})">
               <div class="sistema">sugerido {{ "{:,}".format(f.sugerido) }}{% if f.sugerido > f.sugerido_sin_perdidas %}
                 <span class="perdida" title="Sin ventas perdidas serían {{ f.sugerido_sin_perdidas }}">+{{ f.sugerido - f.sugerido_sin_perdidas }} v. perdidas</span>{% endif %}</div>
             </td>
@@ -286,7 +292,7 @@
           </tr>
           {% if f.equivalentes %}
           <tr class="detalle-eq" id="eq-{{ loop.index }}" hidden>
-            <td colspan="13">
+            <td colspan="14">
               <div class="small fw-semibold mb-1" style="color: var(--credito)">
                 Equivalentes de {{ f.numero_parte or f.codigo }} ({{ f.marca }}) · grupo {{ f.grupo }}
                 {% if f.fob %}<span class="fw-normal text-muted"> · su último FOB: {{ "{:,.2f}".format(f.fob) }}{% if f.proveedor %} ({{ f.proveedor }}){% endif %}</span>{% endif %}</div>
@@ -311,7 +317,7 @@
           </tr>
           {% endif %}
         {% else %}
-          <tr><td colspan="13"><div class="vacio-grande"><i class="bi bi-check2-circle" aria-hidden="true"></i>
+          <tr><td colspan="14"><div class="vacio-grande"><i class="bi bi-check2-circle" aria-hidden="true"></i>
             <p class="mt-2 mb-0">No hay productos que pedir con estos parámetros.</p></div></td></tr>
         {% endfor %}
       </tbody>
@@ -338,7 +344,7 @@
       <div><div class="small text-muted">Pedido total</div><div class="total-valor" id="barra-total">—</div></div>
       <div class="small" id="barra-cambios" aria-live="polite"></div>
       <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-restablecer" hidden>
-        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Volver al sugerido</button>
+        <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Volver al sugerido ajustado</button>
       <div class="form-check ms-auto mb-0">
         <input class="form-check-input" type="checkbox" name="solo_pedido" value="1" id="solo_pedido" checked>
         <label class="form-check-label small" for="solo_pedido">Excel solo con pedido &gt; 0</label>

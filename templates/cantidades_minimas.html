@@ -1,0 +1,88 @@
+{% extends "layout.html" %}
+{% block title %}Cantidades mínimas de compra{% endblock %}
+{% macro cant(v) %}{{ ("{:,.0f}".format(v) if v is not none and (v|float) == (v|float)|round(0) else "{:,.2f}".format(v|float)) if v is not none else '—' }}{% endmacro %}
+{% block content %}
+<div class="container mt-3 mb-4" style="max-width: 1100px">
+  <h5><i class="bi bi-boxes" aria-hidden="true"></i> Cantidades mínimas de compra</h5>
+  <p class="text-muted small mb-3">
+    Lo mínimo que se puede comprar de cada producto (empaque, caja, lote). En el <a href="{{ url_for('sugerido_compras.sugerido_compras') }}">Sugerido de compras</a>
+    la columna <strong>Sugerido ajustado</strong> sube el sugerido al siguiente múltiplo del mínimo (mínimo 10: 3 → 10, 13 → 20) y el pedido y el FOB parten de ahí.
+  </p>
+
+  {% for e in errores_archivo or [] %}<div class="alert alert-danger">{{ e }}</div>{% endfor %}
+
+  {% if validado %}
+  {# ---------- Revisión antes de guardar ---------- #}
+  <div class="card card-body shadow-sm mb-3 border-success">
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+      <div class="fw-semibold">{{ archivo }} · {{ "{:,}".format(total_archivo) }} productos identificados</div>
+      <div class="d-flex flex-wrap gap-2 small">
+        <span class="badge text-bg-success fs-6 fw-normal">{{ "{:,}".format(nuevos) }} nuevos</span>
+        <span class="badge text-bg-warning fs-6 fw-normal">{{ "{:,}".format(cambian) }} cambian</span>
+        <span class="badge text-bg-light border fs-6 fw-normal">{{ "{:,}".format(iguales) }} iguales</span>
+        {% if quitar %}<span class="badge text-bg-danger fs-6 fw-normal">{{ "{:,}".format(quitar) }} se quitan</span>{% endif %}
+      </div>
+    </div>
+    {% for a in advertencias %}<div class="alert alert-warning small py-2 mb-2">{{ a }}</div>{% endfor %}
+    {% if errores %}<div class="alert alert-danger small py-2 mb-2"><strong>{{ errores|length }} fila(s) no se cargan:</strong>
+      <ul class="mb-0">{% for e in errores[:30] %}<li>{{ e }}</li>{% endfor %}{% if errores|length > 30 %}<li>… y {{ errores|length - 30 }} más</li>{% endif %}</ul></div>{% endif %}
+    <div class="table-responsive mb-2" style="max-height: 380px"><table class="table table-sm small align-middle mb-0">
+      <thead class="sticky-top bg-white"><tr><th>Fila</th><th>Código</th><th>Nº parte</th><th>Marca</th><th>Descripción</th><th class="text-end">Antes</th><th class="text-end">Cantidad mínima</th></tr></thead>
+      <tbody>{% for d in detalle %}<tr class="{{ 'table-warning' if d.anterior is not none and d.minimo and d.anterior != d.minimo }}{{ ' table-danger' if not d.minimo and d.anterior is not none }}">
+        <td class="text-muted">{{ d.fila }}</td><td>{{ d.codigo }}</td><td>{{ d.parte or '' }}</td><td>{{ d.marca or '' }}</td><td>{{ d.nombre or '' }}</td>
+        <td class="text-end text-muted">{{ cant(d.anterior) }}</td>
+        <td class="text-end fw-bold">{{ cant(d.minimo) if d.minimo else 'se quita' }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <form method="post" action="{{ url_for('cantidades_minimas.confirmar') }}" class="d-flex gap-2"
+          onsubmit="const b = this.querySelector('button'); b.disabled = true; b.innerText = 'Guardando…';">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button class="btn btn-success"><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar cantidades mínimas</button>
+      <a href="{{ url_for('cantidades_minimas.pantalla') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+  </div>
+  {% else %}
+  {# ---------- Subir ---------- #}
+  <form method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3"
+        onsubmit="const b = this.querySelector('button[type=submit]'); b.disabled = true; b.innerText = 'Revisando…';">
+    <div class="row g-2 align-items-end">
+      <div class="col-md">
+        <label class="form-label fw-semibold" for="archivo">Excel con las cantidades mínimas</label>
+        <input type="file" id="archivo" name="archivo" accept=".xlsx,.xls" class="form-control" required>
+        <div class="form-text">Columnas: <strong>Codigo</strong>, o <strong>Numero de parte</strong> + <strong>Marca</strong>, y <strong>Cantidad minima</strong>.
+          Con cantidad 0 o vacía se quita el mínimo. Los productos que no vengan en el archivo no cambian.</div>
+      </div>
+      <div class="col-md-auto"><button type="submit" class="btn btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Revisar archivo</button></div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('cantidades_minimas.plantilla') }}"><i class="bi bi-download" aria-hidden="true"></i> Plantilla vacía</a>
+      {% if total %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('cantidades_minimas.plantilla', actuales='1') }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar las actuales para corregir</a>{% endif %}
+    </div>
+  </form>
+  {% endif %}
+
+  {# ---------- Lista actual ---------- #}
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <h6 class="mb-0">Cantidades mínimas registradas <span class="text-muted fw-normal small">· {{ "{:,}".format(total) }} productos</span></h6>
+    <form method="get" class="d-flex gap-2">
+      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" style="width: 260px" placeholder="Código, nº parte, marca o descripción" aria-label="Buscar">
+      <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-search" aria-hidden="true"></i><span class="visually-hidden">Buscar</span></button>
+    </form>
+  </div>
+  {% if filas %}
+  <div class="table-responsive border rounded-3 bg-white" style="max-height: 520px"><table class="table table-sm table-hover small align-middle mb-0">
+    <thead class="sticky-top bg-light"><tr><th>Código</th><th>Nº parte</th><th>Marca</th><th>Descripción</th><th class="text-end">Cantidad mínima</th><th>Actualizado</th><th></th></tr></thead>
+    <tbody>{% for f in filas %}<tr>
+      <td>{{ f.codigo }}</td><td>{{ f.parte or '' }}</td><td>{{ f.marca or '' }}</td><td>{{ f.nombre or '' }}{% if not f.nombre %}<span class="text-danger">no está en el catálogo</span>{% endif %}</td>
+      <td class="text-end fw-bold">{{ cant(f.minimo) }}</td>
+      <td class="text-muted">{{ f.actualizado.strftime('%d/%m/%Y') if f.actualizado }}{% if f.actualizado_por %} · {{ f.actualizado_por }}{% endif %}</td>
+      <td class="text-end"><form method="post" class="d-inline" onsubmit="return confirm({{ ('¿Quitar la cantidad mínima de ' ~ f.codigo ~ '?')|tojson }});">
+        <input type="hidden" name="accion" value="quitar"><input type="hidden" name="codigo" value="{{ f.codigo }}">
+        <button class="btn btn-link btn-sm text-danger p-0" title="Quitar"><i class="bi bi-x-lg" aria-hidden="true"></i><span class="visually-hidden">Quitar {{ f.codigo }}</span></button></form></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% if encontrados > filas|length %}<div class="small text-muted mt-1">Se muestran {{ filas|length }} de {{ "{:,}".format(encontrados) }}; busque para ver otros o descargue las actuales.</div>{% endif %}
+  {% else %}
+  <p class="text-muted">{{ 'Ningún producto coincide con la búsqueda.' if q else 'Todavía no hay cantidades mínimas registradas.' }}</p>
+  {% endif %}
+</div>
+{% endblock %}

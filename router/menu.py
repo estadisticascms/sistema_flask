@@ -64,6 +64,7 @@ SECCIONES = [
         "grupos": [
             {"titulo": "Pedidos e ingresos", "items": [
                 ("Sugerido de compras", "/sugerido_compras", "bi-cart-plus-fill", "Pedido por marca o proveedor, editable y en Excel", "pedido fob proveedor"),
+                ("Cantidades mínimas de compra", "/cantidades_minimas", "bi-boxes", "Mínimo por producto; el sugerido se ajusta a múltiplos", "minimo moq empaque caja lote subir excel"),
                 ("Próximos a agotarse", "/productos_agotarse", "bi-hourglass-split", "Cobertura de existencias", "agotado reorden"),
                 ("Revisión de factura de ingreso", "/revision_ingreso", "bi-clipboard-check", "Códigos, SAC, duplicados, nuevos y FOB", "arancel importacion proveedor"),
                 ("Seguimiento de ingresos", "/seguimiento_ingresos", "bi-box-arrow-in-down", "Lo que ingresó: cuánto se vendió y a quién", "orden de compra"),

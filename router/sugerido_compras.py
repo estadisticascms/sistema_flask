@@ -5,7 +5,9 @@
   (mínimo MESES_MIN_NUEVO meses, para que una venta grande puntual no se tome como venta de cada mes).
   Así un producto que llegó hace 2 meses y ya se vendió no queda con un promedio artificialmente bajo.
 - ABC: clasificación por venta en C$ del período en toda la empresa (A = productos que suman el 80% de la venta,
-  B = el siguiente 15%, C = el 5% restante; "Sin venta" si no se vendió)."""
+  B = el siguiente 15%, C = el 5% restante; "Sin venta" si no se vendió).
+- Cantidad mínima de compra (Cantidades mínimas): el «Sugerido ajustado» sube el sugerido al siguiente múltiplo del mínimo
+  (mínimo 10: 3 → 10, 13 → 20). El pedido editable y el total FOB parten del sugerido ajustado."""
 import io
 import json
 import math
@@ -19,6 +21,7 @@ from openpyxl.utils import get_column_letter
 from utils.db import get_connection
 from router.accesos import requiere_acceso
 from router.ventas_perdidas import perdidas_por_codigo, detalle_por_codigo
+from router.cantidades_minimas import ajustar_a_minimo, minimos_por_codigo
 
 sugerido_bp = Blueprint("sugerido_compras", __name__)
 
@@ -221,6 +224,11 @@ def calcular(p):
                           "perdidas": perdido, "perdidas_clientes": len(x["clientes"]) if x else 0,
                           "perdidas_ultima": x["ultima"] if x else None,
                           "ingresos": [], "dias_compra": None, "ultima_venta": None})
+        # Cantidad mínima de compra: sugerido ajustado al siguiente múltiplo del mínimo
+        minimos = minimos_por_codigo(cursor, [f["codigo"] for f in filas])
+        for f in filas:
+            f["minimo"] = minimos.get(f["codigo"])
+            f["sugerido_ajustado"] = ajustar_a_minimo(f["sugerido"], f["minimo"])
         if p["abc"]:
             filas = [f for f in filas if f["abc"] == p["abc"]]
         if p["solo_sugerido"]:   # también se dejan los que tienen ventas perdidas aunque no tengan sugerido
@@ -381,8 +389,8 @@ def descargar_excel():
     solo_pedido = request.form.get("solo_pedido") == "1"
     filas, periodo = calcular(p)
     for f in filas:
-        f["pedido"] = cambios.get(f["codigo"], f["sugerido"])
-        f["editado"] = f["codigo"] in cambios and cambios[f["codigo"]] != f["sugerido"]
+        f["pedido"] = cambios.get(f["codigo"], f["sugerido_ajustado"])
+        f["editado"] = f["codigo"] in cambios and cambios[f["codigo"]] != f["sugerido_ajustado"]
     if solo_pedido:
         filas = [f for f in filas if f["pedido"] > 0]
 
@@ -408,7 +416,8 @@ def generar_excel(filas, p, periodo):
     ws["A3"] = ("Disponible = existencia total − bodegas NHE (mercadería faltante).  "
                 f"Sugerido = {demanda} ÷ meses × meses de cobertura − disponible"
                 f"{' (productos nuevos: meses desde su primer ingreso, o hasta agotarse)' if p['ajustar_nuevos'] else ''}.  "
-                f"ABC por venta C$ de la empresa: A {ABC_A}%, B {ABC_B - ABC_A}%, C el resto.  Total FOB = pedido final × último precio FOB "
+                f"ABC por venta C$ de la empresa: A {ABC_A}%, B {ABC_B - ABC_A}%, C el resto.  Sugerido ajustado = sugerido subido al siguiente múltiplo de la cantidad mínima de compra.  "
+                f"Total FOB = pedido final (parte del sugerido ajustado) × último precio FOB "
                 f"(moneda base, US$; vacío si el producto no tiene FOB).  Generado {datetime.now():%d/%m/%Y %H:%M}")
     ws["A2"].font = ws["A3"].font = Font(size=9, color="52514E")
 
@@ -419,7 +428,7 @@ def generar_excel(filas, p, periodo):
         ("Producto nuevo desde", 12), ("Cobertura (meses)", 11), ("Ingreso 1 fecha", 12),
         ("Ingreso 1 cant.", 10), ("Ingreso 2 fecha", 12), ("Ingreso 2 cant.", 10), ("Ingreso 3 fecha", 12),
         ("Ingreso 3 cant.", 10), ("Última venta", 12), ("Sugerido sin ventas perdidas", 12), ("Sugerido sistema", 11),
-        ("Pedido final", 11), ("Precio FOB US$", 12), ("Total FOB US$", 14), ("Grupo equiv.", 11), ("Equivalentes", 11),
+        ("Cant. mínima de compra", 10), ("Sugerido ajustado", 11), ("Pedido final", 11), ("Precio FOB US$", 12), ("Total FOB US$", 14), ("Grupo equiv.", 11), ("Equivalentes", 11),
         ("Disponible en equivalentes", 13), ("Detalle equivalentes", 60), ("Clientes que lo pidieron", 11),
         ("Última venta perdida", 12), ("Proveedor última compra", 28), ("Fecha última compra", 12),
         ("Fecha última recepción", 12), ("Equiv. FOB más bajo", 12), ("Marca equiv.", 14), ("FOB equiv.", 10),
@@ -431,7 +440,7 @@ def generar_excel(filas, p, periodo):
     for i, (titulo, ancho) in enumerate(columnas, start=1):
         c = ws.cell(row=fila_tit, column=i, value=titulo)
         c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor=NARANJA if titulo in ("Pedido final", "Ventas perdidas (unid.)") else VERDE)
+        c.fill = PatternFill("solid", fgColor=NARANJA if titulo in ("Pedido final", "Sugerido ajustado", "Ventas perdidas (unid.)") else VERDE)
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         ws.column_dimensions[get_column_letter(i)].width = ancho
     ws.row_dimensions[fila_tit].height = 42
@@ -443,7 +452,8 @@ def generar_excel(filas, p, periodo):
                 "#,##0.00##": ("Precio FOB US$", "FOB equiv."), "0.0%": ("Dif. FOB %",),
                 "#,##0.##": ("Existencia total", "En NHE", "Disponible", "Vendido período", "Ventas perdidas (unid.)",
                              "Ingreso 1 cant.", "Ingreso 2 cant.", "Ingreso 3 cant.", "Sugerido sin ventas perdidas",
-                             "Sugerido sistema", "Pedido final", "Equivalentes", "Disponible en equivalentes"),
+                             "Sugerido sistema", "Cant. mínima de compra", "Sugerido ajustado", "Pedido final", "Equivalentes",
+                             "Disponible en equivalentes"),
                 "#,##0.0": ("Prom. mensual", "Cobertura (meses)", "Meses del promedio"),
                 "#,##0.00": ("Total FOB US$",)}
     for n, f in enumerate(filas, start=fila_tit + 1):
@@ -460,7 +470,8 @@ def generar_excel(filas, p, periodo):
             "Ingreso 2 fecha": ing[1]["fecha"], "Ingreso 2 cant.": ing[1]["cantidad"],
             "Ingreso 3 fecha": ing[2]["fecha"], "Ingreso 3 cant.": ing[2]["cantidad"],
             "Última venta": f["ultima_venta"], "Sugerido sin ventas perdidas": f["sugerido_sin_perdidas"],
-            "Sugerido sistema": f["sugerido"], "Pedido final": f["pedido"], "Precio FOB US$": f["fob"],
+            "Sugerido sistema": f["sugerido"], "Cant. mínima de compra": f["minimo"], "Sugerido ajustado": f["sugerido_ajustado"],
+            "Pedido final": f["pedido"], "Precio FOB US$": f["fob"],
             # total FOB = pedido final × precio FOB (vacío si el producto no tiene FOB)
             "Total FOB US$": f"={letra['Pedido final']}{n}*{letra['Precio FOB US$']}{n}" if f["fob"] else None,
             "Grupo equiv.": f["grupo"], "Equivalentes": len(f["equivalentes"]) or None,
