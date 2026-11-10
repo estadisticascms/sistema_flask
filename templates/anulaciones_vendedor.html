@@ -1,0 +1,204 @@
+{% extends "layout.html" %}
+{% block title %}Anulaciones por vendedor{% endblock %}
+{% macro dinero(v) %}{{ "{:,.0f}".format(v) }}{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .anv h4 { color: var(--credito); }
+  .anv .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .anv .form-control-sm, .anv .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .tabla-a { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-a thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .4rem;
+                      border-bottom: 1px solid var(--grid); text-align: right; vertical-align: bottom; line-height: 1.15; }
+  .tabla-a th.izq, .tabla-a td.izq { text-align: left; }
+  .tabla-a td { padding: .38rem .4rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-a tbody tr:hover td { background: #faf9f6; }
+  .tabla-a tfoot td { font-weight: 700; background: #f6f5f1; }
+  .tabla-a td.cero { color: #c8c6c0; }
+  .tabla-a .pt { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: .3rem; vertical-align: baseline; }
+  .mezcla { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--grid); }
+  .mezcla a { display: block; height: 100%; }
+  .mezcla a:focus-visible { outline: 3px solid var(--ink); outline-offset: -3px; }
+  .barra-p { height: 8px; background: var(--grid); border-radius: 4px; min-width: 80px; display: flex; overflow: hidden; }
+  .chip-m { display: inline-flex; align-items: center; gap: .35rem; font-size: .76rem; border: 1px solid var(--grid); border-radius: 999px;
+            padding: .2rem .6rem; color: var(--ink); text-decoration: none; background: #fff; min-height: 30px; }
+  .chip-m:hover, .chip-m:focus-visible { border-color: var(--credito); }
+  .chip-m.activo { border-color: var(--credito); background: #e6f2f0; font-weight: 600; }
+  .razones { font-size: .74rem; color: var(--ink-2); }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .anv a:focus-visible, .anv .btn:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+{% set base = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'ver': f.ver, 'por': f.por, 'tipo': f.tipo} %}
+{% set params = dict(base, motivo=f.motivo, vendedor=f.vendedor) %}
+{% set quien = 'vendedor' if f.por == 'vendedor' else 'facturador' %}
+<div class="dash anv container-fluid px-3 mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-file-earmark-x" aria-hidden="true"></i> Facturas anuladas por {{ quien }}</h4>
+      <div class="text-muted small">Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}
+        {% if f.motivo %} · <strong>{{ nombre_motivo[f.motivo] }}</strong>{% endif %}{% if f.vendedor %} · <strong>{{ f.vendedor }}</strong>{% endif %}{% if f.tipo %} · {{ f.tipo|lower }}{% endif %}
+        {% if f.motivo or f.vendedor %}<a class="ms-1" href="{{ url_for('anulaciones_vendedor.reporte', **base) }}">quitar filtro</a>{% endif %}</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('anulaciones_vendedor.cargar') }}"><i class="bi bi-upload" aria-hidden="true"></i> Cargar anuladas</a>
+      <a class="btn btn-verde btn-sm" href="{{ url_for('anulaciones_vendedor.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+    </div>
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="ver">Ver por</label>
+        <select id="ver" name="ver" class="form-select form-select-sm"><option value="dia" {% if f.ver == 'dia' %}selected{% endif %}>Día</option>
+          <option value="mes" {% if f.ver == 'mes' %}selected{% endif %}>Mes</option></select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="por">Agrupar por</label>
+        <select id="por" name="por" class="form-select form-select-sm">
+          <option value="vendedor" {% if f.por == 'vendedor' %}selected{% endif %}>Vendedor (o facturador si está en blanco)</option>
+          <option value="facturador" {% if f.por == 'facturador' %}selected{% endif %}>Quién facturó</option></select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="vendedor">{{ quien|capitalize }}</label>
+        <select id="vendedor" name="vendedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for p in d.personas_todas %}<option {% if p == f.vendedor %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="motivo">Motivo</label>
+        <select id="motivo" name="motivo" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for m in orden_motivos %}<option value="{{ m }}" {% if m == f.motivo %}selected{% endif %}>{{ nombre_motivo[m] }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="tipo">Tipo</label>
+        <select id="tipo" name="tipo" class="form-select form-select-sm"><option value="">Todos</option>
+          <option value="CREDITO" {% if f.tipo == 'CREDITO' %}selected{% endif %}>Crédito</option>
+          <option value="CONTADO" {% if f.tipo == 'CONTADO' %}selected{% endif %}>Contado</option></select></div>
+    </div>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mt-2 gap-2">
+      <div class="small text-muted">Períodos:
+        {% for nombre, i, fin in periodos %}<a class="ms-2" href="{{ url_for('anulaciones_vendedor.reporte', **dict(params, desde=i.isoformat(), hasta=fin.isoformat(), ver='')) }}">{{ nombre }}</a>{% endfor %}
+        {% if ultima and ultima.hasta %}<span class="ms-2">· cargado hasta el {{ ultima.hasta.strftime('%d/%m/%Y') }}</span>{% endif %}</div>
+      <button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button>
+    </div>
+  </form>
+
+  {% if not d.total %}
+    <div class="alert alert-info">No hay facturas anuladas con estos filtros{% if not ultima or not ultima.n %}. Primero <a href="{{ url_for('anulaciones_vendedor.cargar') }}">cargue el reporte del sistema</a>{% endif %}.</div>
+  {% else %}
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Facturas anuladas</div><div class="valor">{{ "{:,}".format(d.total) }}</div>
+      <div class="sub">C$ {{ dinero(d.monto) }} · {{ "{:.1f}".format(d.promedio_dia) }} por día</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">No hay existencia (NHE)</div><div class="valor">{{ d.nhe }}</div>
+      <div class="sub">{{ "{:.0f}".format(d.nhe / d.total * 100) }}% de las anuladas</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Producto mal facturado (PMF)</div><div class="valor">{{ d.pmf }}</div>
+      <div class="sub">{{ "{:.0f}".format(d.pmf / d.total * 100) }}% de las anuladas</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">{{ quien|capitalize }} con más anuladas</div>
+      {% set p1 = d.personas[0] %}
+      <div class="valor" style="font-size: 1rem; white-space: normal">{{ p1.persona }}</div>
+      <div class="sub">{{ p1.facturas }} facturas · {{ "{:.0f}".format(p1.pct) }}% · más por {{ nombre_motivo[p1.principal] }}</div></div></div>
+  </div>
+
+  {# ---------- Mezcla de motivos ---------- #}
+  <div class="card card-body mb-3">
+    <div class="mezcla mb-2" role="img" aria-label="Proporción de facturas anuladas por motivo">
+      {% for m in d.lista_motivos %}<a href="{{ url_for('anulaciones_vendedor.reporte', **dict(params, motivo=m.motivo)) }}" style="width: {{ m.pct }}%; background: {{ m.color }}"
+         title="{{ m.nombre }}: {{ m.facturas }} ({{ '{:.0f}'.format(m.pct) }}%)"><span class="visually-hidden">{{ m.nombre }}</span></a>{% endfor %}
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% for m in d.lista_motivos %}<a class="chip-m {{ 'activo' if f.motivo == m.motivo }}" href="{{ url_for('anulaciones_vendedor.reporte', **dict(params, motivo='' if f.motivo == m.motivo else m.motivo)) }}">
+        <span class="pt" style="width: 10px; height: 10px; border-radius: 2px; background: {{ m.color }}" aria-hidden="true"></span>{{ m.nombre }} <strong>{{ m.facturas }}</strong>
+        <span class="text-muted">{{ "{:.0f}".format(m.pct) }}%</span></a>{% endfor %}
+    </div>
+  </div>
+
+  <div class="row g-3">
+    {# ---------- Por vendedor ---------- #}
+    <div class="col-xl-7">
+      <div class="card card-body p-0 h-100">
+        <h6 class="px-3 pt-3 mb-2" style="color: var(--credito)">Por {{ quien }} y motivo</h6>
+        <div class="table-responsive" style="max-height: 560px">
+          <table class="tabla-a">
+            <caption class="visually-hidden">Facturas anuladas por {{ quien }} y motivo</caption>
+            <thead><tr><th class="izq">{{ quien|capitalize }}</th><th>Facturas</th><th>%</th><th>Monto C$</th>
+              {% for m in d.motivos %}<th title="{{ nombre_motivo[m] }}"><span class="pt" style="background: {{ color_motivo[m] }}" aria-hidden="true"></span>{{ nombre_motivo[m].split(' (')[0] if m not in ('NHE', 'PMF') else m }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for p in d.personas %}<tr>
+              <td class="izq"><a href="{{ url_for('anulaciones_vendedor.reporte', **dict(params, vendedor=p.persona)) }}">{{ p.persona }}</a></td>
+              <td class="fw-bold">{{ p.facturas }}</td><td>{{ "{:.1f}".format(p.pct) }}%</td><td>{{ dinero(p.monto) }}</td>
+              {% for m in d.motivos %}{% set n = p.motivos.get(m, 0) %}<td class="{{ 'cero' if not n }}">{{ n or '·' }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+            <tfoot><tr><td class="izq">Total</td><td>{{ d.total }}</td><td>100%</td><td>{{ dinero(d.monto) }}</td>
+              {% for x in d.lista_motivos %}<td>{{ x.facturas }}</td>{% endfor %}</tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    {# ---------- Por día o mes ---------- #}
+    <div class="col-xl-5">
+      <div class="card card-body p-0 h-100">
+        <h6 class="px-3 pt-3 mb-2" style="color: var(--credito)">Por {{ 'día' if f.ver == 'dia' else 'mes' }}</h6>
+        <div class="table-responsive" style="max-height: 560px">
+          <table class="tabla-a">
+            <caption class="visually-hidden">Facturas anuladas por {{ 'día' if f.ver == 'dia' else 'mes' }}</caption>
+            <thead><tr><th class="izq">{{ 'Día' if f.ver == 'dia' else 'Mes' }}</th><th>Facturas</th><th class="izq">Motivos</th><th>Monto C$</th></tr></thead>
+            <tbody>{% for x in d.periodos %}<tr>
+              <td class="izq">{% if f.ver == 'dia' %}<a href="{{ url_for('anulaciones_vendedor.reporte', **dict(params, desde=x.periodo.isoformat(), hasta=x.periodo.isoformat(), ver='dia')) }}">{{ x.etiqueta }}</a>
+                <span class="text-muted small">{{ ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'][x.periodo.weekday()] }}</span>{% else %}{{ x.etiqueta }}{% endif %}</td>
+              <td class="{{ 'cero' if not x.facturas }} fw-bold">{{ x.facturas or '·' }}</td>
+              <td class="izq">{% if x.facturas %}<div class="barra-p" style="width: {{ 30 + 70 * x.facturas / d.maximo_periodo }}%"
+                   title="{% for m in d.motivos %}{% if x.motivos.get(m) %}{{ nombre_motivo[m] }}: {{ x.motivos[m] }}{{ ' · ' if not loop.last }}{% endif %}{% endfor %}">
+                {% for m in d.motivos %}{% if x.motivos.get(m) %}<span style="width: {{ x.motivos[m] / x.facturas * 100 }}%; background: {{ color_motivo[m] }}"></span>{% endif %}{% endfor %}</div>{% endif %}</td>
+              <td>{{ dinero(x.monto) if x.monto else '' }}</td></tr>{% endfor %}</tbody>
+            <tfoot><tr><td class="izq">Total</td><td>{{ d.total }}</td><td></td><td>{{ dinero(d.monto) }}</td></tr></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---------- Qué dicen las razones ---------- #}
+  <details class="card mt-3">
+    <summary class="card-header bg-white fw-semibold" style="color: var(--credito); cursor: pointer">
+      <i class="bi bi-chat-left-text" aria-hidden="true"></i> Razones más escritas en cada motivo</summary>
+    <div class="card-body row g-3">
+      {% for m in d.lista_motivos %}<div class="col-md-6 col-xl-4"><div class="fw-semibold small mb-1"><span class="pt d-inline-block me-1" style="width: 10px; height: 10px; border-radius: 2px; background: {{ m.color }}" aria-hidden="true"></span>{{ m.nombre }} · {{ m.facturas }}</div>
+        <ul class="razones mb-0 ps-3">{% for r, n in m.razones %}<li>{{ r }}{% if n > 1 %} <span class="text-muted">×{{ n }}</span>{% endif %}</li>{% endfor %}</ul></div>{% endfor %}
+    </div>
+  </details>
+
+  {# ---------- Detalle ---------- #}
+  <div class="card card-body p-0 mt-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 px-3 pt-3 pb-2">
+      <h6 class="mb-0" style="color: var(--credito)">Detalle de facturas anuladas <span class="text-muted fw-normal small">· {{ d.detalle|length }}{% if d.detalle|length > 500 %} (se muestran 500; todas en el Excel){% endif %}</span></h6>
+      <input type="search" id="buscar" class="form-control form-control-sm" style="max-width: 260px" placeholder="Buscar factura, cliente, razón…" aria-label="Buscar en el detalle">
+    </div>
+    <div class="table-responsive" style="max-height: 520px">
+      <table class="tabla-a" id="tabla-detalle">
+        <caption class="visually-hidden">Detalle de facturas anuladas</caption>
+        <thead><tr><th class="izq">Fecha</th><th class="izq">Factura</th><th class="izq">Cliente</th><th class="izq">{{ quien|capitalize }}</th><th class="izq">Tipo</th>
+          <th>Total C$</th><th class="izq">Motivo</th><th class="izq">Razón (sistema)</th><th class="izq">Anuló</th></tr></thead>
+        <tbody>{% for r in d.detalle[:500] %}<tr>
+          <td class="izq">{{ r.fecha.strftime('%d/%m/%Y') }}</td><td class="izq">{{ r.factura }}</td>
+          <td class="izq" style="white-space: normal; min-width: 180px">{{ r.cliente or '' }}</td>
+          <td class="izq" style="white-space: normal">{{ r.persona }}{% if f.por == 'vendedor' and not r.vendedor_asignado %} <span class="text-muted small" title="Vendedor en blanco: se usa el facturador">(facturó)</span>{% endif %}</td>
+          <td class="izq small">{{ (r.tipo or '')|lower }}</td><td>{{ "{:,.2f}".format(r.total) }}</td>
+          <td class="izq"><span class="pt" style="background: {{ color_motivo[r.motivo] }}" aria-hidden="true"></span>{{ nombre_motivo[r.motivo] }}</td>
+          <td class="izq" style="white-space: normal; min-width: 200px">{{ r.razon or '—' }}</td>
+          <td class="izq small">{{ r.anulado_por or '' }}{% if r.fecha_anulado %}<div class="text-muted">{{ r.fecha_anulado.strftime('%d/%m %H:%M') }}</div>{% endif %}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+  <div class="small text-muted mt-2">Fuente: reporte «FACTURAS ANULADAS» del sistema. Vendedor = vendedor asignado; si viene en blanco, quien facturó.
+    NHE = no hay existencia · PMF = producto mal facturado. El motivo se deduce de la razón escrita al anular.</div>
+</div>
+<script>
+  (() => {
+    const buscar = document.getElementById('buscar');
+    buscar?.addEventListener('input', () => {
+      const q = buscar.value.trim().toLowerCase();
+      document.querySelectorAll('#tabla-detalle tbody tr').forEach(tr => tr.hidden = !!q && !tr.textContent.toLowerCase().includes(q));
+    });
+  })();
+</script>
+{% endblock %}

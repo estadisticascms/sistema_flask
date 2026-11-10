@@ -54,6 +54,7 @@ SECCIONES = [
             {"titulo": "Control", "items": [
                 ("Revisión de precios para comisionistas", "/revision_precios_venta", "bi-tags", "¿Se respetó el precio del cliente? Para pagar su comisión", "comision comisionista precio venta descuento factura recibo auditoria"),
                 ("Ventas perdidas", "/ventas_perdidas", "bi-graph-down-arrow", "Registrar y ver oportunidades no concretadas", "faltante"),
+                ("Anulaciones por vendedor", "/anulaciones_vendedor", "bi-file-earmark-x", "Facturas anuladas por vendedor y motivo (NHE, PMF…), por día o mes", "anuladas anulacion nhe pmf existencia mal facturado"),
             ]},
         ],
     },
@@ -123,6 +124,7 @@ SECCIONES = [
                 ("Recuperación (comisiones)", "/cargar_recuperacion", "bi-cash-stack", "Pagos de crédito por vendedor", "subir excel"),
                 ("Armado de mangueras", "/cargar_armados", "bi-tools", "Reporte Factura de Armados", "subir excel mangueras"),
                 ("Devoluciones", "/devoluciones", "bi-arrow-return-left", "Devoluciones de clientes", "subir excel"),
+                ("Facturas anuladas (sistema)", "/cargar_anuladas_sistema", "bi-file-earmark-x", "Reporte de anuladas del sistema, para Anulaciones por vendedor", "subir excel csv anuladas"),
             ]},
             {"titulo": "Cuando cambian", "items": [
                 ("Cierre de mes de inventario", "/cargar_cierre_inventario", "bi-archive", "Análisis de Inventario al fin de mes", "subir excel cierre"),
