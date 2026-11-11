@@ -23,33 +23,33 @@
   </div>
 
   <div class="kpis">
-    <div class="kpi kpi-hero">
-      <div class="etiqueta">Venta neta acumulada</div>
+    <div class="kpi kpi-hero k-venta">
+      <div class="etiqueta"><i class="bi bi-graph-up-arrow" aria-hidden="true"></i> Venta neta acumulada</div>
       <div class="valor">{{ millones(r.actual.neto) }}</div>
       {{ delta(r.var_venta, 'vs ' ~ r.anio_ant) }}
     </div>
-    <div class="kpi">
-      <div class="etiqueta">Utilidad</div>
+    <div class="kpi k-utilidad">
+      <div class="etiqueta"><i class="bi bi-piggy-bank" aria-hidden="true"></i> Utilidad</div>
       <div class="valor">{{ millones(r.actual.utilidad) }}</div>
       {{ delta(r.var_utilidad, 'vs ' ~ r.anio_ant) }}
     </div>
-    <div class="kpi">
-      <div class="etiqueta">Margen</div>
+    <div class="kpi k-margen">
+      <div class="etiqueta"><i class="bi bi-percent" aria-hidden="true"></i> Margen</div>
       <div class="valor">{% if r.actual.margen is not none %}{{ '{:.1f}'.format(r.actual.margen) }}%{% else %}—{% endif %}</div>
       {{ delta(r.dif_margen, 'vs ' ~ r.anio_ant, ' pts') }}
     </div>
-    <div class="kpi">
-      <div class="etiqueta">Recuperación</div>
+    <div class="kpi k-recuperacion">
+      <div class="etiqueta"><i class="bi bi-cash-stack" aria-hidden="true"></i> Recuperación</div>
       <div class="valor">{{ millones(r.total_recuperado) }}</div>
       <span class="sub">{% if r.mejor_recuperacion %}Mayor: {{ r.mejor_recuperacion[0] }} {{ millones(r.mejor_recuperacion[1]) }}{% endif %}</span>
     </div>
-    <div class="kpi">
-      <div class="etiqueta">Clientes atendidos</div>
+    <div class="kpi k-clientes">
+      <div class="etiqueta"><i class="bi bi-people" aria-hidden="true"></i> Clientes atendidos</div>
       <div class="valor">{{ '{:,.0f}'.format(r.actual.clientes) }}</div>
       {{ delta(r.var_clientes, 'vs ' ~ r.anio_ant) }}
     </div>
-    <div class="kpi">
-      <div class="etiqueta">Crédito y contado</div>
+    <div class="kpi k-mezcla">
+      <div class="etiqueta"><i class="bi bi-pie-chart" aria-hidden="true"></i> Crédito y contado</div>
       {% if r.pct_credito is not none %}
       <div class="medidor" role="img" aria-label="Crédito {{ '{:.0f}'.format(r.pct_credito) }}%, contado {{ '{:.0f}'.format(100 - r.pct_credito) }}%">
         <span style="width: {{ r.pct_credito }}%; background: var(--credito)"></span>
@@ -62,9 +62,9 @@
   </div>
 
   <div class="fila-graficos">
-    <div class="card">
+    <div class="card sec sec-ventas">
       <div class="card-header">
-        <span>Venta neta por mes <small>millones de C$</small></span>
+        <span><i class="bi bi-bar-chart-fill" aria-hidden="true"></i> Venta neta por mes <small>millones de C$</small></span>
         <small>
           <span class="clave" style="background: var(--credito)"></span>{{ r.corte.year }}
           <span class="clave ms-2" style="background: #c9c8c2"></span>{{ r.anio_ant }}
@@ -74,15 +74,15 @@
       </div>
       <div class="card-body"><div class="grafico"><canvas id="graficoVentas" role="img" aria-label="Venta neta por mes comparada con el año anterior"></canvas></div></div>
     </div>
-    <div class="card">
-      <div class="card-header"><span>Recuperación por mes <small>millones de C$, con IVA</small></span></div>
+    <div class="card sec sec-recuperacion">
+      <div class="card-header"><span><i class="bi bi-cash-stack" aria-hidden="true"></i> Recuperación por mes <small>millones de C$, con IVA</small></span></div>
       <div class="card-body"><div class="grafico"><canvas id="graficoRecuperacion" role="img" aria-label="Recuperación por mes"></canvas></div></div>
     </div>
   </div>
 
   <div class="fila-tablas">
-    <div class="card">
-      <div class="card-header"><span>Top {{ r.marcas.filas|length }} marcas <small>acumulado</small></span></div>
+    <div class="card sec sec-marcas">
+      <div class="card-header"><span><i class="bi bi-bookmark-star" aria-hidden="true"></i> Top {{ r.marcas.filas|length }} marcas <small>acumulado</small></span></div>
       <div class="card-body">
         {% if r.marcas.filas %}
         <table class="tabla">
@@ -108,8 +108,8 @@
         {% else %}<div class="vacio">Sin ventas en el período.</div>{% endif %}
       </div>
     </div>
-    <div class="card">
-      <div class="card-header"><span>Venta neta por tipo de vendedor <small>acumulado</small></span></div>
+    <div class="card sec sec-tipos">
+      <div class="card-header"><span><i class="bi bi-person-badge" aria-hidden="true"></i> Venta neta por tipo de vendedor <small>acumulado</small></span></div>
       <div class="card-body">
         {% if r.tipos %}
         <table class="tabla">

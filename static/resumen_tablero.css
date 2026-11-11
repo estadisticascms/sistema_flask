@@ -29,3 +29,28 @@
   .resumen .card-body { overflow-x: auto; }
   .resumen-cabeza form { margin-left: 0; }
 }
+
+/* ---------- Bloques que se distinguen ----------
+   Fondo gris claro y recuadros blancos; cada indicador y cada sección con su color e ícono.
+   Verde azulado = ventas, naranja = recuperación (colores corporativos); el resto, tonos neutros que combinan. */
+.resumen { background: #f3f4f1; padding: .6rem; border-radius: 12px; }
+.resumen .card { background: #fff; border: 1px solid #e3e2dd; box-shadow: 0 1px 2px rgba(0,0,0,.04); overflow: hidden; }
+.resumen .card.sec { border-top: 4px solid var(--sec-color, #8a8984); }
+.resumen .card.sec .card-header { background: var(--sec-fondo, #f6f5f1); color: var(--sec-texto, var(--ink)); border-bottom: 1px solid #ecebe6; }
+.resumen .card.sec .card-header .bi { color: var(--sec-color); margin-right: .2rem; }
+.resumen .sec-ventas       { --sec-color: #027266; --sec-fondo: #e6f2f0; --sec-texto: #015a51; }
+.resumen .sec-recuperacion { --sec-color: #FE6412; --sec-fondo: #fff1e8; --sec-texto: #a3400a; }
+.resumen .sec-marcas       { --sec-color: #4F6D8A; --sec-fondo: #eaf0f5; --sec-texto: #3a5269; }
+.resumen .sec-tipos        { --sec-color: #6D597A; --sec-fondo: #f1edf4; --sec-texto: #54445e; }
+.resumen .sec-marcas .barra-celda .barra { background: rgba(79,109,138,.28); }
+.resumen .sec-tipos .barra-celda .barra { background: rgba(109,89,122,.25); }
+
+.kpis .kpi { background: #fff; border: 1px solid #e3e2dd; border-left: 4px solid var(--k-color, #8a8984); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.kpis .kpi .etiqueta .bi { color: var(--k-color); margin-right: .15rem; }
+.kpis .k-venta        { --k-color: #027266; background: linear-gradient(135deg, #e6f2f0, #fff 70%); }
+.kpis .kpi-hero.k-venta { border-color: #b7d9d4; border-left-color: #027266; }
+.kpis .k-utilidad     { --k-color: #1a7f37; }
+.kpis .k-margen       { --k-color: #D9A441; }
+.kpis .k-recuperacion { --k-color: #FE6412; background: linear-gradient(135deg, #fff1e8, #fff 70%); }
+.kpis .k-clientes     { --k-color: #4F6D8A; }
+.kpis .k-mezcla       { --k-color: #6D597A; }

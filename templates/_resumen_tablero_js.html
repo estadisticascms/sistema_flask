@@ -3,10 +3,11 @@
 <script>
 (() => {
   const VERDE = '#027266', VERDE_CLARO = 'rgba(2,114,102,.5)', GRIS = '#c9c8c2';
+  const NARANJA = '#FE6412', NARANJA_CLARO = 'rgba(254,100,18,.45)';   // recuperación en naranja: se distingue de las ventas
   const etiquetas = {{ r.etiquetas | tojson }}, ventas = {{ r.ventas | tojson }}, anterior = {{ r.ventas_ant | tojson }},
         recuperacion = {{ r.recuperacion | tojson }}, incompleto = {{ r.mes_incompleto | tojson }};
   const fmt = (v) => 'C$ ' + Math.round(v).toLocaleString('en-US');
-  const colores = (datos) => datos.map((_, i) => incompleto && i === datos.length - 1 ? VERDE_CLARO : VERDE);
+  const colores = (datos, fuerte = VERDE, claro = VERDE_CLARO) => datos.map((_, i) => incompleto && i === datos.length - 1 ? claro : fuerte);
 
   Chart.defaults.font.family = "'Segoe UI', Arial, sans-serif";
   Chart.defaults.font.size = 11;
@@ -45,12 +46,12 @@
   });
   new Chart(document.getElementById('graficoRecuperacion'), {
     type: 'bar',
-    data: { labels: etiquetas, datasets: [{ label: 'Recuperado', data: recuperacion, backgroundColor: colores(recuperacion), borderRadius: 4, categoryPercentage: .7 }] },
+    data: { labels: etiquetas, datasets: [{ label: 'Recuperado', data: recuperacion, backgroundColor: colores(recuperacion, NARANJA, NARANJA_CLARO), borderRadius: 4, categoryPercentage: .7 }] },
     options: opciones, plugins: [rotulos],
   });
 
   const nombre = 'resumen_general_{{ r.corte }}';
-  const capturar = () => html2canvas(document.getElementById('resumenContainer'), { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+  const capturar = () => html2canvas(document.getElementById('resumenContainer'), { scale: 2, useCORS: true, backgroundColor: '#f3f4f1' });
   document.getElementById('btnDescargar').addEventListener('click', () => capturar().then((canvas) => {
     const link = document.createElement('a');
     link.download = nombre + '.png';
