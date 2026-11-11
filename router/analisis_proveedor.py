@@ -2,9 +2,11 @@
 cuánto hay en inventario y en NHE, la última venta, la temporada de más venta y un comentario (sin venta, lento, agotado…).
 
 - Proveedor: «Proveedor Ultima Compra» del catálogo (desde 2023 el sistema no trae el proveedor en las transacciones).
-- Ingresado: entradas por ORDEN COMPRA desde la fecha, valorado a FOB.
-- Ventas: unidades y venta neta en C$ (Sub-Total 2 de ventas_por_producto: sin IVA, con descuento, sin anuladas) desde la fecha.
-- FOB (ingresado, inventario, NHE): cantidades × «Ultimo Precio FOB» del catálogo (US$), igual que el sugerido de compras; sin FOB no suma.
+- Todo el análisis en córdobas, costo contra venta:
+  · Ingresado: entradas por ORDEN COMPRA desde la fecha, a su costo real en C$ (total_mn de la transacción, TC 36.6243).
+  · Ventas: unidades y venta neta en C$ (Sub-Total 2 de ventas_por_producto: sin IVA, con descuento, sin anuladas) y su costo.
+  · Inventario y NHE: cantidad × «Ultimo Costo» del catálogo (C$); si el producto tiene costo 0, se estima con FOB × TC_FOB.
+- FOB en US$ («Ultimo Precio FOB» del catálogo) solo como referencia en los totales generales.
 - Rotación: el estado de cada producto (se vende / lento / agotado / sin venta) y el resumen general por estado.
 - Rentabilidad: utilidad bruta y margen de lo vendido (costo de ventas por producto), rotación del inventario (costo de lo vendido
   al año ÷ inventario a último costo) y GMROI (utilidad bruta al año por cada C$ 1 de inventario a costo), con un veredicto.
@@ -30,10 +32,12 @@ MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "
 MESES_TEMPORADA = 24
 MIN_UNIDADES_TEMPORADA = 6          # con menos venta en 24 meses no se habla de temporada
 MAX_FILAS_PANTALLA = 1500
+TC_FOB = 36.6243                     # tipo de cambio para estimar en C$ el costo de un producto con último costo 0 (FOB × TC)
 VERDE, NARANJA = "027266", "FE6412"
 ESTADOS = {"": "Todos", "sin_venta": "Sin venta", "lento": "Lento", "rota": "Se vende bien", "agotado": "Agotado", "nhe": "Con NHE",
            "ingreso": "Ingresaron desde la fecha"}
-ORDENES = {"inventario": "Mayor inventario FOB", "ingreso": "Mayor ingreso FOB", "vendido": "Mayor venta neta",
+ORDENES = {"inventario": "Mayor inventario a costo", "ingreso": "Mayor ingreso a costo", "vendido": "Mayor venta neta",
+           "utilidad": "Mayor utilidad",
            "sin_venta": "Más tiempo sin venta", "marca": "Marca y descripción"}
 
 
@@ -191,25 +195,28 @@ def calcular(f):
             FROM catalogo_productos p LEFT JOIN clase_prod c ON c.codigo = p.`Codigo Producto`
             WHERE {' AND '.join(where)}
         """, params)
-        productos = {r[0]: {"codigo": r[0], "nombre": r[1] or "", "parte": r[2] or "", "marca": r[3], "categoria": r[4] or "",
-                            "fob": float(r[5]) if r[5] else None, "ultima_compra": r[6],
-                            "segmento": r[7] or "Sin clasificar", "familia": r[8] or "Sin clasificar", "subfamilia": r[9] or "Sin clasificar",
-                            "costo": float(r[10] or 0)}
-                     for r in cursor.fetchall()}
+        productos = {}
+        for r in cursor.fetchall():
+            fob, costo = (float(r[5]) if r[5] else None), float(r[10] or 0)
+            estimado = costo <= 0 and bool(fob)
+            productos[r[0]] = {"codigo": r[0], "nombre": r[1] or "", "parte": r[2] or "", "marca": r[3], "categoria": r[4] or "",
+                               "fob": fob, "ultima_compra": r[6],
+                               "segmento": r[7] or "Sin clasificar", "familia": r[8] or "Sin clasificar", "subfamilia": r[9] or "Sin clasificar",
+                               # costo unitario en C$: último costo del catálogo; si está en 0, FOB × tipo de cambio (estimado)
+                               "costo": fob * TC_FOB if estimado else costo, "costo_estimado": estimado}
         if not productos:
             return vacio
         codigos = list(productos)
-        # Movimientos por producto y mes (desde la fecha y los últimos 24 meses para la temporada)
+        # Movimientos por producto y mes: ingresos con su costo real en C$ (total_mn) y último ingreso
         desde_sql = f"'{f['desde'].isoformat()}'"     # fecha (objeto date): segura para ir en el texto de la consulta
         movs = en_lista(cursor, f"""
-            SELECT {HINT} codigo_producto, DATE_FORMAT(fecha, '%Y-%m'), fecha >= {desde_sql},
+            SELECT {HINT} codigo_producto, fecha >= {desde_sql},
                    SUM(CASE WHEN tipo_transaccion = 'ENTRADA' AND tipo_documento_origen = 'ORDEN COMPRA' THEN cantidad ELSE 0 END),
-                   SUM(CASE WHEN tipo_transaccion = 'SALIDA' AND tipo_documento_origen LIKE 'FACTURA%%' THEN cantidad ELSE 0 END),
-                   SUM(CASE WHEN tipo_transaccion = 'ENTRADA' AND tipo_documento_origen = 'DEVOLUCION' THEN cantidad ELSE 0 END),
+                   SUM(CASE WHEN tipo_transaccion = 'ENTRADA' AND tipo_documento_origen = 'ORDEN COMPRA' THEN total_mn ELSE 0 END),
                    MAX(CASE WHEN tipo_transaccion = 'ENTRADA' AND tipo_documento_origen = 'ORDEN COMPRA' THEN fecha END)
             FROM transacciones_inventario
-            WHERE codigo_producto IN ({{IN}}) AND fecha >= %s
-            GROUP BY codigo_producto, DATE_FORMAT(fecha, '%Y-%m'), fecha >= {desde_sql}
+            WHERE codigo_producto IN ({{IN}}) AND fecha >= %s AND tipo_documento_origen = 'ORDEN COMPRA'
+            GROUP BY codigo_producto, fecha >= {desde_sql}
         """, codigos, (inicio_hist,))
         ultima_venta = dict(en_lista(cursor, f"SELECT {HINT} codigo_producto, MAX(fecha) FROM transacciones_inventario "
                                              "WHERE codigo_producto IN ({IN}) AND tipo_transaccion = 'SALIDA' "
@@ -221,14 +228,14 @@ def calcular(f):
         cursor.close()
         conn.close()
 
-    # Ingresos (de las transacciones de inventario)
-    ingreso, ultimo_ingreso = defaultdict(float), {}
-    for cod, mes, desde_fecha, ing, sal, dev, ult_ing in movs:
+    ingreso, ingreso_costo, ultimo_ingreso = defaultdict(float), defaultdict(float), {}
+    for cod, desde_fecha, cant, costo, ult_ing in movs:
         if desde_fecha:
-            ingreso[cod] += float(ing or 0)
+            ingreso[cod] += float(cant or 0)
+            ingreso_costo[cod] += float(costo or 0)
         if ult_ing and (cod not in ultimo_ingreso or ult_ing > ultimo_ingreso[cod]):
             ultimo_ingreso[cod] = ult_ing
-    # Ventas a precio de venta neto (de ventas por producto)
+    # Ventas a precio de venta neto y su costo (de ventas por producto)
     vendido, venta_neta, costo_vendido = defaultdict(float), defaultdict(float), defaultdict(float)
     venta_mes = defaultdict(lambda: defaultdict(float))     # codigo -> 'AAAA-MM' -> unidades
     monto_mes = defaultdict(lambda: defaultdict(float))     # codigo -> 'AAAA-MM' -> venta neta C$
@@ -288,13 +295,16 @@ def calcular(f):
             estado, comentario = "rota", f"Se vende: inventario para {cobertura:.1f} meses" if cobertura is not None else "Se vende"
         if nhe > 0:
             comentario += f" · {nhe:,.0f} en NHE"
-        fob = p["fob"]
-        filas.append({**p, "ingreso": ing, "ingreso_fob": ing * fob if fob else None,
-                      "vendido": ven, "venta_neta": venta_neta.get(cod, 0.0), "costo_vendido": costo_vendido.get(cod, 0.0),
-                      "margen": (venta_neta[cod] - costo_vendido[cod]) / venta_neta[cod] * 100 if venta_neta.get(cod, 0) > 0 else None,
-                      "inventario_costo": max(disponible, 0) * p["costo"],
+        fob, cu = p["fob"], p["costo"]
+        vn, cv = venta_neta.get(cod, 0.0), costo_vendido.get(cod, 0.0)
+        filas.append({**p, "ingreso": ing, "ingreso_costo": ingreso_costo.get(cod, 0.0),
+                      "vendido": ven, "venta_neta": vn, "costo_vendido": cv, "utilidad": vn - cv,
+                      "margen": (vn - cv) / vn * 100 if vn > 0 else None,
                       "existencia": total, "nhe": nhe, "disponible": disponible,
-                      "inventario_fob": disponible * fob if fob else None, "nhe_fob": nhe * fob if fob and nhe else None,
+                      "inventario_costo": max(disponible, 0) * cu, "nhe_costo": nhe * cu if nhe > 0 else 0.0,
+                      # FOB en US$ solo como referencia en los totales generales
+                      "ingreso_fob": ing * fob if fob else 0.0, "inventario_fob": max(disponible, 0) * fob if fob else 0.0,
+                      "nhe_fob": nhe * fob if fob and nhe > 0 else 0.0,
                       "ultima_venta": ult, "dias_sin_venta": dias_sin, "ultimo_ingreso": ultimo_ingreso.get(cod),
                       "temporada": temp, "temporada_pct": temp_pct, "mensual": mensual, "cobertura": cobertura,
                       "estado": estado, "comentario": comentario,
@@ -303,20 +313,20 @@ def calcular(f):
 
     # Resumen por marca y total (antes de los filtros de estado / búsqueda, para que cuadre con el proveedor)
     def acumular(destino, x):
-        for campo in ("ingreso", "vendido", "disponible", "nhe"):
-            destino[campo] += x[campo]
-        for campo in ("ingreso_fob", "venta_neta", "costo_vendido", "inventario_costo", "inventario_fob", "nhe_fob"):
+        for campo in ("ingreso", "vendido", "disponible", "nhe", "ingreso_costo", "venta_neta", "costo_vendido", "inventario_costo",
+                      "nhe_costo", "ingreso_fob", "inventario_fob", "nhe_fob"):
             destino[campo] += x[campo] or 0
         destino["productos"] += 1
         destino["sin_venta"] += x["estado"] == "sin_venta"
-        destino["sin_venta_fob"] += (x["inventario_fob"] or 0) if x["estado"] == "sin_venta" else 0
-        destino["sin_fob"] += x["fob"] is None
+        destino["sin_venta_costo"] += x["inventario_costo"] if x["estado"] == "sin_venta" else 0
+        destino["costo_estimado"] += x["costo_estimado"]
+        destino["sin_costo"] += x["costo"] <= 0
     nuevo = lambda: defaultdict(float)
     total, por_marca = nuevo(), defaultdict(nuevo)
     venta_total_mes = [0.0] * len(meses)
     venta_total_mes_monto = [0.0] * len(meses)
-    por_estado = {k: {"estado": k, "nombre": nombre, "color": color, "productos": 0, "disponible": 0.0, "inventario_fob": 0.0,
-                      "vendido": 0.0, "venta_neta": 0.0} for k, nombre, color in ROTACION}
+    por_estado = {k: {"estado": k, "nombre": nombre, "color": color, "productos": 0, "disponible": 0.0, "inventario_costo": 0.0,
+                      "vendido": 0.0, "venta_neta": 0.0, "marcas": defaultdict(nuevo)} for k, nombre, color in ROTACION}
     for x in filas:
         acumular(total, x)
         acumular(por_marca[x["marca"]], x)
@@ -326,19 +336,29 @@ def calcular(f):
         e = por_estado[x["estado"]]
         e["productos"] += 1
         e["disponible"] += max(x["disponible"], 0)
-        e["inventario_fob"] += max(x["inventario_fob"] or 0, 0)
+        e["inventario_costo"] += x["inventario_costo"]
         e["vendido"] += x["vendido"]
         e["venta_neta"] += x["venta_neta"]
+        em = e["marcas"][x["marca"]]
+        em["productos"] += 1
+        em["inventario_costo"] += x["inventario_costo"]
+        em["disponible"] += max(x["disponible"], 0)
+        em["venta_neta"] += x["venta_neta"]
     rotacion = list(por_estado.values())
     total_productos = sum(e["productos"] for e in rotacion)
-    total_inv = sum(e["inventario_fob"] for e in rotacion)
+    total_inv = sum(e["inventario_costo"] for e in rotacion)
     for e in rotacion:
         e["pct_productos"] = e["productos"] / total_productos * 100 if total_productos else 0
-        e["pct_inventario"] = e["inventario_fob"] / total_inv * 100 if total_inv else 0
+        e["pct_inventario"] = e["inventario_costo"] / total_inv * 100 if total_inv else 0
+        # marcas de cada tipo de rotación, de mayor a menor inventario
+        e["marcas"] = sorted(({"marca": m, **v, "pct": v["inventario_costo"] / e["inventario_costo"] * 100 if e["inventario_costo"] else 0}
+                              for m, v in e["marcas"].items()), key=lambda y: (-y["inventario_costo"], -y["productos"]))
     dias = (hoy - f["desde"]).days + 1
-    marcas = sorted(({"marca": m, **v} for m, v in por_marca.items()), key=lambda x: -x["inventario_fob"])
+    marcas = sorted(({"marca": m, **v} for m, v in por_marca.items()), key=lambda x: -x["inventario_costo"])
     for m in marcas:
         m["rent"] = rentabilidad(m, dias)
+        # rotación de la marca: productos e inventario a costo por tipo
+        m["rot"] = {e["estado"]: next((y for y in e["marcas"] if y["marca"] == m["marca"]), None) for e in rotacion}
     rent_total = rentabilidad(total, dias) if filas else None
     por_mes_anio = defaultdict(float)
     for m, v in zip(meses, venta_total_mes_monto):
@@ -355,9 +375,9 @@ def calcular(f):
         filas = [x for x in filas if x["ingreso"] > 0]
     elif f["estado"]:
         filas = [x for x in filas if x["estado"] == f["estado"]]
-    clave = {"inventario": lambda x: -(x["inventario_fob"] or 0), "ingreso": lambda x: -(x["ingreso_fob"] or 0),
-             "vendido": lambda x: -(x["venta_neta"] or 0),
-             "sin_venta": lambda x: (x["dias_sin_venta"] is not None, -(x["dias_sin_venta"] or 0), -(x["inventario_fob"] or 0)),
+    clave = {"inventario": lambda x: -x["inventario_costo"], "ingreso": lambda x: -x["ingreso_costo"],
+             "vendido": lambda x: -(x["venta_neta"] or 0), "utilidad": lambda x: -(x["utilidad"] or 0),
+             "sin_venta": lambda x: (x["dias_sin_venta"] is not None, -(x["dias_sin_venta"] or 0), -x["inventario_costo"]),
              "marca": lambda x: (x["marca"], x["nombre"])}[f["orden"]]
     filas.sort(key=clave)
     return {"filas": filas, "marcas": marcas, "total": total, "meses": meses, "etiquetas": [f"{MESES[int(m[5:]) - 1]} {m[2:4]}" for m in meses],
@@ -372,7 +392,7 @@ def reporte():
     marcas_prov = marcas_del_proveedor(f["proveedor"])
     d = calcular(f)
     return render_template("analisis_proveedor.html", f=f, d=d, proveedores=lista_proveedores(), marcas_prov=marcas_prov,
-                           estados=ESTADOS, ordenes=ORDENES, max_filas=MAX_FILAS_PANTALLA)
+                           estados=ESTADOS, ordenes=ORDENES, max_filas=MAX_FILAS_PANTALLA, tc_fob=TC_FOB)
 
 
 @analisis_proveedor_bp.route("/analisis_proveedor/excel")
@@ -381,9 +401,11 @@ def excel():
     f = leer_filtros(request.args)
     d = calcular(f)
     wb = Workbook()
-    nota = (f"Proveedor: {f['proveedor']} · Marcas: {', '.join(f['marcas']) or 'todas'}{' · Solo con existencia' if f['existencia'] else ''} · Ingresos y ventas desde el {f['desde']:%d/%m/%Y} · "
-            f"Ventas = venta neta C$ (sin IVA, con descuento, sin anuladas) · FOB = cantidad × último precio FOB del catálogo (US$) · "
+    nota = (f"Proveedor: {f['proveedor']} · Marcas: {', '.join(f['marcas']) or 'todas'}{' · Solo con existencia' if f['existencia'] else ''} · "
+            f"Ingresos y ventas desde el {f['desde']:%d/%m/%Y} · Todo en C$: ingresado a costo real, inventario y NHE a último costo, "
+            f"ventas netas (sin IVA, con descuento, sin anuladas) contra su costo · FOB US$ solo de referencia · "
             f"Inventario disponible sin bodegas NHE · Generado {datetime.now():%d/%m/%Y %H:%M}")
+    C, P, U = "#,##0.00", "0.0%", "#,##0.##"
 
     def hoja(ws, titulo, columnas):
         ws["A1"], ws["A2"] = titulo, nota
@@ -392,85 +414,95 @@ def excel():
         for i, (nombre, ancho) in enumerate(columnas, start=1):
             c = ws.cell(row=4, column=i, value=nombre)
             c.font = Font(bold=True, color="FFFFFF")
-            c.fill = PatternFill("solid", fgColor=NARANJA if "NHE" in nombre or "Comentario" in nombre else VERDE)
+            c.fill = PatternFill("solid", fgColor=NARANJA if "NHE" in nombre or "Comentario" in nombre or "Veredicto" in nombre else VERDE)
             c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             ws.column_dimensions[get_column_letter(i)].width = ancho
-        ws.row_dimensions[4].height = 32
+        ws.row_dimensions[4].height = 34
         ws.freeze_panes = "B5"
 
+    def escribir(ws, fila, valores, formatos):
+        for i, (v, fmt) in enumerate(zip(valores, formatos), start=1):
+            c = ws.cell(row=fila, column=i, value=v)
+            if fmt:
+                c.number_format = fmt
+
+    # --- Por marca ---
     ws = wb.active
     ws.title = "Por marca"
-    cols = [("Marca", 22), ("Productos", 10), ("Ingresado (unid.)", 12), ("Ingresado FOB US$", 14), ("Vendido (unid.)", 12),
-            ("Venta neta C$", 14), ("Inventario disponible (unid.)", 13), ("Inventario FOB US$", 14), ("NHE (unid.)", 10),
-            ("NHE FOB US$", 12), ("Productos sin venta", 11), ("Inventario sin venta FOB US$", 14), ("Costo de lo vendido C$", 14),
-            ("Utilidad bruta C$", 14), ("Margen %", 9), ("Inventario a costo C$", 14), ("Rotación (veces al año)", 10),
-            ("GMROI (C$ por C$ 1 de inventario al año)", 13), ("Veredicto", 60)]
+    cols = [("Marca", 22), ("Productos", 10), ("Ingresado (unid.)", 11), ("Ingresado a costo C$", 14), ("Vendido (unid.)", 11),
+            ("Venta neta C$", 14), ("Costo de lo vendido C$", 14), ("Utilidad bruta C$", 14), ("Margen %", 9),
+            ("Inventario disponible (unid.)", 12), ("Inventario a costo C$", 14), ("NHE (unid.)", 10), ("NHE a costo C$", 13),
+            ("Productos sin venta", 10), ("Inventario sin venta C$", 14), ("Rotación (veces al año)", 10),
+            ("GMROI (C$ por C$ 1 de inventario al año)", 13), ("Veredicto", 60), ("Ingresado FOB US$ (ref.)", 13), ("Inventario FOB US$ (ref.)", 13)]
+    fm = [None, U, U, C, U, C, C, C, P, U, C, U, C, U, C, "#,##0.00", "#,##0.00", None, C, C]
     hoja(ws, f"Análisis de proveedor: {f['proveedor']}", cols)
     for n, m in enumerate(d["marcas"], start=5):
-        valores = [m["marca"], m["productos"], m["ingreso"], round(m["ingreso_fob"], 2), m["vendido"], round(m["venta_neta"], 2), m["disponible"],
-                   round(m["inventario_fob"], 2), m["nhe"], round(m["nhe_fob"], 2), m["sin_venta"], round(m["sin_venta_fob"], 2),
-                   round(m["costo_vendido"], 2), round(m["rent"]["utilidad"], 2),
-                   m["rent"]["margen"] / 100 if m["rent"]["margen"] is not None else None, round(m["inventario_costo"], 2),
-                   round(m["rent"]["rotacion"], 2) if m["rent"]["rotacion"] is not None else None,
-                   round(m["rent"]["gmroi"], 2) if m["rent"]["gmroi"] is not None else None, m["rent"]["veredicto"]]
-        for i, v in enumerate(valores, start=1):
-            c = ws.cell(row=n, column=i, value=v)
-            if cols[i - 1][0] == "Margen %":
-                c.number_format = "0.0%"
-                continue
-            c.number_format = "#,##0.00" if ("FOB" in cols[i - 1][0] or "C$" in cols[i - 1][0]) else "#,##0.##"
+        r = m["rent"]
+        escribir(ws, n, [m["marca"], m["productos"], m["ingreso"], round(m["ingreso_costo"], 2), m["vendido"], round(m["venta_neta"], 2),
+                         round(m["costo_vendido"], 2), round(r["utilidad"], 2), r["margen"] / 100 if r["margen"] is not None else None,
+                         m["disponible"], round(m["inventario_costo"], 2), m["nhe"], round(m["nhe_costo"], 2), m["sin_venta"],
+                         round(m["sin_venta_costo"], 2), round(r["rotacion"], 2) if r["rotacion"] is not None else None,
+                         round(r["gmroi"], 2) if r["gmroi"] is not None else None, r["veredicto"],
+                         round(m["ingreso_fob"], 2), round(m["inventario_fob"], 2)], fm)
     tot = 5 + len(d["marcas"])
     ws.cell(row=tot, column=1, value="TOTAL").font = Font(bold=True)
-    for i in range(2, 15):   # sumas hasta la utilidad; margen, rotación y GMROI del total van en la fila siguiente
+    for i in list(range(2, 9)) + list(range(10, 16)) + [19, 20]:
         l = get_column_letter(i)
         c = ws.cell(row=tot, column=i, value=f"=SUM({l}5:{l}{tot - 1})")
         c.font = Font(bold=True)
-        c.number_format = "#,##0.00" if ("FOB" in cols[i - 1][0] or "C$" in cols[i - 1][0]) else "#,##0.##"
-
+        c.number_format = fm[i - 1] or U
     r = d.get("rent")
     if r:
-        ws.cell(row=tot, column=15, value=r["margen"] / 100 if r["margen"] is not None else None).number_format = "0.0%"
-        ws.cell(row=tot, column=16, value=f"=SUM(P5:P{tot - 1})").number_format = "#,##0.00"
-        ws.cell(row=tot, column=17, value=round(r["rotacion"], 2) if r["rotacion"] is not None else None)
-        ws.cell(row=tot, column=18, value=round(r["gmroi"], 2) if r["gmroi"] is not None else None)
-        ws.cell(row=tot, column=19, value=r["veredicto"]).font = Font(bold=True)
+        ws.cell(row=tot, column=9, value=r["margen"] / 100 if r["margen"] is not None else None).number_format = P
+        ws.cell(row=tot, column=16, value=round(r["rotacion"], 2) if r["rotacion"] is not None else None)
+        ws.cell(row=tot, column=17, value=round(r["gmroi"], 2) if r["gmroi"] is not None else None)
+        ws.cell(row=tot, column=18, value=r["veredicto"]).font = Font(bold=True)
 
+    # --- Detalle ---
     ws2 = wb.create_sheet("Detalle")
     cols2 = [("Código", 11), ("Nº parte", 18), ("Descripción", 40), ("Marca", 14), ("Segmento", 16), ("Familia", 22), ("Subfamilia", 24),
-             ("Categoría", 16), ("Precio FOB US$", 11), ("Ingresado (unid.)", 11), ("Ingresado FOB US$", 13), ("Último ingreso", 12),
-             ("Vendido (unid.)", 11), ("Venta neta C$", 13), ("Margen %", 9), ("Existencia total", 11), ("NHE (unid.)", 10), ("Inventario disponible", 11),
-             ("Inventario FOB US$", 13), ("NHE FOB US$", 12), ("Venta mensual (12 meses)", 11), ("Meses de inventario", 10),
-             ("Última venta", 12), ("Temporada de más venta", 13), ("% del año en esa temporada", 11), ("Comentario", 48)]
+             ("Categoría", 16), ("Costo unitario C$", 11), ("Ingresado (unid.)", 10), ("Ingresado a costo C$", 13), ("Último ingreso", 12),
+             ("Vendido (unid.)", 10), ("Venta neta C$", 13), ("Costo de lo vendido C$", 13), ("Utilidad C$", 12), ("Margen %", 9),
+             ("Existencia total", 10), ("NHE (unid.)", 9), ("Inventario disponible", 10), ("Inventario a costo C$", 13), ("NHE a costo C$", 12),
+             ("Venta mensual (12 meses)", 10), ("Meses de inventario", 10), ("Última venta", 12), ("Temporada de más venta", 12),
+             ("% del año en esa temporada", 10), ("Comentario", 48), ("Precio FOB US$ (ref.)", 11)]
+    fm2 = [None, None, None, None, None, None, None, None, "#,##0.00", U, C, "dd/mm/yyyy", U, C, C, C, P, U, U, U, C, C, "#,##0.0", "#,##0.0",
+           "dd/mm/yyyy", None, "0%", None, "#,##0.00##"]
     hoja(ws2, f"Detalle por producto: {f['proveedor']}", cols2)
-    formatos = {"Precio FOB US$": "#,##0.00##", "Ingresado FOB US$": "#,##0.00", "Venta neta C$": "#,##0.00", "Inventario FOB US$": "#,##0.00",
-                "NHE FOB US$": "#,##0.00", "Último ingreso": "dd/mm/yyyy", "Última venta": "dd/mm/yyyy", "Venta mensual (12 meses)": "#,##0.0",
-                "Meses de inventario": "#,##0.0", "% del año en esa temporada": "0%", "Margen %": "0.0%"}
     for n, x in enumerate(d["filas"], start=5):
-        valores = [x["codigo"], x["parte"], x["nombre"], x["marca"], x["segmento"], x["familia"], x["subfamilia"], x["categoria"], x["fob"],
-                   x["ingreso"] or None, x["ingreso_fob"] if x["ingreso"] else None, x["ultimo_ingreso"], x["vendido"] or None,
-                   round(x["venta_neta"], 2) or None, x["margen"] / 100 if x["margen"] is not None else None, x["existencia"], x["nhe"] or None, x["disponible"], x["inventario_fob"],
-                   x["nhe_fob"], round(x["mensual"], 2) or None, round(x["cobertura"], 1) if x["cobertura"] is not None else None,
-                   x["ultima_venta"], x["temporada"], x["temporada_pct"] / 100 if x["temporada_pct"] else None, x["comentario"]]
-        for i, v in enumerate(valores, start=1):
-            c = ws2.cell(row=n, column=i, value=v)
-            c.number_format = formatos.get(cols2[i - 1][0], "#,##0.##" if isinstance(v, (int, float)) else c.number_format)
+        escribir(ws2, n, [x["codigo"], x["parte"], x["nombre"], x["marca"], x["segmento"], x["familia"], x["subfamilia"], x["categoria"],
+                          round(x["costo"], 2) or None, x["ingreso"] or None, round(x["ingreso_costo"], 2) or None, x["ultimo_ingreso"],
+                          x["vendido"] or None, round(x["venta_neta"], 2) or None, round(x["costo_vendido"], 2) or None,
+                          round(x["utilidad"], 2) if x["venta_neta"] else None, x["margen"] / 100 if x["margen"] is not None else None,
+                          x["existencia"], x["nhe"] or None, x["disponible"], round(x["inventario_costo"], 2) or None, round(x["nhe_costo"], 2) or None,
+                          round(x["mensual"], 2) or None, round(x["cobertura"], 1) if x["cobertura"] is not None else None, x["ultima_venta"],
+                          x["temporada"], x["temporada_pct"] / 100 if x["temporada_pct"] else None,
+                          x["comentario"] + (" · costo estimado con FOB" if x["costo_estimado"] else ""), x["fob"]], fm2)
     ws2.auto_filter.ref = f"A4:{get_column_letter(len(cols2))}{4 + max(len(d['filas']), 1)}"
 
+    # --- Venta por mes ---
     ws3 = wb.create_sheet("Venta por mes")
     hoja(ws3, "Ventas por mes (últimos 24 meses)", [("Mes", 10), ("Unidades vendidas", 12), ("Venta neta C$", 14)])
     for n, (e, u, v) in enumerate(zip(d.get("etiquetas", []), d.get("venta_mes", []), d.get("venta_mes_monto", [])), start=5):
-        ws3.cell(row=n, column=1, value=e)
-        ws3.cell(row=n, column=2, value=u).number_format = "#,##0"
-        ws3.cell(row=n, column=3, value=round(v, 2)).number_format = "#,##0.00"
+        escribir(ws3, n, [e, u, round(v, 2)], [None, "#,##0", C])
 
+    # --- Rotación: por tipo y por marca ---
     ws4 = wb.create_sheet("Rotación")
-    hoja(ws4, "Rotación general", [("Rotación", 36), ("Productos", 10), ("% de productos", 11), ("Inventario disponible (unid.)", 13),
-                                   ("Inventario FOB US$", 14), ("% del inventario FOB", 11), ("Vendido (unid.)", 12), ("Venta neta C$", 14)])
-    for n, e in enumerate(d.get("rotacion", []), start=5):
-        valores = [e["nombre"], e["productos"], e["pct_productos"] / 100, e["disponible"], round(e["inventario_fob"], 2), e["pct_inventario"] / 100,
-                   e["vendido"], round(e["venta_neta"], 2)]
-        for i, v in enumerate(valores, start=1):
-            ws4.cell(row=n, column=i, value=v).number_format = {3: "0.0%", 6: "0.0%", 5: "#,##0.00", 8: "#,##0.00"}.get(i, "#,##0.##")
+    hoja(ws4, "Rotación general por tipo y marca", [("Rotación", 36), ("Marca", 22), ("Productos", 10), ("% de productos", 10),
+                                                    ("Inventario disponible (unid.)", 12), ("Inventario a costo C$", 14), ("% del inventario", 10),
+                                                    ("Venta neta C$", 14)])
+    n = 5
+    for e in d.get("rotacion", []):
+        escribir(ws4, n, [e["nombre"], "TODAS", e["productos"], e["pct_productos"] / 100, e["disponible"], round(e["inventario_costo"], 2),
+                          e["pct_inventario"] / 100, round(e["venta_neta"], 2)], [None, None, U, P, U, C, P, C])
+        for col in range(1, 9):
+            ws4.cell(row=n, column=col).font = Font(bold=True)
+        n += 1
+        for y in e["marcas"]:
+            escribir(ws4, n, [e["nombre"], y["marca"], y["productos"], None, y["disponible"], round(y["inventario_costo"], 2),
+                              y["pct"] / 100, round(y["venta_neta"], 2)], [None, None, U, None, U, C, P, C])
+            n += 1
+    ws4.cell(row=n + 1, column=1, value="En las filas de cada marca, «% del inventario» es la parte de ese tipo de rotación.").font = Font(size=9, italic=True)
 
     salida = io.BytesIO()
     wb.save(salida)

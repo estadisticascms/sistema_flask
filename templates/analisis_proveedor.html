@@ -50,6 +50,10 @@
   .rentab .mini .su { font-size: .7rem; color: var(--ink-2); }
   .punto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: .35rem; background: var(--grid); }
   .punto.bueno { background: var(--credito); } .punto.medio { background: #D9A441; } .punto.malo { background: var(--contado); }
+  .ref { color: var(--ink-3); font-style: italic; }
+  .tabla-rot tr.rot-tipo td { background: #faf9f6; font-weight: 600; border-top: 1px solid #e3e2dd; }
+  .tabla-rot tr.rot-marca td { font-size: .74rem; color: var(--ink-2); }
+  .tabla-rot tr.rot-marca td.izq { padding-left: 1.4rem; }
   .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
   .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
   .ap a:focus-visible, .ap .btn:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
@@ -112,20 +116,20 @@
   {% set nula = d.rotacion|selectattr('estado', 'equalto', 'sin_venta')|first %}
   <div class="row g-2 mb-3">
     <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
-      <div class="etiqueta">Ingresado desde {{ f.desde.strftime('%d/%m/%Y') }}</div><div class="valor">US$ {{ usd(t.ingreso_fob) }}</div>
-      <div class="sub">{{ n(t.ingreso) }} unidades · valor FOB</div></div></div>
+      <div class="etiqueta">Ingresado desde {{ f.desde.strftime('%d/%m/%Y') }}</div><div class="valor">C$ {{ usd(t.ingreso_costo) }}</div>
+      <div class="sub">{{ n(t.ingreso) }} unidades a costo{% if t.ingreso_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.ingreso_fob) }}</span>{% endif %}</div></div></div>
     <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
       <div class="etiqueta">Ventas desde la fecha</div><div class="valor">C$ {{ usd(t.venta_neta) }}</div>
-      <div class="sub">{{ n(t.vendido) }} unidades · venta neta sin IVA</div></div></div>
+      <div class="sub">{{ n(t.vendido) }} unidades · costo C$ {{ usd(t.costo_vendido) }}</div></div></div>
     <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
-      <div class="etiqueta">Inventario disponible</div><div class="valor">US$ {{ usd(t.inventario_fob) }}</div>
-      <div class="sub">{{ n(t.disponible) }} unidades · {{ t.productos|int }} productos</div></div></div>
+      <div class="etiqueta">Inventario disponible a costo</div><div class="valor">C$ {{ usd(t.inventario_costo) }}</div>
+      <div class="sub">{{ n(t.disponible) }} unidades · {{ t.productos|int }} productos{% if t.inventario_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.inventario_fob) }}</span>{% endif %}</div></div></div>
     <div class="col-6 col-xl"><div class="card kpi"><div class="etiqueta">En NHE (no está)</div>
-      <div class="valor" style="color: #9a3412">US$ {{ usd(t.nhe_fob) }}</div>
-      <div class="sub">{{ n(t.nhe) }} unidades · <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='nhe')) }}">ver productos</a></div></div></div>
+      <div class="valor" style="color: #9a3412">C$ {{ usd(t.nhe_costo) }}</div>
+      <div class="sub">{{ n(t.nhe) }} unidades a costo{% if t.nhe_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.nhe_fob) }}</span>{% endif %} · <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='nhe')) }}">ver productos</a></div></div></div>
     <div class="col-6 col-xl"><div class="card kpi"><div class="etiqueta">Rotación nula (sin venta)</div>
       <div class="valor">{{ nula.productos }} <span class="fs-6 text-muted">productos · {{ "{:.0f}".format(nula.pct_productos) }}%</span></div>
-      <div class="sub">US$ {{ usd(nula.inventario_fob) }} = {{ "{:.0f}".format(nula.pct_inventario) }}% del inventario ·
+      <div class="sub">C$ {{ usd(nula.inventario_costo) }} = {{ "{:.0f}".format(nula.pct_inventario) }}% del inventario a costo ·
         <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='sin_venta', orden='sin_venta')) }}">ver</a></div></div></div>
   </div>
 
@@ -137,7 +141,7 @@
       <small>ventas desde el {{ f.desde.strftime('%d/%m/%Y') }} ({{ d.dias }} días) contra el inventario actual a costo</small></span></div>
     <div class="card-body">
       <div class="veredicto mb-2"><i class="bi {{ 'bi-check-circle-fill' if r.nivel == 'bueno' else ('bi-exclamation-circle-fill' if r.nivel == 'medio' else 'bi-x-circle-fill') }}" aria-hidden="true"></i> {{ r.veredicto }}.
-        {% if nula.pct_inventario >= 25 %}<span class="fw-normal">El {{ "{:.0f}".format(nula.pct_inventario) }}% del inventario (US$ {{ usd(nula.inventario_fob) }}) no se ha vendido.</span>{% endif %}</div>
+        {% if nula.pct_inventario >= 25 %}<span class="fw-normal">El {{ "{:.0f}".format(nula.pct_inventario) }}% del inventario (C$ {{ usd(nula.inventario_costo) }} a costo) no se ha vendido.</span>{% endif %}</div>
       <div class="row g-2">
         <div class="col-6 col-lg"><div class="mini"><div class="et">Utilidad bruta</div><div class="va">C$ {{ usd(r.utilidad) }}</div>
           <div class="su">venta neta C$ {{ usd(t.venta_neta) }} − costo C$ {{ usd(t.costo_vendido) }}</div></div></div>
@@ -174,7 +178,7 @@
       <div class="card-header">Rotación general <small>como el comentario de cada producto, para todo el proveedor</small></div>
       <div class="card-body">
         <div class="d-flex flex-wrap align-items-center gap-3">
-          <div style="width: 170px; height: 170px; flex: 0 0 170px"><canvas id="grafico-rotacion" role="img" aria-label="Inventario FOB por tipo de rotación"></canvas></div>
+          <div style="width: 170px; height: 170px; flex: 0 0 170px"><canvas id="grafico-rotacion" role="img" aria-label="Inventario a costo por tipo de rotación"></canvas></div>
           <div class="flex-grow-1 small" style="min-width: 200px">
             {% for e in d.rotacion if e.productos %}
             <div class="d-flex align-items-baseline gap-2 mb-1">
@@ -182,19 +186,27 @@
               <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado=e.estado)) }}" class="text-reset">{{ e.nombre }}</a>
               <span class="ms-auto fw-bold">{{ "{:.0f}".format(e.pct_inventario) }}%</span></div>
             {% endfor %}
-            <div class="text-muted mt-1" style="font-size: .72rem">% del inventario disponible en US$ FOB</div>
+            <div class="text-muted mt-1" style="font-size: .72rem">% del inventario disponible a costo (C$)</div>
           </div>
         </div>
-        <table class="tabla-ap mt-2">
-          <thead><tr><th class="izq">Rotación</th><th>Productos</th><th>%</th><th>Inventario FOB</th><th>Unid.</th><th>Vendido</th><th>Venta neta C$</th></tr></thead>
-          <tbody>{% for e in d.rotacion %}<tr>
-            <td class="izq"><span class="estado {{ e.estado }}">{{ estados[e.estado] }}</span></td>
-            <td>{{ e.productos or '—' }}</td><td>{{ "{:.0f}%".format(e.pct_productos) if e.productos else '—' }}</td>
-            <td class="fw-bold">{{ usd(e.inventario_fob) }}</td><td>{{ n(e.disponible) }}</td><td>{{ n(e.vendido) }}</td><td>{{ usd(e.venta_neta) }}</td></tr>{% endfor %}</tbody>
-          <tfoot><tr><td class="izq">Total</td><td>{{ t.productos|int }}</td><td>100%</td><td>{{ usd(d.rotacion|sum(attribute='inventario_fob')) }}</td>
-            <td>{{ n(d.rotacion|sum(attribute='disponible')) }}</td><td>{{ n(t.vendido) }}</td><td>{{ usd(t.venta_neta) }}</td></tr></tfoot>
-        </table>
-        <div class="text-muted mt-1" style="font-size: .72rem">Se vende: inventario para 12 meses o menos · Lenta: más de 12 meses · Sin venta: nunca, hace más de un año o nada desde la fecha.</div>
+        <div class="table-responsive mt-2" style="max-height: 380px">
+        <table class="tabla-ap tabla-rot">
+          <thead><tr><th class="izq">Rotación · marca</th><th>Productos</th><th>%</th><th>Inventario a costo C$</th><th>Unid.</th><th>Venta neta C$</th></tr></thead>
+          <tbody>{% for e in d.rotacion %}
+            <tr class="rot-tipo"><td class="izq"><span class="estado {{ e.estado }}">{{ estados[e.estado] }}</span></td>
+              <td>{{ e.productos or '—' }}</td><td>{{ "{:.0f}%".format(e.pct_productos) if e.productos else '—' }}</td>
+              <td class="fw-bold">{{ usd(e.inventario_costo) }}</td><td>{{ n(e.disponible) }}</td><td>{{ usd(e.venta_neta) }}</td></tr>
+            {% for y in e.marcas %}
+            <tr class="rot-marca"><td class="izq"><a href="{{ url_for('analisis_proveedor.reporte', **dict(params, marca=[y.marca], estado=e.estado)) }}" class="text-reset">{{ y.marca }}</a></td>
+              <td>{{ y.productos|int }}</td><td class="meta" title="Parte del inventario de este tipo de rotación">{{ "{:.0f}%".format(y.pct) if e.inventario_costo else '' }}</td>
+              <td>{{ usd(y.inventario_costo) }}</td><td>{{ n(y.disponible) }}</td><td>{{ usd(y.venta_neta) }}</td></tr>
+            {% endfor %}
+          {% endfor %}</tbody>
+          <tfoot><tr><td class="izq">Total</td><td>{{ t.productos|int }}</td><td>100%</td><td>{{ usd(d.rotacion|sum(attribute='inventario_costo')) }}</td>
+            <td>{{ n(d.rotacion|sum(attribute='disponible')) }}</td><td>{{ usd(t.venta_neta) }}</td></tr></tfoot>
+        </table></div>
+        <div class="text-muted mt-1" style="font-size: .72rem">Debajo de cada tipo, sus marcas (el % es la parte del inventario de ese tipo; clic para ver los productos).
+          Se vende: inventario para 12 meses o menos · Lenta: más de 12 meses · Sin venta: nunca, hace más de un año o nada desde la fecha.</div>
       </div>
     </div></div>
     {# ---------- Existencia, vendido e ingresado por marca ---------- #}
@@ -217,14 +229,14 @@
     <div class="col-xl-6"><div class="card h-100">
       <div class="card-header">Resumen por marca</div>
       <div class="card-body p-0">
-        <div class="px-2 pt-2 small fw-semibold" style="color: var(--credito)">Valores</div>
+        <div class="px-2 pt-2 small fw-semibold" style="color: var(--credito)">Valores en C$ (costo y venta)</div>
         <div class="table-responsive" style="max-height: 210px">
         <table class="tabla-ap">
-          <thead><tr><th class="izq">Marca</th><th>Ingresado FOB US$</th><th>Venta neta C$</th><th>Inventario FOB US$</th><th>NHE FOB US$</th><th>Sin venta</th></tr></thead>
+          <thead><tr><th class="izq">Marca</th><th>Ingresado a costo</th><th>Venta neta</th><th>Utilidad</th><th>Inventario a costo</th><th>NHE a costo</th><th>Sin venta</th></tr></thead>
           <tbody>{% for m in d.marcas %}<tr><td class="izq">{{ m.marca }} <span class="meta">{{ m.productos|int }}</span></td>
-            <td>{{ usd(m.ingreso_fob) }}</td><td>{{ usd(m.venta_neta) }}</td><td class="fw-bold">{{ usd(m.inventario_fob) }}</td>
-            <td class="{{ 'nhe' if m.nhe_fob }}">{{ usd(m.nhe_fob) }}</td><td>{{ m.sin_venta|int or '—' }}</td></tr>{% endfor %}</tbody>
-          <tfoot><tr><td class="izq">Total</td><td>{{ usd(t.ingreso_fob) }}</td><td>{{ usd(t.venta_neta) }}</td><td>{{ usd(t.inventario_fob) }}</td><td>{{ usd(t.nhe_fob) }}</td><td>{{ t.sin_venta|int }}</td></tr></tfoot>
+            <td>{{ usd(m.ingreso_costo) }}</td><td>{{ usd(m.venta_neta) }}</td><td>{{ usd(m.rent.utilidad) }}</td><td class="fw-bold">{{ usd(m.inventario_costo) }}</td>
+            <td class="{{ 'nhe' if m.nhe_costo }}">{{ usd(m.nhe_costo) }}</td><td>{{ m.sin_venta|int or '—' }}</td></tr>{% endfor %}</tbody>
+          <tfoot><tr><td class="izq">Total</td><td>{{ usd(t.ingreso_costo) }}</td><td>{{ usd(t.venta_neta) }}</td><td>{{ usd(d.rent.utilidad if d.rent else 0) }}</td><td>{{ usd(t.inventario_costo) }}</td><td>{{ usd(t.nhe_costo) }}</td><td>{{ t.sin_venta|int }}</td></tr></tfoot>
         </table></div>
         <div class="px-2 pt-3 small fw-semibold" style="color: var(--credito)">Cantidades (unidades)</div>
         <div class="table-responsive" style="max-height: 210px">
@@ -242,7 +254,7 @@
   <div class="card">
     <div class="card-header d-flex flex-wrap justify-content-between gap-2">
       <span>Productos <small>{{ "{:,}".format(d.filas|length) }}{% if f.existencia %} · solo con existencia{% endif %}{% if f.estado %} · {{ estados[f.estado] }}{% endif %}{% if d.filas|length > max_filas %} (se muestran {{ max_filas }}; todos en el Excel){% endif %}</small></span>
-      <small>{% if t.sin_fob %}{{ t.sin_fob|int }} producto(s) sin precio FOB en el catálogo no suman en US$ · {% endif %}{% if d.sin_actividad %}{{ d.sin_actividad }} del catálogo sin existencia ni movimiento no se muestran{% endif %}{% if f.existencia %} · los que no tienen existencia disponible no se muestran{% endif %}</small>
+      <small>{% if t.costo_estimado %}{{ t.costo_estimado|int }} producto(s) con último costo 0: costo estimado con FOB × {{ tc_fob }} · {% endif %}{% if t.sin_costo %}{{ t.sin_costo|int }} sin costo ni FOB (no suman) · {% endif %}{% if d.sin_actividad %}{{ d.sin_actividad }} del catálogo sin existencia ni movimiento no se muestran{% endif %}{% if f.existencia %} · los que no tienen existencia disponible no se muestran{% endif %}</small>
     </div>
     <div class="table-responsive" style="max-height: 70vh">
       <table class="tabla-ap">
@@ -251,17 +263,17 @@
           <tr class="sup"><th class="izq" colspan="2"></th><th class="sep" colspan="2">Ingresado desde {{ f.desde.strftime('%d/%m/%y') }}</th>
             <th class="sep" colspan="2">Ventas desde la fecha</th><th class="sep" colspan="3">Inventario</th><th class="sep" colspan="4">Venta</th></tr>
           <tr class="inf"><th class="izq">Producto</th><th class="izq">Segmento · familia · subfamilia</th>
-            <th class="sep">Unid.</th><th>FOB US$</th><th class="sep">Unid.</th><th title="Venta neta sin IVA, con descuento">Venta neta C$</th>
-            <th class="sep" title="Existencia sin las bodegas NHE">Disponible</th><th>FOB US$</th><th title="Mercadería en bodegas NHE (no está)">NHE</th>
+            <th class="sep">Unid.</th><th title="Costo real de los ingresos">Costo C$</th><th class="sep">Unid.</th><th title="Venta neta sin IVA, con descuento">Venta neta C$</th>
+            <th class="sep" title="Existencia sin las bodegas NHE">Disponible</th><th title="Disponible × último costo">Costo C$</th><th title="Mercadería en bodegas NHE (no está)">NHE</th>
             <th class="sep izq">Última venta</th><th class="izq" title="Unidades vendidas por mes, últimos 24 meses">24 meses</th><th class="izq">Temporada</th><th class="izq">Comentario</th></tr>
         </thead>
         <tbody>{% for x in d.filas[:max_filas] %}<tr>
           <td class="izq prod"><span class="cod">{{ x.codigo }}</span> <span class="meta">{{ x.parte }}</span><div>{{ x.nombre }}</div>
-            <div class="meta">{{ x.marca }}{% if x.fob %} · FOB {{ "{:,.2f}".format(x.fob) }}{% else %} · sin FOB{% endif %}{% if x.ultimo_ingreso %} · ingresó {{ x.ultimo_ingreso.strftime('%d/%m/%y') }}{% endif %}</div></td>
+            <div class="meta">{{ x.marca }} · costo C$ {{ "{:,.2f}".format(x.costo) }}{% if x.costo_estimado %} <span title="Último costo 0: estimado con FOB × {{ tc_fob }}">(estimado)</span>{% endif %}{% if x.ultimo_ingreso %} · ingresó {{ x.ultimo_ingreso.strftime('%d/%m/%y') }}{% endif %}</div></td>
           <td class="izq" style="white-space: normal; min-width: 150px"><div>{{ x.segmento }}</div><div class="meta">{{ x.familia }} · {{ x.subfamilia }}</div></td>
-          <td class="sep">{{ n(x.ingreso) }}</td><td>{{ usd(x.ingreso_fob) }}</td>
+          <td class="sep">{{ n(x.ingreso) }}</td><td>{{ usd(x.ingreso_costo) }}</td>
           <td class="sep">{{ n(x.vendido) }}</td><td>{{ usd(x.venta_neta) }}{% if x.margen is not none %}<div class="meta">margen {{ "{:.0f}".format(x.margen) }}%</div>{% endif %}</td>
-          <td class="sep fw-bold">{{ n(x.disponible) }}</td><td>{{ usd(x.inventario_fob) }}</td><td class="{{ 'nhe' if x.nhe > 0 }}">{{ n(x.nhe) }}</td>
+          <td class="sep fw-bold">{{ n(x.disponible) }}</td><td>{{ usd(x.inventario_costo) }}</td><td class="{{ 'nhe' if x.nhe > 0 }}">{{ n(x.nhe) }}</td>
           <td class="sep izq">{{ x.ultima_venta.strftime('%d/%m/%Y') if x.ultima_venta else 'Nunca' }}</td>
           <td class="izq">{% set mx = x.venta_meses|max %}{% if mx > 0 %}<span class="spark" title="Unidades por mes: {{ x.venta_meses|map('round')|map('int')|join(', ') }}">
             {% for v in x.venta_meses %}<span style="height: {{ (v / mx * 100) if v > 0 else 0 }}%"></span>{% endfor %}</span>{% else %}<span class="meta">sin venta</span>{% endif %}</td>
@@ -272,7 +284,7 @@
     </div>
   </div>
   <div class="small text-muted mt-2">Proveedor según el catálogo (última compra). Ventas = venta neta en C$ (sin IVA, con descuento, sin facturas anuladas) de ventas por producto.
-    Ingresado, inventario y NHE valorados a FOB = cantidad × último precio FOB del catálogo (US$).
+    Todo en C$: ingresado a su costo real, inventario y NHE a último costo del catálogo (si es 0, FOB × {{ tc_fob }}). El FOB en US$ aparece solo como referencia en los totales.
     Inventario disponible = existencia sin bodegas NHE. Temporada = los 3 meses seguidos del año con más venta en los últimos 24 meses.</div>
   {% endif %}
 </div>
@@ -312,9 +324,9 @@
     const rot = {{ d.rotacion|selectattr('productos')|list|tojson }};
     new Chart(document.getElementById('grafico-rotacion'), {
       type: 'doughnut',
-      data: { labels: rot.map(e => e.nombre), datasets: [{ data: rot.map(e => Math.round(e.inventario_fob)), backgroundColor: rot.map(e => e.color), borderWidth: 2, borderColor: '#fff' }] },
+      data: { labels: rot.map(e => e.nombre), datasets: [{ data: rot.map(e => Math.round(e.inventario_costo)), backgroundColor: rot.map(e => e.color), borderWidth: 2, borderColor: '#fff' }] },
       options: { maintainAspectRatio: false, cutout: '62%', plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (c) => `${c.label}: US$ ${num(c.parsed)} · ${rot[c.dataIndex].productos} productos` } } } }
+        tooltip: { callbacks: { label: (c) => `${c.label}: C$ ${num(c.parsed)} · ${rot[c.dataIndex].productos} productos` } } } }
     });
     // Ingresado, vendido y existencia por marca (unidades)
     const marcas = {{ d.marcas|tojson }};
