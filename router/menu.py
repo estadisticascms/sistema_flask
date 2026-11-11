@@ -68,7 +68,7 @@ SECCIONES = [
                 ("Próximos a agotarse", "/productos_agotarse", "bi-hourglass-split", "Cobertura de existencias", "agotado reorden"),
                 ("Revisión de factura de ingreso", "/revision_ingreso", "bi-clipboard-check", "Códigos, SAC, duplicados, nuevos y FOB", "arancel importacion proveedor"),
                 ("Seguimiento de ingresos", "/seguimiento_ingresos", "bi-box-arrow-in-down", "Lo que ingresó: cuánto se vendió y a quién", "orden de compra"),
-                ("Análisis de proveedor", "/analisis_proveedor", "bi-truck", "Ingresos, movimiento, inventario, NHE, temporada y sin venta por marca", "proveedor marca fob inventario nhe temporada sin venta ingreso"),
+                ("Análisis de proveedor", "/analisis_proveedor", "bi-truck", "Ingresado, ventas, rotación, tendencia, desde cuándo está lento, qué no recomprar y qué reponer", "proveedor marca fob inventario nhe temporada sin venta ingreso rotacion gmroi tendencia lento reponer recomprar"),
             ]},
             {"titulo": "Inventario y precios", "items": [
                 ("Cierre de mes de inventario", "/cierre_inventario", "bi-archive", "Saldo por bodega de los últimos meses, en C$ y U$", "inventario cierre saldo bodega mensual costo"),

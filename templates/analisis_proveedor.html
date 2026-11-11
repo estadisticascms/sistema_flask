@@ -2,104 +2,177 @@
 {% block title %}Análisis de proveedor{% endblock %}
 {% macro n(v, d=0) %}{{ ("{:,.%df}"|format(d)).format(v) if v else '—' }}{% endmacro %}
 {% macro usd(v) %}{{ "{:,.0f}".format(v) if v else '—' }}{% endmacro %}
+{% macro ab(v) %}<span title="C$ {{ '{:,.2f}'.format(v or 0) }}">{{ abrev(v or 0) }}</span>{% endmacro %}
+{% macro pct(v, signo=False) %}{% if v is none %}—{% elif signo %}{{ "{:+.0f}%".format(v) }}{% else %}{{ "{:.0f}%".format(v) }}{% endif %}{% endmacro %}
+{% macro dec(v, d=2) %}{{ ("{:.%df}"|format(d)).format(v) if v is not none else '—' }}{% endmacro %}
+{% macro flecha(nivel) %}<i class="bi {{ {'sube': 'bi-arrow-up-right', 'baja': 'bi-arrow-down-right', 'igual': 'bi-arrow-right', 'nueva': 'bi-stars'}.get(nivel, 'bi-dash') }}" aria-hidden="true"></i>{% endmacro %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
 <style>
   .principal > .contenido { max-width: none; padding: 0 1rem; }
+  .ap { --rota: #027266; --lento: #D9A441; --sinventa: #FE6412; --nuevo: #2F6DB5; --agotado: #8A8984; --sube: #1a7f37; --baja: #c2410c; }
   .ap h4 { color: var(--credito); }
   .ap .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
   .ap .form-control-sm, .ap .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .ap .card { margin-bottom: 0; }
+  .ap .card-header small { font-weight: 400; }
   .marcas-box { display: flex; flex-wrap: wrap; gap: .35rem; max-height: 150px; overflow-y: auto; padding: .1rem; }
   .marca-chk { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--grid); border-radius: 999px; padding: .2rem .65rem;
                font-size: .78rem; background: #fff; cursor: pointer; min-height: 32px; user-select: none; }
   .marca-chk:has(input:checked) { border-color: var(--credito); background: #e6f2f0; }
+  .marca-chk.sin-mov { border-style: dashed; color: var(--ink-3); }
   .marca-chk:focus-within { outline: 3px solid var(--contado); outline-offset: 1px; }
   .marca-chk input { accent-color: var(--credito); }
   .marca-chk .cnt { color: var(--ink-3); font-size: .7rem; }
+  /* tarjetas */
+  .tarjetas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .5rem; }
+  .tarjeta { background: #fff; border: 1px solid var(--grid); border-left: 4px solid var(--t-color, var(--grid)); border-radius: 10px; padding: .5rem .7rem; min-width: 0; }
+  .tarjeta .et { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
+  .tarjeta .va { font-size: clamp(1.15rem, 1.6vw, 1.6rem); font-weight: 700; color: var(--ink); line-height: 1.2; white-space: nowrap; }
+  .tarjeta .su { font-size: .74rem; color: var(--ink-2); }
+  .tarjeta .su2 { font-size: .72rem; color: var(--ink-3); border-top: 1px dashed var(--grid); margin-top: .3rem; padding-top: .25rem; }
+  .tend-sube { color: var(--sube); } .tend-baja { color: var(--baja); } .tend-igual, .tend-nueva { color: var(--ink-2); }
+  .alerta-reciente { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem 1rem; border: 1px solid #f6c7a8; background: #fff6ef; border-left: 4px solid var(--contado);
+                     border-radius: 10px; padding: .45rem .8rem; font-size: .82rem; color: var(--ink); text-decoration: none; }
+  .alerta-reciente:hover { background: #ffeede; color: var(--ink); }
+  .alerta-reciente .bi { color: var(--contado); font-size: 1.1rem; }
+  details.respuestas summary { cursor: pointer; font-size: .82rem; color: var(--credito); font-weight: 600; }
+  details.respuestas dl { font-size: .8rem; margin: .4rem 0 0; display: grid; grid-template-columns: minmax(180px, 260px) 1fr; gap: .25rem .8rem; }
+  details.respuestas dt { color: var(--credito); } details.respuestas dd { margin: 0; color: var(--ink-2); }
+  /* tablas */
   .tabla-ap { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; }
   .tabla-ap thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .35rem .4rem;
                        border-bottom: 1px solid var(--grid); text-align: right; vertical-align: bottom; line-height: 1.15; }
   .tabla-ap thead tr.sup th { top: 0; text-align: center; border-bottom: 0; color: var(--ink); }
   .tabla-ap thead tr.inf th { top: 26px; }
   .tabla-ap th.izq, .tabla-ap td.izq { text-align: left; }
-  .tabla-ap td { padding: .35rem .4rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; vertical-align: top; }
+  .tabla-ap td { padding: .3rem .4rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; vertical-align: top; }
   .tabla-ap tbody tr:hover td { background: #faf9f6; }
-  .tabla-ap tfoot td { font-weight: 700; background: #f6f5f1; }
+  .tabla-ap tfoot td { font-weight: 700; background: #f6f5f1; position: sticky; bottom: 0; }
   .tabla-ap .sep { border-left: 1px solid var(--grid); }
-  .tabla-ap .prod { min-width: 230px; max-width: 320px; white-space: normal; }
+  .tabla-ap .prod { min-width: 190px; max-width: 280px; white-space: normal; }
   .tabla-ap .cod { font-weight: 600; color: var(--ink); }
   .tabla-ap .meta { font-size: .7rem; color: var(--ink-3); }
   .tabla-ap .nhe { color: #9a3412; font-weight: 700; }
   .estado { display: inline-block; font-size: .7rem; font-weight: 600; border-radius: 999px; padding: .1rem .5rem; white-space: nowrap; }
-  .estado.sin_venta { background: #fde8e1; color: #9a3412; }
-  .estado.lento { background: #fff1e8; color: #b45309; }
-  .estado.rota { background: #e6f2f0; color: var(--credito); }
-  .estado.agotado { background: #eef2ff; color: #3949ab; }
-  .comentario { white-space: normal; min-width: 190px; max-width: 280px; text-align: left !important; font-size: .74rem; }
+  .estado.rota { background: #e6f2f0; color: #015a51; }
+  .estado.lento { background: #fbf1dc; color: #8a6113; }
+  .estado.sin_venta { background: #ffe9dc; color: #a3400a; }
+  .estado.nuevo { background: #e3ecf8; color: #1f4f8a; }
+  .estado.agotado { background: #efefed; color: #52514e; }
+  .rec { display: inline-block; font-size: .68rem; font-weight: 600; border-radius: 4px; padding: .05rem .4rem; border: 1px solid; white-space: nowrap; }
+  .rec.no { color: #a3400a; border-color: #f6c7a8; background: #fff6ef; }
+  .rec.rep { color: #015a51; border-color: #b7d9d4; background: #f0f8f6; }
+  .rec.rev { color: #1f4f8a; border-color: #bcd0ea; background: #f2f6fc; }
+  .tabla-ap td.comentario, .comentario { white-space: normal; min-width: 200px; max-width: 250px; text-align: left !important; font-size: .74rem; }
+  .comentario .rec { white-space: normal; }
   .spark { display: inline-flex; align-items: flex-end; gap: 1px; height: 22px; vertical-align: middle; }
   .spark span { width: 3px; background: var(--credito); border-radius: 1px 1px 0 0; min-height: 1px; opacity: .85; }
+  .spark span.ant { opacity: .35; }
+  .minibar { height: 5px; border-radius: 3px; background: #efeee9; margin-top: 3px; min-width: 70px; overflow: hidden; }
+  .minibar span { display: block; height: 100%; border-radius: 3px; background: var(--b-color, #027266); }
+  .tabla-rec .prod { min-width: 170px; }
+  .tabla-rec .rec { white-space: normal; }
+  /* rentabilidad */
   .rentab { border-left: 4px solid var(--grid) !important; }
   .rentab.bueno { border-left-color: var(--credito) !important; }
-  .rentab.medio { border-left-color: #D9A441 !important; }
+  .rentab.medio { border-left-color: var(--lento) !important; }
   .rentab.malo { border-left-color: var(--contado) !important; }
   .rentab .veredicto { font-weight: 700; font-size: .95rem; color: var(--ink); }
-  .rentab.bueno .veredicto .bi { color: var(--credito); } .rentab.medio .veredicto .bi { color: #D9A441; } .rentab.malo .veredicto .bi { color: var(--contado); }
-  .rentab .mini { border: 1px solid var(--grid); border-radius: 8px; padding: .4rem .6rem; height: 100%; }
-  .rentab .mini .et { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
-  .rentab .mini .va { font-size: 1.15rem; font-weight: 700; color: var(--ink); white-space: nowrap; }
-  .rentab .mini .su { font-size: .7rem; color: var(--ink-2); }
+  .rentab.bueno .veredicto .bi { color: var(--credito); } .rentab.medio .veredicto .bi { color: var(--lento); } .rentab.malo .veredicto .bi { color: var(--contado); }
+  .mini { border: 1px solid var(--grid); border-radius: 8px; padding: .4rem .6rem; height: 100%; background: #fff; }
+  .mini .et { font-size: .68rem; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
+  .mini .va { font-size: 1.1rem; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .mini .su { font-size: .7rem; color: var(--ink-2); }
+  .mini .par { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+  .mini .par > div { border-radius: 6px; padding: .15rem .4rem; background: #f6f5f1; }
+  .mini .par > div.doce { background: #e6f2f0; }
+  .mini .par .va { font-size: 1.05rem; }
   .punto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: .35rem; background: var(--grid); }
-  .punto.bueno { background: var(--credito); } .punto.medio { background: #D9A441; } .punto.malo { background: var(--contado); }
+  .punto.bueno { background: var(--credito); } .punto.medio { background: var(--lento); } .punto.malo { background: var(--contado); }
   .ref { color: var(--ink-3); font-style: italic; }
   .tabla-rot tr.rot-tipo td { background: #faf9f6; font-weight: 600; border-top: 1px solid #e3e2dd; }
   .tabla-rot tr.rot-marca td { font-size: .74rem; color: var(--ink-2); }
   .tabla-rot tr.rot-marca td.izq { padding-left: 1.4rem; }
+  .selector { display: inline-flex; border: 1px solid var(--grid); border-radius: 999px; overflow: hidden; font-size: .72rem; }
+  .selector button { border: 0; background: #fff; padding: .2rem .6rem; color: var(--ink-2); min-height: 28px; }
+  .selector button[aria-pressed="true"] { background: var(--credito); color: #fff; }
+  /* mapa de calor */
+  .calor { border-collapse: separate; border-spacing: 2px; font-size: .66rem; width: 100%; }
+  .calor th { font-weight: 600; color: var(--ink-3); text-align: center; white-space: nowrap; padding: 0 .1rem; }
+  .calor th.izq, .calor td.izq { text-align: left; white-space: nowrap; font-size: .74rem; color: var(--ink); padding-right: .4rem; }
+  .calor td.c { text-align: center; min-width: 27px; height: 24px; font-size: .62rem; border-radius: 3px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .calor td.c.lento-ini { box-shadow: inset 3px 0 0 var(--contado); }
+  .calor td.c.ant { opacity: .9; }
+  .calor td.extra { text-align: center; white-space: nowrap; font-size: .72rem; padding: 0 .4rem; color: var(--ink); }
+  .calor th.sep-anio, .calor td.sep-anio { border-left: 2px solid #d5d4cf; }
+  /* recomendaciones y calidad */
+  .dejar { border: 1px dashed var(--contado); border-radius: 8px; padding: .4rem .7rem; font-size: .8rem; background: #fffaf6; }
+  .filtros-rapidos { display: flex; flex-wrap: wrap; gap: .3rem; }
+  .filtros-rapidos a { font-size: .74rem; border: 1px solid var(--grid); border-radius: 999px; padding: .2rem .65rem; text-decoration: none; color: var(--ink-2);
+                       min-height: 28px; display: inline-flex; align-items: center; gap: .3rem; background: #fff; }
+  .filtros-rapidos a.activo { border-color: var(--credito); background: var(--credito); color: #fff; }
+  .filtros-rapidos a .pt { width: 8px; height: 8px; border-radius: 50%; }
+  .calidad { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; font-size: .78rem; border: 1px solid var(--grid); border-radius: 10px; padding: .45rem .8rem; background: #faf9f6; }
+  .calidad a { color: var(--ink); }
+  .calidad .bi { color: #b45309; }
   .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
   .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
-  .ap a:focus-visible, .ap .btn:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .ap a:focus-visible, .ap .btn:focus-visible, .ap button:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  .nota { font-size: .72rem; color: var(--ink-3); }
+  @media (max-width: 1199.98px) { .tarjetas { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 767.98px) { .tarjetas { grid-template-columns: repeat(2, minmax(0, 1fr)); } details.respuestas dl { grid-template-columns: 1fr; } }
 </style>
 
 {% set base = {'proveedor': f.proveedor, 'marca': f.marcas, 'desde': f.desde.isoformat(), 'existencia': f.existencia} %}
 {% set params = dict(base, q=f.q, estado=f.estado, orden=f.orden) %}
 {% set t = d.total %}
+{% macro ver(estado, texto, orden=None) %}<a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado=estado, orden=orden or f.orden)) }}#productos">{{ texto }}</a>{% endmacro %}
+{% macro recb(r) %}{% if r %}<span class="rec {{ 'rep' if r == M.REPONER else ('rev' if r == M.REVISAR_NUEVO else 'no') }}">{{ r }}</span>{% endif %}{% endmacro %}
 <div class="dash ap mt-2 mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
     <div>
       <h4 class="mb-0"><i class="bi bi-truck" aria-hidden="true"></i> Análisis de proveedor</h4>
-      <div class="text-muted small">Lo que ingresó y se movió desde una fecha, el inventario, el NHE, la última venta y la temporada de cada producto de las marcas del proveedor.</div>
+      <div class="text-muted small">Cuánto hemos traído, cómo se ha vendido, desde cuándo está lento, si mejora en los últimos meses y qué no volver a comprar o reponer.</div>
     </div>
-    {% if f.proveedor and d.filas %}<a class="btn btn-verde btn-sm" href="{{ url_for('analisis_proveedor.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>{% endif %}
+    {% if f.proveedor and t.productos %}<a class="btn btn-verde btn-sm" href="{{ url_for('analisis_proveedor.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>{% endif %}
   </div>
 
+  {# ---------- Filtros ---------- #}
   <form method="get" class="card card-body py-2 mb-3" id="form-ap">
     <div class="row g-2 align-items-end">
       <div class="col-md-4 col-lg-3"><label class="form-label" for="proveedor">Proveedor</label>
         <input id="proveedor" name="proveedor" list="lista-proveedores" value="{{ f.proveedor }}" class="form-control form-control-sm" placeholder="Escriba o elija el proveedor" autocomplete="off" required>
         <datalist id="lista-proveedores">{% for p, cant in proveedores %}<option value="{{ p }}">{{ cant }} productos</option>{% endfor %}</datalist></div>
-      <div class="col-6 col-md-2 col-lg-1"><label class="form-label" for="desde">Ingresos desde</label>
+      <div class="col-6 col-md-2"><label class="form-label" for="desde">Ingresos desde</label>
         <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
       <div class="col-6 col-md-2"><label class="form-label" for="existencia">Existencia</label>
         <select id="existencia" name="existencia" class="form-select form-select-sm">
           <option value="" {% if not f.existencia %}selected{% endif %}>Todo</option>
           <option value="con" {% if f.existencia %}selected{% endif %}>Solo con existencia</option></select></div>
-      <div class="col-6 col-md-2"><label class="form-label" for="estado">Mostrar</label>
+      <div class="col-6 col-md-2"><label class="form-label" for="estado">Mostrar en la tabla</label>
         <select id="estado" name="estado" class="form-select form-select-sm">{% for k, v in estados.items() %}<option value="{{ k }}" {% if k == f.estado %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
       <div class="col-6 col-md-2"><label class="form-label" for="orden">Ordenar por</label>
         <select id="orden" name="orden" class="form-select form-select-sm">{% for k, v in ordenes.items() %}<option value="{{ k }}" {% if k == f.orden %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
       <div class="col-6 col-md-auto d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
     </div>
     {% if marcas_prov %}
+    {% set con_mov = d.marcas|map(attribute='marca')|list %}
+    {% set elegidas = marcas_prov|selectattr('marca', 'in', f.marcas)|list if f.marcas else marcas_prov %}
+    {% set sin_mov = elegidas|rejectattr('marca', 'in', con_mov)|list if t.productos else [] %}
     <div class="mt-2">
       <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-        <span class="form-label mb-0">Marcas del proveedor <span class="text-muted">({{ marcas_prov|length }}; sin marcar ninguna = todas)</span></span>
+        <span class="form-label mb-0">Marcas del proveedor <span class="text-muted">({{ marcas_prov|length }} en el catálogo; sin marcar ninguna = todas)</span></span>
         <button type="button" class="btn btn-link btn-sm p-0" id="marcas-todas">Marcar todas</button>
         <button type="button" class="btn btn-link btn-sm p-0" id="marcas-ninguna">Quitar todas</button>
         <input type="search" name="q" value="{{ f.q }}" class="form-control form-control-sm ms-auto" style="max-width: 240px" placeholder="Buscar código, nº parte o descripción" aria-label="Buscar producto">
       </div>
       <div class="marcas-box" role="group" aria-label="Marcas a validar">
-        {% for m in marcas_prov %}<label class="marca-chk"><input type="checkbox" name="marca" value="{{ m.marca }}" {% if not f.marcas or m.marca in f.marcas %}checked{% endif %}>
+        {% for m in marcas_prov %}{% set inactiva = m in sin_mov %}<label class="marca-chk{{ ' sin-mov' if inactiva }}" {% if inactiva %}title="Sin ingresos, ventas ni existencia{{ ' disponible' if f.existencia }}: no aparece en los resúmenes"{% endif %}><input type="checkbox" name="marca" value="{{ m.marca }}" {% if not f.marcas or m.marca in f.marcas %}checked{% endif %}>
           {{ m.marca }} <span class="cnt">{{ m.productos }}</span></label>{% endfor %}
       </div>
+      {% if sin_mov %}<div class="nota mt-1"><i class="bi bi-info-circle" aria-hidden="true"></i> Los resúmenes muestran {{ con_mov|length }} de {{ elegidas|length }} marcas:
+        {% for m in sin_mov %}{{ m.marca }} ({{ m.productos }} productos){{ ', ' if not loop.last }}{% endfor %} no {{ 'tiene' if sin_mov|length == 1 else 'tienen' }} ingresos, ventas ni existencia{{ ' disponible' if f.existencia }} (borde punteado).</div>{% endif %}
     </div>
     {% endif %}
   </form>
@@ -112,180 +185,315 @@
   {% elif not t.productos %}
     <div class="alert alert-info">{% if f.existencia %}Las marcas elegidas no tienen productos con existencia disponible.{% else %}Las marcas elegidas no tienen ingresos, movimiento ni existencia.{% endif %}</div>
   {% else %}
-  {# ---------- Indicadores ---------- #}
-  {% set nula = d.rotacion|selectattr('estado', 'equalto', 'sin_venta')|first %}
-  <div class="row g-2 mb-3">
-    <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
-      <div class="etiqueta">Ingresado desde {{ f.desde.strftime('%d/%m/%Y') }}</div><div class="valor">C$ {{ usd(t.ingreso_costo) }}</div>
-      <div class="sub">{{ n(t.ingreso) }} unidades a costo{% if t.ingreso_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.ingreso_fob) }}</span>{% endif %}</div></div></div>
-    <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
-      <div class="etiqueta">Ventas desde la fecha</div><div class="valor">C$ {{ usd(t.venta_neta) }}</div>
-      <div class="sub">{{ n(t.vendido) }} unidades · costo C$ {{ usd(t.costo_vendido) }}</div></div></div>
-    <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
-      <div class="etiqueta">Inventario disponible a costo</div><div class="valor">C$ {{ usd(t.inventario_costo) }}</div>
-      <div class="sub">{{ n(t.disponible) }} unidades · {{ t.productos|int }} productos{% if t.inventario_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.inventario_fob) }}</span>{% endif %}</div></div></div>
-    <div class="col-6 col-xl"><div class="card kpi"><div class="etiqueta">En NHE (no está)</div>
-      <div class="valor" style="color: #9a3412">C$ {{ usd(t.nhe_costo) }}</div>
-      <div class="sub">{{ n(t.nhe) }} unidades a costo{% if t.nhe_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.nhe_fob) }}</span>{% endif %} · <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='nhe')) }}">ver productos</a></div></div></div>
-    <div class="col-6 col-xl"><div class="card kpi"><div class="etiqueta">Rotación nula (sin venta)</div>
-      <div class="valor">{{ nula.productos }} <span class="fs-6 text-muted">productos · {{ "{:.0f}".format(nula.pct_productos) }}%</span></div>
-      <div class="sub">C$ {{ usd(nula.inventario_costo) }} = {{ "{:.0f}".format(nula.pct_inventario) }}% del inventario a costo ·
-        <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='sin_venta', orden='sin_venta')) }}">ver</a></div></div></div>
+  {% set r = d.rent %}
+  {% set sv = d.rot.sin_venta %}
+  {% set g = d.graf_meses %}
+
+  {# ---------- Tarjetas ---------- #}
+  <div class="tarjetas mb-2">
+    <div class="tarjeta" style="--t-color: var(--credito)"><div class="et">1 · Ingresado desde {{ f.desde.strftime('%d/%m/%Y') }}</div>
+      <div class="va">{{ ab(t.ingreso_costo) }}</div>
+      <div class="su">{{ n(t.ingreso) }} unidades a costo real{% if t.ingreso_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.ingreso_fob) }}</span>{% endif %}</div></div>
+    <div class="tarjeta" style="--t-color: var(--credito)"><div class="et">2 · Vendido desde la fecha</div>
+      <div class="va">{{ ab(t.venta_neta) }}</div>
+      <div class="su">{{ n(t.vendido) }} unidades · <strong>{{ pct(t.pct_vendido) }}</strong> vendido de lo ingresado (unid.)</div>
+      <div class="su2">Utilidad {{ ab(r.utilidad) }} · margen {{ dec(r.margen, 1) }}%</div></div>
+    <div class="tarjeta" style="--t-color: var(--contado)"><div class="et">Inventario disponible a último costo</div>
+      <div class="va">{{ ab(t.inventario_costo) }}</div>
+      <div class="su">{{ n(t.disponible) }} unidades · {{ t.productos|int }} productos{% if t.inventario_fob %} · <span class="ref">FOB ref. US$ {{ usd(t.inventario_fob) }}</span>{% endif %}</div>
+      <div class="su2"><span style="color: #9a3412">NHE (no está): {{ ab(t.nhe_costo) }}</span> · {{ n(t.nhe) }} unid. · {{ ver('nhe', 'ver') }}</div></div>
+    <div class="tarjeta" style="--t-color: var(--sinventa)"><div class="et">3 · Sin venta en 12 meses</div>
+      <div class="va">{{ "{:,}".format(sv.productos) }} <span class="fs-6 text-muted">productos</span></div>
+      <div class="su">con inventario: {{ ab(sv.inventario_costo) }} = <strong>{{ pct(sv.pct_inventario) }}</strong> del inventario a costo · {{ ver('sin_venta', 'ver', 'sin_venta') }}</div>
+      {% if d.sin_venta_sin_existencia %}<div class="su2">{{ d.sin_venta_sin_existencia }} más sin venta y sin existencia (no cuentan)</div>{% endif %}</div>
+    <div class="tarjeta" style="--t-color: {{ 'var(--sube)' if t.nivel == 'sube' else ('var(--baja)' if t.nivel == 'baja' else 'var(--agotado)') }}"><div class="et">4 · Tendencia 12 meses</div>
+      <div class="va tend-{{ t.nivel }}">{{ flecha(t.nivel) }} {{ pct(t.cambio, True) }} <span class="fs-6">en C$</span></div>
+      <div class="su"><span class="tend-{{ t.nivel_unid }}">{{ flecha(t.nivel_unid) }} {{ pct(t.cambio_unid, True) }} en unidades</span></div>
+      <div class="su2">{{ d.periodo_12[0] }}–{{ d.periodo_12[1] }} contra {{ d.periodo_prev[0] }}–{{ d.periodo_prev[1] }}</div></div>
   </div>
+  {% if d.alerta.productos %}
+  <a class="alerta-reciente mb-2" href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='lento_reciente', orden='inventario')) }}#productos">
+    <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+    <span><strong>Compras recientes que ya están lentas:</strong> {{ ab(d.alerta.inventario_costo) }} en {{ d.alerta.productos }} productos lentos o sin venta con último ingreso en {{ d.alerta.anio }} (sin contar los nuevos)</span>
+    <span class="text-muted">{% for m, v in d.alerta.marcas[:3] %}{{ m }} {{ abrev(v) }}{{ ' · ' if not loop.last }}{% endfor %}</span>
+    <span class="ms-auto fw-semibold" style="color: var(--contado)">Ver en la tabla <i class="bi bi-arrow-right" aria-hidden="true"></i></span></a>
+  {% endif %}
+  <details class="respuestas mb-3"><summary>Resumen en 5 respuestas (también en la hoja «Resumen» del Excel)</summary>
+    <dl>{% for p, txt in d.respuestas %}<dt>{{ p }}</dt><dd>{{ txt }}</dd>{% endfor %}</dl></details>
 
   {# ---------- Rentabilidad ---------- #}
-  {% set r = d.rent %}
-  {% if r %}
   <div class="card mb-3 rentab {{ r.nivel }}">
     <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span><i class="bi bi-cash-coin" aria-hidden="true"></i> ¿Qué tan rentable es traer con este proveedor?
-      <small>ventas desde el {{ f.desde.strftime('%d/%m/%Y') }} ({{ d.dias }} días) contra el inventario actual a costo</small></span></div>
+      <small>histórica = ventas desde el {{ f.desde.strftime('%d/%m/%Y') }} ({{ d.dias }} días) · 12 meses = {{ d.periodo_12[0] }}–{{ d.periodo_12[1] }} · contra el inventario actual a costo</small></span></div>
     <div class="card-body">
-      <div class="veredicto mb-2"><i class="bi {{ 'bi-check-circle-fill' if r.nivel == 'bueno' else ('bi-exclamation-circle-fill' if r.nivel == 'medio' else 'bi-x-circle-fill') }}" aria-hidden="true"></i> {{ r.veredicto }}.
-        {% if nula.pct_inventario >= 25 %}<span class="fw-normal">El {{ "{:.0f}".format(nula.pct_inventario) }}% del inventario (C$ {{ usd(nula.inventario_costo) }} a costo) no se ha vendido.</span>{% endif %}</div>
+      <div class="veredicto mb-2"><i class="bi {{ 'bi-check-circle-fill' if r.nivel == 'bueno' else ('bi-exclamation-circle-fill' if r.nivel == 'medio' else 'bi-x-circle-fill') }}" aria-hidden="true"></i> {{ r.veredicto }} <span class="fw-normal text-muted">(últimos 12 meses)</span>.
+        {% if sv.pct_inventario >= 25 %}<span class="fw-normal">El {{ pct(sv.pct_inventario) }} del inventario ({{ ab(sv.inventario_costo) }} a costo) no ha tenido venta en los últimos 12 meses.</span>{% endif %}</div>
       <div class="row g-2">
-        <div class="col-6 col-lg"><div class="mini"><div class="et">Utilidad bruta</div><div class="va">C$ {{ usd(r.utilidad) }}</div>
-          <div class="su">venta neta C$ {{ usd(t.venta_neta) }} − costo C$ {{ usd(t.costo_vendido) }}</div></div></div>
-        <div class="col-6 col-lg"><div class="mini"><div class="et">Margen</div><div class="va">{{ "{:.1f}%".format(r.margen) if r.margen is not none else '—' }}</div>
-          <div class="su">sobre la venta neta</div></div></div>
-        <div class="col-6 col-lg"><div class="mini"><div class="et">Inventario a costo</div><div class="va">C$ {{ usd(t.inventario_costo) }}</div>
+        <div class="col-6 col-lg-2"><div class="mini"><div class="et">Utilidad bruta</div><div class="va">{{ ab(r.utilidad) }}</div>
+          <div class="su">margen {{ dec(r.margen, 1) }}% · 12 meses {{ ab(r.utilidad_12) }} ({{ dec(r.margen_12, 1) }}%)</div></div></div>
+        <div class="col-6 col-lg-2"><div class="mini"><div class="et">Inventario a costo</div><div class="va">{{ ab(t.inventario_costo) }}</div>
           <div class="su">disponible × último costo</div></div></div>
-        <div class="col-6 col-lg"><div class="mini"><div class="et">Rotación</div>
-          <div class="va">{{ "{:.1f}".format(r.rotacion) ~ ' veces/año' if r.rotacion else '—' }}</div>
-          <div class="su">{% if r.meses_inventario %}el inventario alcanza para {{ "{:.1f}".format(r.meses_inventario) }} meses{% else %}sin inventario o sin ventas{% endif %}</div></div></div>
-        <div class="col-6 col-lg"><div class="mini"><div class="et" title="Utilidad bruta al año por cada C$ 1 invertido en inventario (a costo)">GMROI</div>
-          <div class="va">{{ "C$ {:.2f}".format(r.gmroi) if r.gmroi is not none else '—' }}</div>
-          <div class="su">de utilidad al año por C$ 1 de inventario</div></div></div>
+        <div class="col-12 col-md-6 col-lg-4"><div class="mini"><div class="et">Rotación (veces al año)</div>
+          <div class="par"><div><div class="su">Histórica</div><div class="va">{{ dec(r.rotacion_hist) }}</div></div>
+            <div class="doce"><div class="su">Últimos 12 meses</div><div class="va">{{ dec(r.rotacion_12) }}</div></div></div>
+          <div class="su mt-1">{% if r.meses_inventario %}Con la venta de 12 meses, el inventario alcanza para <strong>{{ M.plazo_txt(r.meses_inventario) }}</strong>{% else %}sin inventario o sin ventas en 12 meses{% endif %}</div></div></div>
+        <div class="col-12 col-md-6 col-lg-4"><div class="mini"><div class="et" title="Utilidad bruta al año por cada C$ 1 invertido en inventario (a costo)">GMROI (C$ de utilidad al año por C$ 1 de inventario)</div>
+          <div class="par"><div><div class="su">Histórico</div><div class="va">{{ dec(r.gmroi_hist) }}</div></div>
+            <div class="doce"><div class="su">Últimos 12 meses</div><div class="va">{{ dec(r.gmroi_12) }}</div></div></div>
+          <div class="su mt-1">{{ M.GMROI_BUENO }} o más rentable · {{ M.GMROI_ACEPTABLE }} a {{ M.GMROI_BUENO }} aceptable · menos de {{ M.GMROI_ACEPTABLE }} poco rentable</div></div></div>
       </div>
-      <div class="table-responsive mt-2" style="max-height: 230px">
+      <div class="table-responsive mt-2" style="max-height: 260px">
         <table class="tabla-ap">
-          <thead><tr><th class="izq">Marca</th><th>Venta neta C$</th><th>Utilidad C$</th><th>Margen</th><th>Inventario a costo C$</th><th>Rotación</th><th>GMROI</th><th class="izq">Veredicto</th></tr></thead>
-          <tbody>{% for m in d.marcas %}<tr><td class="izq">{{ m.marca }}</td><td>{{ usd(m.venta_neta) }}</td><td>{{ usd(m.rent.utilidad) }}</td>
-            <td>{{ "{:.1f}%".format(m.rent.margen) if m.rent.margen is not none else '—' }}</td><td>{{ usd(m.inventario_costo) }}</td>
-            <td>{{ "{:.1f}".format(m.rent.rotacion) if m.rent.rotacion else '—' }}</td>
-            <td class="fw-bold">{{ "{:.2f}".format(m.rent.gmroi) if m.rent.gmroi is not none else '—' }}</td>
-            <td class="izq" style="white-space: normal; min-width: 220px"><span class="punto {{ m.rent.nivel }}" aria-hidden="true"></span>{{ m.rent.veredicto }}</td></tr>{% endfor %}</tbody>
+          <thead><tr><th class="izq">Marca <span class="meta">(por inventario)</span></th><th>Inventario a costo C$</th><th>Venta 12m C$</th><th>Utilidad 12m C$</th><th>Margen 12m</th>
+            <th class="sep">Rotación hist.</th><th>Rotación 12m</th><th class="sep">GMROI hist.</th><th>GMROI 12m</th><th class="izq sep">Veredicto (12 meses)</th></tr></thead>
+          <tbody>{% for m in d.marcas_rent %}<tr><td class="izq"{% if m.otras %} title="{{ m.detalle }}"{% endif %}>{{ m.marca }}{% if m.otras %} <span class="meta">menos de C$ {{ "{:,.0f}".format(min_inv_marca) }} c/u</span>{% endif %}</td>
+            <td class="fw-bold">{{ usd(m.inventario_costo) }}</td><td>{{ usd(m.monto_12) }}</td><td>{{ usd(m.rent.utilidad_12) }}</td><td>{{ pct(m.rent.margen_12) }}</td>
+            <td class="sep">{{ dec(m.rent.rotacion_hist) }}</td><td class="fw-bold">{{ dec(m.rent.rotacion_12) }}</td>
+            <td class="sep">{{ dec(m.rent.gmroi_hist) }}</td><td class="fw-bold">{{ dec(m.rent.gmroi_12) }}</td>
+            <td class="izq sep" title="{{ m.rent.veredicto }}"><span class="punto {{ m.rent.nivel }}" aria-hidden="true"></span>{{ m.rent.veredicto.split(':')[0] }}</td></tr>{% endfor %}</tbody>
         </table>
       </div>
-      <div class="text-muted mt-1" style="font-size: .72rem">Rotación = costo de lo vendido al año ÷ inventario a costo. GMROI = utilidad bruta al año ÷ inventario a costo:
-        {{ "{:.1f}".format(1.5) }} o más es rentable, de 0.8 a 1.5 aceptable, menos de 0.8 poco rentable. Los costos son los de ventas por producto y el último costo del catálogo.</div>
+      <div class="nota mt-1">Rotación = costo de lo vendido al año ÷ inventario a costo. GMROI = utilidad bruta al año ÷ inventario a costo. El veredicto usa los últimos 12 meses completos;
+        la histórica promedia todo el período desde la fecha y castiga de más si la venta reciente es mayor.</div>
     </div>
   </div>
-  {% endif %}
 
+  {# ---------- Ventas por mes | Tendencia por marca ---------- #}
   <div class="row g-3 mb-3">
-    {# ---------- Rotación general ---------- #}
+    <div class="col-xl-7"><div class="card h-100">
+      <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>4 · Ventas por mes <small>venta neta C$, 24 meses completos{% if g.parcial %} y el mes en curso{% endif %}</small></span>
+        {% if d.temporada[0] %}<small>Temporada más fuerte: <strong style="color: var(--contado)">{{ d.temporada[0] }}</strong> ({{ "{:.0f}".format(d.temporada[1]) }}% de la venta del año)</small>{% endif %}</div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-3 nota mb-1">
+          <span><span class="clave" style="background: rgba(2,114,102,.35)"></span>12 meses anteriores</span>
+          <span><span class="clave" style="background: #027266"></span>Últimos 12 meses</span>
+          <span><span class="clave" style="background: #FE6412; height: 3px"></span>Promedio móvil 3 meses</span>
+          {% if d.temporada[0] %}<span><span class="clave" style="background: rgba(217,164,65,.25)"></span>Temporada fuerte</span>{% endif %}
+          {% if g.parcial %}<span><span class="clave" style="background: rgba(2,114,102,.15); border: 1px dashed #027266"></span>Mes en curso (proyección punteada)</span>{% endif %}
+        </div>
+        <div style="height: 270px"><canvas id="grafico-meses" role="img" aria-label="Venta neta por mes de los últimos 24 meses"></canvas></div>
+        {% if g.parcial %}<div class="nota mt-1">El mes en curso (ventas cargadas al {{ d.corte.strftime('%d/%m/%Y') }}) no entra en los promedios ni en las tendencias.</div>{% endif %}
+      </div>
+    </div></div>
     <div class="col-xl-5"><div class="card h-100">
-      <div class="card-header">Rotación general <small>como el comentario de cada producto, para todo el proveedor</small></div>
+      <div class="card-header">4 · Tendencia por marca <small>{{ d.periodo_12[0] }}–{{ d.periodo_12[1] }} contra los 12 meses anteriores</small></div>
+      <div class="card-body p-0"><div class="table-responsive" style="max-height: 330px">
+        <table class="tabla-ap">
+          <thead><tr><th class="izq">Marca</th><th>Venta 12m C$</th><th>12 anteriores</th><th>Cambio C$</th><th>Unid. 12m</th><th>Cambio unid.</th></tr></thead>
+          <tbody>{% for m in d.marcas|sort(attribute='monto_12', reverse=True) %}{% if m.monto_12 or m.monto_prev %}<tr>
+            <td class="izq">{{ m.marca }}</td><td>{{ usd(m.monto_12) }}</td><td class="meta">{{ usd(m.monto_prev) }}</td>
+            <td class="fw-bold tend-{{ m.nivel }}">{{ flecha(m.nivel) }} {{ pct(m.cambio, True) if m.cambio is not none else ('nueva' if m.nivel == 'nueva' else '—') }}</td>
+            <td>{{ n(m.venta_12) }}</td><td class="tend-{{ m.nivel_unid }}">{{ pct(m.cambio_unid, True) if m.cambio_unid is not none else '—' }}</td></tr>{% endif %}{% endfor %}</tbody>
+          <tfoot><tr><td class="izq">Total</td><td>{{ usd(t.monto_12) }}</td><td>{{ usd(t.monto_prev) }}</td><td class="tend-{{ t.nivel }}">{{ flecha(t.nivel) }} {{ pct(t.cambio, True) }}</td>
+            <td>{{ n(t.venta_12) }}</td><td class="tend-{{ t.nivel_unid }}">{{ pct(t.cambio_unid, True) }}</td></tr></tfoot>
+        </table></div>
+        <div class="nota px-2 py-1">Verde: sube más de 10% · gris: se mantiene · rojo: cae más de 10%. C$ y unidades pueden ir en sentido contrario (cambio de mezcla o de precio).</div>
+      </div>
+    </div></div>
+  </div>
+
+  {# ---------- Mapa de calor: desde cuándo está lento ---------- #}
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>3 · ¿Desde cuándo está lento? <small>venta neta por marca y mes, en miles de C$ (el color se compara dentro de cada marca)</small></span>
+      <small><span class="clave" style="box-shadow: inset 3px 0 0 #FE6412; background: #e6f2f0"></span>mes en que se puso lento</small></div>
+    <div class="card-body"><div class="table-responsive" style="max-height: 420px">
+      <table class="calor">
+        <thead><tr><th class="izq">Marca</th>
+          <th title="Primer mes desde el cual el promedio móvil de 3 meses queda bajo el 70% del promedio de los 12 meses anteriores y no se recupera">Lento<br>desde</th>
+          <th title="Fecha mediana de la última venta de sus productos sin venta en 12 meses (con inventario)">Últ. venta<br>sin venta 12m</th>
+          {% for e in d.etiquetas_24 %}<th class="{{ 'sep-anio' if loop.index0 == 12 }}">{{ e.replace(' ', '<br>')|safe }}</th>{% endfor %}</tr></thead>
+        <tbody>{% for m in d.marcas %}{% set mx = m.heat|max %}<tr>
+          <td class="izq">{{ m.marca }}</td>
+          <td class="extra fw-bold" style="color: {{ 'var(--contado)' if m.lento_desde else 'inherit' }}">{{ m.lento_desde or '—' }}</td>
+          <td class="extra" title="Fecha mediana de la última venta de sus productos sin venta en 12 meses">{{ (M.MESES[m.mediana_ultima_venta.month - 1]|lower ~ '-' ~ m.mediana_ultima_venta.year) if m.mediana_ultima_venta else '—' }}</td>
+          {% for v in m.heat %}{% set a = (v / mx * 0.85) if mx > 0 and v > 0 else 0 %}<td class="c{{ ' sep-anio' if loop.index0 == 12 }}{{ ' lento-ini' if m.lento_desde_idx == loop.index0 }}" style="background: rgba(2,114,102,{{ '%.2f'|format(a) }}); {{ 'color: #fff;' if a > 0.5 }}" title="{{ m.marca }} · {{ d.etiquetas_24[loop.index0] }}: C$ {{ '{:,.0f}'.format(v) }}">{{ '{:,.0f}'.format(v / 1000) if v >= 500 else ('·' if v > 0 else '') }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+      </table></div>
+      <div class="nota mt-1">La línea gruesa separa los 12 meses anteriores de los últimos 12. «Lento desde» exige que la caída se sostenga al menos 3 meses.</div>
+    </div>
+  </div>
+
+  {# ---------- Rotación | Ingresado vs vendido ---------- #}
+  <div class="row g-3 mb-3">
+    <div class="col-xl-6"><div class="card h-100">
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><span>3 · Rotación general</span>
+        <div class="selector" role="group" aria-label="Medir la rotación por">
+          <button type="button" data-medida="pct_inventario" aria-pressed="true">% inventario</button>
+          <button type="button" data-medida="pct_productos" aria-pressed="false">% productos</button>
+          <button type="button" data-medida="pct_venta_12" aria-pressed="false">% venta 12m</button></div></div>
       <div class="card-body">
         <div class="d-flex flex-wrap align-items-center gap-3">
-          <div style="width: 170px; height: 170px; flex: 0 0 170px"><canvas id="grafico-rotacion" role="img" aria-label="Inventario a costo por tipo de rotación"></canvas></div>
-          <div class="flex-grow-1 small" style="min-width: 200px">
-            {% for e in d.rotacion if e.productos %}
-            <div class="d-flex align-items-baseline gap-2 mb-1">
+          <div style="width: 160px; height: 160px; flex: 0 0 160px"><canvas id="grafico-rotacion" role="img" aria-label="Rotación por tipo"></canvas></div>
+          <div class="flex-grow-1 small" style="min-width: 200px" id="leyenda-rot">
+            {% for e in d.graf_rot %}
+            <div class="d-flex align-items-baseline gap-2 mb-1" data-estado="{{ e.estado }}">
               <span style="width: 11px; height: 11px; border-radius: 3px; background: {{ e.color }}; flex: 0 0 11px" aria-hidden="true"></span>
-              <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado=e.estado)) }}" class="text-reset">{{ e.nombre }}</a>
-              <span class="ms-auto fw-bold">{{ "{:.0f}".format(e.pct_inventario) }}%</span></div>
+              <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado=e.estado)) }}#productos" class="text-reset">{{ e.corto }}</a>
+              <span class="meta">{{ e.productos }} prod.</span>
+              <span class="ms-auto fw-bold valor-rot">{{ pct(e.pct_inventario) }}</span></div>
             {% endfor %}
-            <div class="text-muted mt-1" style="font-size: .72rem">% del inventario disponible a costo (C$)</div>
+            <div class="mt-2 p-2 rounded" style="background: #f3f3f1; font-size: .78rem"><strong>{{ d.agotados_venden }}</strong> productos agotados que se venden
+              <span class="meta">(0% del inventario: no tienen existencia)</span> · {{ ver('agotado', 'ver') }}</div>
           </div>
         </div>
-        <div class="table-responsive mt-2" style="max-height: 380px">
+        <div class="table-responsive mt-2" style="max-height: 340px">
         <table class="tabla-ap tabla-rot">
-          <thead><tr><th class="izq">Rotación · marca</th><th>Productos</th><th>%</th><th>Inventario a costo C$</th><th>Unid.</th><th>Venta neta C$</th></tr></thead>
+          <thead><tr><th class="izq">Rotación · marca</th><th>Productos</th><th>% inv.</th><th>Inventario a costo C$</th><th>Venta 12m C$</th>
+            <th title="Venta neta desde la fecha de inicio">Venta histórica C$</th></tr></thead>
           <tbody>{% for e in d.rotacion %}
-            <tr class="rot-tipo"><td class="izq"><span class="estado {{ e.estado }}">{{ estados[e.estado] }}</span></td>
-              <td>{{ e.productos or '—' }}</td><td>{{ "{:.0f}%".format(e.pct_productos) if e.productos else '—' }}</td>
-              <td class="fw-bold">{{ usd(e.inventario_costo) }}</td><td>{{ n(e.disponible) }}</td><td>{{ usd(e.venta_neta) }}</td></tr>
+            <tr class="rot-tipo"><td class="izq"><span class="estado {{ e.estado }}">{{ e.corto }}</span></td>
+              <td>{{ e.productos or '—' }}</td><td>{{ pct(e.pct_inventario) if e.productos else '—' }}</td>
+              <td class="fw-bold">{{ usd(e.inventario_costo) }}</td><td>{{ usd(e.monto_12) }}</td><td class="meta">{{ usd(e.venta_neta) }}</td></tr>
             {% for y in e.marcas %}
-            <tr class="rot-marca"><td class="izq"><a href="{{ url_for('analisis_proveedor.reporte', **dict(params, marca=[y.marca], estado=e.estado)) }}" class="text-reset">{{ y.marca }}</a></td>
+            <tr class="rot-marca"><td class="izq"><a href="{{ url_for('analisis_proveedor.reporte', **dict(params, marca=[y.marca], estado=e.estado)) }}#productos" class="text-reset">{{ y.marca }}</a></td>
               <td>{{ y.productos|int }}</td><td class="meta" title="Parte del inventario de este tipo de rotación">{{ "{:.0f}%".format(y.pct) if e.inventario_costo else '' }}</td>
-              <td>{{ usd(y.inventario_costo) }}</td><td>{{ n(y.disponible) }}</td><td>{{ usd(y.venta_neta) }}</td></tr>
+              <td>{{ usd(y.inventario_costo) }}</td><td>{{ usd(y.monto_12) }}</td><td class="meta">{{ usd(y.venta_neta) }}</td></tr>
             {% endfor %}
           {% endfor %}</tbody>
-          <tfoot><tr><td class="izq">Total</td><td>{{ t.productos|int }}</td><td>100%</td><td>{{ usd(d.rotacion|sum(attribute='inventario_costo')) }}</td>
-            <td>{{ n(d.rotacion|sum(attribute='disponible')) }}</td><td>{{ usd(t.venta_neta) }}</td></tr></tfoot>
+          <tfoot><tr><td class="izq">Total</td><td>{{ d.rotacion|sum(attribute='productos') }}</td><td>100%</td><td>{{ usd(d.rotacion|sum(attribute='inventario_costo')) }}</td>
+            <td>{{ usd(d.rotacion|sum(attribute='monto_12')) }}</td><td>{{ usd(d.rotacion|sum(attribute='venta_neta')) }}</td></tr></tfoot>
         </table></div>
-        <div class="text-muted mt-1" style="font-size: .72rem">Debajo de cada tipo, sus marcas (el % es la parte del inventario de ese tipo; clic para ver los productos).
-          Se vende: inventario para 12 meses o menos · Lenta: más de 12 meses · Sin venta: nunca, hace más de un año o nada desde la fecha.</div>
+        <div class="nota mt-1">Se vende: inventario para 12 meses o menos · Lenta: más de 12 meses · Sin venta en 12 meses: solo los que tienen inventario
+          ({{ d.sin_venta_sin_existencia }} sin venta y sin existencia no se cuentan) · Nuevo: menos de 3 meses desde su primer ingreso, todavía sin evaluar.</div>
       </div>
     </div></div>
-    {# ---------- Existencia, vendido e ingresado por marca ---------- #}
-    <div class="col-xl-7"><div class="card h-100">
-      <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>Lo que ingresó, lo que se vendió y lo que tenemos <small>unidades por marca, desde {{ f.desde.strftime('%d/%m/%Y') }}</small></span>
-        <small><span class="clave" style="background: #8AB17D"></span>Ingresado <span class="clave ms-2" style="background: #027266"></span>Vendido
-          <span class="clave ms-2" style="background: #FE6412"></span>Existencia disponible</small></div>
-      <div class="card-body"><div style="height: {{ [220, 60 + d.marcas|length * 34]|max }}px; max-height: 520px"><canvas id="grafico-marcas" role="img" aria-label="Unidades ingresadas, vendidas y en existencia por marca"></canvas></div></div>
-    </div></div>
-  </div>
-
-  <div class="row g-3 mb-3">
-    {# ---------- Ventas por mes ---------- #}
     <div class="col-xl-6"><div class="card h-100">
-      <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>Ventas por mes <small>últimos 24 meses, venta neta C$</small></span>
-        {% if d.temporada[0] %}<small>Temporada más fuerte: <strong style="color: var(--contado)">{{ d.temporada[0] }}</strong> ({{ "{:.0f}".format(d.temporada[1]) }}% de la venta del año)</small>{% endif %}</div>
-      <div class="card-body"><div style="height: 250px"><canvas id="grafico-meses" role="img" aria-label="Venta neta por mes de los últimos 24 meses"></canvas></div></div>
-    </div></div>
-    {# ---------- Por marca: valores y cantidades ---------- #}
-    <div class="col-xl-6"><div class="card h-100">
-      <div class="card-header">Resumen por marca</div>
-      <div class="card-body p-0">
-        <div class="px-2 pt-2 small fw-semibold" style="color: var(--credito)">Valores en C$ (costo y venta)</div>
-        <div class="table-responsive" style="max-height: 210px">
-        <table class="tabla-ap">
-          <thead><tr><th class="izq">Marca</th><th>Ingresado a costo</th><th>Venta neta</th><th>Utilidad</th><th>Inventario a costo</th><th>NHE a costo</th><th>Sin venta</th></tr></thead>
-          <tbody>{% for m in d.marcas %}<tr><td class="izq">{{ m.marca }} <span class="meta">{{ m.productos|int }}</span></td>
-            <td>{{ usd(m.ingreso_costo) }}</td><td>{{ usd(m.venta_neta) }}</td><td>{{ usd(m.rent.utilidad) }}</td><td class="fw-bold">{{ usd(m.inventario_costo) }}</td>
-            <td class="{{ 'nhe' if m.nhe_costo }}">{{ usd(m.nhe_costo) }}</td><td>{{ m.sin_venta|int or '—' }}</td></tr>{% endfor %}</tbody>
-          <tfoot><tr><td class="izq">Total</td><td>{{ usd(t.ingreso_costo) }}</td><td>{{ usd(t.venta_neta) }}</td><td>{{ usd(d.rent.utilidad if d.rent else 0) }}</td><td>{{ usd(t.inventario_costo) }}</td><td>{{ usd(t.nhe_costo) }}</td><td>{{ t.sin_venta|int }}</td></tr></tfoot>
-        </table></div>
-        <div class="px-2 pt-3 small fw-semibold" style="color: var(--credito)">Cantidades (unidades)</div>
-        <div class="table-responsive" style="max-height: 210px">
-        <table class="tabla-ap">
-          <thead><tr><th class="izq">Marca</th><th>Productos</th><th>Ingresado</th><th>Vendido</th><th>Existencia disponible</th><th>NHE</th></tr></thead>
-          <tbody>{% for m in d.marcas %}<tr><td class="izq">{{ m.marca }}</td><td>{{ m.productos|int }}</td>
-            <td>{{ n(m.ingreso) }}</td><td>{{ n(m.vendido) }}</td><td class="fw-bold">{{ n(m.disponible) }}</td><td class="{{ 'nhe' if m.nhe }}">{{ n(m.nhe) }}</td></tr>{% endfor %}</tbody>
-          <tfoot><tr><td class="izq">Total</td><td>{{ t.productos|int }}</td><td>{{ n(t.ingreso) }}</td><td>{{ n(t.vendido) }}</td><td>{{ n(t.disponible) }}</td><td>{{ n(t.nhe) }}</td></tr></tfoot>
-        </table></div>
+      <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><span>1–2 · Lo que ingresó, lo que se vendió y lo que tenemos <small>desde {{ f.desde.strftime('%d/%m/%Y') }}</small></span>
+        <div class="selector" role="group" aria-label="Ver en">
+          <button type="button" data-vista="costo" aria-pressed="true">C$ a costo</button>
+          <button type="button" data-vista="unid" aria-pressed="false">Unidades</button></div></div>
+      <div class="card-body">
+        <div class="d-flex flex-wrap gap-3 nota mb-1"><span><span class="clave" style="background: #8AB17D"></span>Ingresado</span>
+          <span><span class="clave" style="background: #027266"></span>Vendido</span><span><span class="clave" style="background: #FE6412"></span>Existencia disponible</span>
+          <span>· al final: % vendido de lo ingresado</span></div>
+        <div style="height: {{ [240, 50 + d.marcas_grafico|length * 46]|max }}px"><canvas id="grafico-marcas" role="img" aria-label="Ingresado, vendido y existencia por marca"></canvas></div>
+        <div class="nota mt-1">En C$: ingresado a costo real, vendido a su costo de venta y existencia a último costo. Son bases distintas: sirven para ver el tamaño, no para restarse.</div>
       </div>
     </div></div>
   </div>
 
-  {# ---------- Detalle ---------- #}
-  <div class="card">
+  {# ---------- Resumen por marca ---------- #}
+  {% set max_inv = d.marcas|map(attribute='inventario_costo')|max %}
+  <div class="card mb-3">
+    <div class="card-header">Resumen por marca <small>ordenado por inventario a costo</small></div>
+    <div class="card-body p-0"><div class="table-responsive" style="max-height: 420px">
+      <table class="tabla-ap">
+        <thead><tr><th class="izq">Marca</th><th>Ingresado C$</th><th>Venta C$</th><th>Margen</th><th>Inventario C$</th><th>% lento</th>
+          <th>Rotación 12m</th><th>Cambio 12m</th><th>Lento desde</th><th class="izq">Veredicto</th></tr></thead>
+        <tbody>{% for m in d.marcas %}<tr>
+          <td class="izq">{{ m.marca }} <span class="meta">{{ m.productos|int }} prod.</span>{% if m.dejar %} <span class="rec no" title="Cae y casi todo su inventario está lento">dejar de comprar</span>{% endif %}</td>
+          <td>{{ usd(m.ingreso_costo) }}<div class="meta">{{ n(m.ingreso) }} u.</div></td>
+          <td>{{ usd(m.venta_neta) }}<div class="meta">{{ n(m.vendido) }} u. · {{ pct(m.pct_vendido) }} vend.</div></td>
+          <td>{{ pct(m.rent.margen) }}</td>
+          <td><span class="fw-bold">{{ usd(m.inventario_costo) }}</span><div class="minibar"><span style="width: {{ (m.inventario_costo / max_inv * 100) if max_inv else 0 }}%"></span></div>
+            <div class="meta">{{ n(m.disponible) }} u.{% if m.nhe %} · <span class="nhe">{{ n(m.nhe) }} NHE</span>{% endif %}</div></td>
+          <td>{{ pct(m.pct_lento) }}<div class="minibar" style="--b-color: #FE6412; min-width: 50px"><span style="width: {{ m.pct_lento or 0 }}%"></span></div></td>
+          <td class="fw-bold">{{ dec(m.rent.rotacion_12) }}</td>
+          <td class="tend-{{ m.nivel }}">{{ flecha(m.nivel) }} {{ pct(m.cambio, True) if m.cambio is not none else '—' }}</td>
+          <td style="color: var(--contado)">{{ m.lento_desde or '—' }}</td>
+          <td class="izq" title="{{ m.rent.veredicto }}"><span class="punto {{ m.rent.nivel }}" aria-hidden="true"></span>{{ m.rent.veredicto.split(':')[0] }}{% if m.rent.gmroi_12 is not none %} <span class="meta">GMROI {{ dec(m.rent.gmroi_12) }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+        <tfoot><tr><td class="izq">Total</td><td>{{ usd(t.ingreso_costo) }}</td><td>{{ usd(t.venta_neta) }}</td><td>{{ pct(r.margen) }}</td><td>{{ usd(t.inventario_costo) }}</td>
+          <td>{{ pct(t.pct_lento) }}</td><td>{{ dec(r.rotacion_12) }}</td><td class="tend-{{ t.nivel }}">{{ pct(t.cambio, True) }}</td><td></td>
+          <td class="izq" title="{{ r.veredicto }}">{{ r.veredicto.split(':')[0] }}{% if r.gmroi_12 is not none %} · GMROI {{ dec(r.gmroi_12) }}{% endif %}</td></tr></tfoot>
+      </table></div>
+      <div class="nota px-2 py-1">% lento = inventario lento o sin venta en 12 meses ÷ inventario a costo. Margen y venta desde la fecha; rotación y cambio con los últimos 12 meses completos.</div>
+    </div>
+  </div>
+
+  {# ---------- Recomendaciones ---------- #}
+  <div class="row g-3 mb-2">
+    <div class="col-xl-6"><div class="card h-100">
+      <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>5 · No volver a comprar <small>{{ d.no_recomprar|length }} productos · {{ ab(d.no_recomprar|sum(attribute='inventario_costo')) }} de inventario</small></span>
+        <small>{{ ver('no_recomprar', 'ver en la tabla', 'inventario') }}</small></div>
+      <div class="card-body p-0"><div class="table-responsive" style="max-height: 360px">
+        <table class="tabla-ap tabla-rec">
+          <thead><tr><th class="izq">Producto</th><th>Inventario C$</th><th>Meses inv.</th><th class="izq">Última venta</th><th class="izq">Recomendación</th></tr></thead>
+          <tbody>{% for x in d.no_recomprar[:max_rec] %}<tr><td class="izq prod"><span class="cod">{{ x.codigo }}</span> <span class="meta">{{ x.parte }} · {{ x.marca }}</span><div class="meta">{{ x.nombre }}</div></td>
+            <td class="fw-bold">{{ usd(x.inventario_costo) }}</td><td>{{ M.plazo_txt(x.cobertura) if x.cobertura is not none else '—' }}</td>
+            <td class="izq">{{ x.ultima_venta.strftime('%d/%m/%Y') if x.ultima_venta else 'Nunca' }}</td><td class="izq">{{ recb(x.recomendacion) }}</td></tr>
+          {% else %}<tr><td colspan="5" class="text-center text-muted py-3">Nada que dejar de comprar.</td></tr>{% endfor %}</tbody>
+        </table></div>
+        {% if d.no_recomprar|length > max_rec %}<div class="nota px-2 py-1">Se muestran los {{ max_rec }} de más inventario; todos en el Excel (hoja «No volver a comprar»).</div>{% endif %}
+      </div>
+    </div></div>
+    <div class="col-xl-6"><div class="card h-100">
+      <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>5 · Reponer <small>{{ d.reponer|length }} productos que se venden, agotados o con menos de 2 meses de inventario</small></span>
+        <small>{{ ver('reponer', 'ver en la tabla', 'vendido') }}</small></div>
+      <div class="card-body p-0"><div class="table-responsive" style="max-height: 360px">
+        <table class="tabla-ap tabla-rec">
+          <thead><tr><th class="izq">Producto</th><th>Disponible</th><th>Venta 12m u.</th><th title="Costo de lo vendido en los últimos 12 meses">Costo vendido 12m C$</th><th>Meses inv.</th><th class="izq">Temporada</th></tr></thead>
+          <tbody>{% for x in d.reponer[:max_rec] %}<tr><td class="izq prod"><span class="cod">{{ x.codigo }}</span> <span class="meta">{{ x.parte }} · {{ x.marca }}</span><div class="meta">{{ x.nombre }}</div></td>
+            <td class="fw-bold">{{ n(x.disponible) if x.disponible > 0 else 'Agotado' }}</td><td>{{ n(x.venta_12) }}</td><td>{{ usd(x.costo_12) }}</td>
+            <td>{{ dec(x.cobertura, 1) if x.cobertura is not none and x.cobertura > 0 else '0' }}</td><td class="izq">{{ x.temporada or '—' }}</td></tr>
+          {% else %}<tr><td colspan="6" class="text-center text-muted py-3">Nada que reponer.</td></tr>{% endfor %}</tbody>
+        </table></div>
+        {% if d.reponer|length > max_rec %}<div class="nota px-2 py-1">Se muestran los {{ max_rec }} de más costo vendido; todos en el Excel (hoja «Reponer»).</div>{% endif %}
+      </div>
+    </div></div>
+  </div>
+  {% if d.marcas_dejar %}
+  <div class="dejar mb-3"><i class="bi bi-slash-circle" aria-hidden="true" style="color: var(--contado)"></i> <strong>Marcas que conviene dejar de comprar</strong>
+    (más del 85% de su inventario lento o sin venta y su venta cae más de 30% o no vendió en 12 meses):
+    {% for m in d.marcas_dejar %}<strong>{{ m.marca }}</strong> <span class="meta">({{ pct(m.cambio, True) if m.cambio is not none else 'sin venta' }}, {{ pct(m.pct_lento) }} lento)</span>{{ ' · ' if not loop.last }}{% endfor %}</div>
+  {% else %}<div class="mb-3"></div>{% endif %}
+
+  {# ---------- Tabla de productos ---------- #}
+  <div class="card mb-2" id="productos">
     <div class="card-header d-flex flex-wrap justify-content-between gap-2">
       <span>Productos <small>{{ "{:,}".format(d.filas|length) }}{% if f.existencia %} · solo con existencia{% endif %}{% if f.estado %} · {{ estados[f.estado] }}{% endif %}{% if d.filas|length > max_filas %} (se muestran {{ max_filas }}; todos en el Excel){% endif %}</small></span>
-      <small>{% if t.costo_estimado %}{{ t.costo_estimado|int }} producto(s) con último costo 0: costo estimado con FOB × {{ tc_fob }} · {% endif %}{% if t.sin_costo %}{{ t.sin_costo|int }} sin costo ni FOB (no suman) · {% endif %}{% if d.sin_actividad %}{{ d.sin_actividad }} del catálogo sin existencia ni movimiento no se muestran{% endif %}{% if f.existencia %} · los que no tienen existencia disponible no se muestran{% endif %}</small>
+      <small>{% if d.sin_actividad %}{{ d.sin_actividad }} del catálogo sin existencia ni movimiento no se muestran{% endif %}{% if f.existencia %} · los que no tienen existencia disponible no se muestran{% endif %}</small>
     </div>
-    <div class="table-responsive" style="max-height: 70vh">
+    <div class="px-2 pt-2 filtros-rapidos" role="navigation" aria-label="Filtros rápidos de la tabla">
+      <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='')) }}#productos" class="{{ 'activo' if not f.estado }}">Todos</a>
+      {% for k in filtros_rapidos %}<a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado=k)) }}#productos" class="{{ 'activo' if f.estado == k }}">
+        {% if M.COLOR.get(k) %}<span class="pt" style="background: {{ M.COLOR[k] }}" aria-hidden="true"></span>{% endif %}{{ estados[k] }}</a>{% endfor %}
+    </div>
+    <div class="table-responsive mt-2" style="max-height: 70vh">
       <table class="tabla-ap">
         <caption class="visually-hidden">Análisis por producto del proveedor {{ f.proveedor }}</caption>
-        <thead>
-          <tr class="sup"><th class="izq" colspan="2"></th><th class="sep" colspan="2">Ingresado desde {{ f.desde.strftime('%d/%m/%y') }}</th>
-            <th class="sep" colspan="2">Ventas desde la fecha</th><th class="sep" colspan="3">Inventario</th><th class="sep" colspan="4">Venta</th></tr>
-          <tr class="inf"><th class="izq">Producto</th><th class="izq">Segmento · familia · subfamilia</th>
-            <th class="sep">Unid.</th><th title="Costo real de los ingresos">Costo C$</th><th class="sep">Unid.</th><th title="Venta neta sin IVA, con descuento">Venta neta C$</th>
-            <th class="sep" title="Existencia sin las bodegas NHE">Disponible</th><th title="Disponible × último costo">Costo C$</th><th title="Mercadería en bodegas NHE (no está)">NHE</th>
-            <th class="sep izq">Última venta</th><th class="izq" title="Unidades vendidas por mes, últimos 24 meses">24 meses</th><th class="izq">Temporada</th><th class="izq">Comentario</th></tr>
+        <thead><tr><th class="izq">Producto</th><th class="izq">Segmento · familia</th>
+            <th class="sep" title="Costo real de los ingresos desde la fecha; debajo, unidades">Ingresado C$<div class="meta">desde {{ f.desde.strftime('%d/%m/%y') }}</div></th>
+            <th class="sep" title="Venta neta sin IVA, con descuento, desde la fecha; debajo, unidades y margen">Venta neta C$<div class="meta">desde la fecha</div></th>
+            <th class="sep" title="Disponible (sin bodegas NHE) × último costo; debajo, unidades y NHE">Inventario C$<div class="meta">disponible</div></th>
+            <th class="sep izq">Primer ingreso<div class="meta">última venta</div></th>
+            <th class="izq" title="Unidades vendidas por mes, 24 meses completos (claro: 12 anteriores)">24 meses<div class="meta">temporada</div></th>
+            <th class="izq sep">Clasificación y comentario</th></tr>
         </thead>
         <tbody>{% for x in d.filas[:max_filas] %}<tr>
           <td class="izq prod"><span class="cod">{{ x.codigo }}</span> <span class="meta">{{ x.parte }}</span><div>{{ x.nombre }}</div>
-            <div class="meta">{{ x.marca }} · costo C$ {{ "{:,.2f}".format(x.costo) }}{% if x.costo_estimado %} <span title="Último costo 0: estimado con FOB × {{ tc_fob }}">(estimado)</span>{% endif %}{% if x.ultimo_ingreso %} · ingresó {{ x.ultimo_ingreso.strftime('%d/%m/%y') }}{% endif %}</div></td>
-          <td class="izq" style="white-space: normal; min-width: 150px"><div>{{ x.segmento }}</div><div class="meta">{{ x.familia }} · {{ x.subfamilia }}</div></td>
-          <td class="sep">{{ n(x.ingreso) }}</td><td>{{ usd(x.ingreso_costo) }}</td>
-          <td class="sep">{{ n(x.vendido) }}</td><td>{{ usd(x.venta_neta) }}{% if x.margen is not none %}<div class="meta">margen {{ "{:.0f}".format(x.margen) }}%</div>{% endif %}</td>
-          <td class="sep fw-bold">{{ n(x.disponible) }}</td><td>{{ usd(x.inventario_costo) }}</td><td class="{{ 'nhe' if x.nhe > 0 }}">{{ n(x.nhe) }}</td>
-          <td class="sep izq">{{ x.ultima_venta.strftime('%d/%m/%Y') if x.ultima_venta else 'Nunca' }}</td>
+            <div class="meta">{{ x.marca }} · costo C$ {{ "{:,.2f}".format(x.costo) }}{% if x.costo_estimado %} <span title="Último costo 0: estimado con FOB × {{ tc_fob }}">(estimado)</span>{% endif %}{% if x.ultimo_ingreso %} · último ingreso {{ x.ultimo_ingreso.strftime('%d/%m/%y') }}{% endif %}</div></td>
+          <td class="izq" style="white-space: normal; min-width: 110px; max-width: 150px"><div>{{ x.segmento }}</div><div class="meta">{{ x.familia }}{% if x.subfamilia != x.familia %} · {{ x.subfamilia }}{% endif %}</div></td>
+          <td class="sep">{{ usd(x.ingreso_costo) }}<div class="meta">{{ n(x.ingreso) }} u.</div></td>
+          <td class="sep">{{ usd(x.venta_neta) }}<div class="meta">{{ n(x.vendido) }} u.{% if x.margen is not none %} · {{ "{:.0f}".format(x.margen) }}%{% endif %}</div></td>
+          <td class="sep"><span class="fw-bold">{{ usd(x.inventario_costo) }}</span><div class="meta">{{ n(x.disponible) if x.disponible else '0' }} u.{% if x.nhe > 0 %} · <span class="nhe">{{ n(x.nhe) }} NHE</span>{% endif %}</div></td>
+          <td class="sep izq">{{ x.primer_ingreso.strftime('%d/%m/%y') if x.primer_ingreso else '—' }}{% if x.meses_inventario is not none %} <span class="meta">({{ dec(x.meses_inventario, 1) }} m)</span>{% endif %}
+            <div class="meta">{{ 'últ. venta ' ~ x.ultima_venta.strftime('%d/%m/%y') if x.ultima_venta else 'nunca vendido' }}</div></td>
           <td class="izq">{% set mx = x.venta_meses|max %}{% if mx > 0 %}<span class="spark" title="Unidades por mes: {{ x.venta_meses|map('round')|map('int')|join(', ') }}">
-            {% for v in x.venta_meses %}<span style="height: {{ (v / mx * 100) if v > 0 else 0 }}%"></span>{% endfor %}</span>{% else %}<span class="meta">sin venta</span>{% endif %}</td>
-          <td class="izq">{{ x.temporada or '—' }}{% if x.temporada_pct %} <span class="meta">{{ "{:.0f}".format(x.temporada_pct) }}%</span>{% endif %}</td>
-          <td class="comentario"><span class="estado {{ x.estado }}">{{ estados[x.estado] }}</span> {{ x.comentario }}</td>
-        </tr>{% else %}<tr><td colspan="13" class="text-center text-muted py-4">Ningún producto con estos filtros.</td></tr>{% endfor %}</tbody>
+            {% for v in x.venta_meses %}<span class="{{ 'ant' if loop.index0 < 12 }}" style="height: {{ (v / mx * 100) if v > 0 else 0 }}%"></span>{% endfor %}</span>{% else %}<span class="meta">sin venta</span>{% endif %}
+            {% if x.temporada %}<div class="meta">{{ x.temporada }} ({{ "{:.0f}".format(x.temporada_pct) }}%)</div>{% endif %}</td>
+          <td class="comentario sep"><span class="estado {{ x.estado }}">{{ M.CORTO[x.estado] }}</span> {{ recb(x.recomendacion) }}<div>{{ x.comentario }}</div></td>
+        </tr>{% else %}<tr><td colspan="8" class="text-center text-muted py-4">Ningún producto con estos filtros.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
   </div>
-  <div class="small text-muted mt-2">Proveedor según el catálogo (última compra). Ventas = venta neta en C$ (sin IVA, con descuento, sin facturas anuladas) de ventas por producto.
-    Todo en C$: ingresado a su costo real, inventario y NHE a último costo del catálogo (si es 0, FOB × {{ tc_fob }}). El FOB en US$ aparece solo como referencia en los totales.
-    Inventario disponible = existencia sin bodegas NHE. Temporada = los 3 meses seguidos del año con más venta en los últimos 24 meses.</div>
+
+  {# ---------- Calidad de datos ---------- #}
+  {% set cal = d.calidad %}
+  {% if cal.negativos or cal.util_neg or cal.costo_estimado or cal.sin_costo %}
+  <div class="calidad mb-2"><strong style="color: var(--ink-2)"><i class="bi bi-clipboard-check" aria-hidden="true"></i> Calidad de datos</strong>
+    {% if cal.negativos %}<span><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ ver('negativo', cal.negativos|length ~ ' con inventario negativo') }}
+      <span class="meta">({{ cal.negativos[:5]|map(attribute='codigo')|join(', ') }})</span></span>{% endif %}
+    {% if cal.util_neg %}<span><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ ver('utilidad_neg', cal.util_neg|length ~ ' con utilidad negativa') }}
+      <span class="meta">(C$ {{ "{:,.0f}".format(cal.util_neg_monto) }})</span></span>{% endif %}
+    {% if cal.costo_estimado %}<span><i class="bi bi-exclamation-circle" aria-hidden="true"></i> {{ ver('costo_estimado', cal.costo_estimado ~ ' con costo estimado con FOB') }}
+      <span class="meta">(último costo 0; FOB × {{ tc_fob }})</span></span>{% endif %}
+    {% if cal.sin_costo %}<span class="meta">{{ cal.sin_costo }} sin costo ni FOB (no suman al inventario)</span>{% endif %}
+  </div>
+  {% endif %}
+  <div class="nota mt-2">Proveedor según el catálogo (última compra). Ventas = venta neta en C$ (sin IVA, con descuento, sin facturas anuladas) de ventas por producto.
+    <strong>Bases de costo:</strong> el ingresado está a su costo real de compra y el inventario y el NHE al último costo del catálogo (si es 0, FOB × {{ tc_fob }});
+    por eso no se restan entre sí en ningún indicador. El FOB en US$ aparece solo como referencia. Inventario disponible = existencia sin bodegas NHE.
+    «12 meses» = {{ d.periodo_12[0] }}–{{ d.periodo_12[1] }} (meses completos). Venta mensual de un producto con menos de 12 meses = venta ÷ meses desde su primer ingreso.
+    Temporada = los 3 meses seguidos del año con más venta en los 24 meses completos.</div>
   {% endif %}
 </div>
 {% endblock %}
@@ -307,39 +515,102 @@
     const marcas = [...form.querySelectorAll('input[name=marca]')];
     if (marcas.length && marcas.every(c => c.checked)) marcas.forEach(c => c.disabled = true);
   });
-  {% if d.meses and d.total.productos %}
+  {% if d.total and d.total.productos %}
   const num = (v) => Math.round(v).toLocaleString('en-US');
   const corto = (v) => Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + ' M' : Math.abs(v) >= 1000 ? Math.round(v / 1000) + ' K' : v;
+  const pctTxt = (v) => (v > 0 ? '+' : '') + v.toFixed(0) + '%';
+  function selector(grupo, alCambiar) {
+    const botones = [...grupo.querySelectorAll('button')];
+    botones.forEach(b => b.addEventListener('click', () => {
+      botones.forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+      alCambiar(b.dataset);
+    }));
+  }
   if (window.Chart) {
-    // Ventas por mes (venta neta C$)
-    const etiquetas = {{ d.etiquetas|tojson }}, valores = {{ d.venta_mes_monto|tojson }}, unidades = {{ d.venta_mes|tojson }};
+    // ---- Ventas por mes ----
+    const g = {{ d.graf_meses|tojson }};
+    const n24 = g.meses.length;
+    const colores = g.monto.map((_, i) => i >= n24 ? 'rgba(2,114,102,.15)' : (i >= n24 - 12 ? '#027266' : 'rgba(2,114,102,.35)'));
+    const proyeccion = g.monto.map((v, i) => (i >= n24 && g.proyeccion) ? Math.max(g.proyeccion - v, 0) : null);
+    const franja = {   // fondo en los meses de la temporada fuerte
+      id: 'franja', beforeDatasetsDraw(chart) {
+        const { ctx, chartArea, scales: { x } } = chart;
+        if (!g.temporada.length) return;
+        const ancho = x.getPixelForValue(1) - x.getPixelForValue(0);
+        ctx.save(); ctx.fillStyle = 'rgba(217,164,65,.16)';
+        g.temporada.forEach(i => ctx.fillRect(x.getPixelForValue(i) - ancho / 2, chartArea.top, ancho, chartArea.bottom - chartArea.top));
+        ctx.restore();
+      } };
     new Chart(document.getElementById('grafico-meses'), {
-      type: 'bar',
-      data: { labels: etiquetas, datasets: [{ label: 'Venta neta', data: valores, backgroundColor: '#027266', borderRadius: 3 }] },
-      options: { maintainAspectRatio: false, plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (c) => `C$ ${num(c.parsed.y)} · ${num(unidades[c.dataIndex])} unid.` } } },
-        scales: { y: { beginAtZero: true, ticks: { callback: corto }, grid: { color: '#ecebe8' } }, x: { grid: { display: false } } } }
-    });
-    // Rotación general: % del inventario FOB por estado
-    const rot = {{ d.rotacion|selectattr('productos')|list|tojson }};
-    new Chart(document.getElementById('grafico-rotacion'), {
-      type: 'doughnut',
-      data: { labels: rot.map(e => e.nombre), datasets: [{ data: rot.map(e => Math.round(e.inventario_costo)), backgroundColor: rot.map(e => e.color), borderWidth: 2, borderColor: '#fff' }] },
-      options: { maintainAspectRatio: false, cutout: '62%', plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (c) => `${c.label}: C$ ${num(c.parsed)} · ${rot[c.dataIndex].productos} productos` } } } }
-    });
-    // Ingresado, vendido y existencia por marca (unidades)
-    const marcas = {{ d.marcas|tojson }};
-    new Chart(document.getElementById('grafico-marcas'), {
-      type: 'bar',
-      data: { labels: marcas.map(m => m.marca), datasets: [
-        { label: 'Ingresado', data: marcas.map(m => m.ingreso), backgroundColor: '#8AB17D', borderRadius: 3 },
-        { label: 'Vendido', data: marcas.map(m => m.vendido), backgroundColor: '#027266', borderRadius: 3 },
-        { label: 'Existencia disponible', data: marcas.map(m => Math.max(m.disponible, 0)), backgroundColor: '#FE6412', borderRadius: 3 },
+      type: 'bar', plugins: [franja],
+      data: { labels: g.etiquetas, datasets: [
+        { type: 'line', label: 'Promedio móvil 3 meses', data: g.pm3, borderColor: '#FE6412', backgroundColor: '#FE6412', borderWidth: 2,
+          pointRadius: 0, tension: .3, stack: 'pm', order: 0 },
+        { label: 'Venta neta', data: g.monto, backgroundColor: colores, borderColor: g.monto.map((_, i) => i >= n24 ? '#027266' : 'transparent'),
+          borderWidth: g.monto.map((_, i) => i >= n24 ? 1 : 0), borderDash: [4, 3], borderRadius: 3, stack: 'v', order: 1 },
+        { label: 'Proyección del mes', data: proyeccion, backgroundColor: 'rgba(0,0,0,0)', borderColor: '#027266', borderWidth: 1.5,
+          borderDash: [4, 3], borderSkipped: false, stack: 'v', order: 1 },
       ] },
-      options: { indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${num(c.parsed.x)} unid.` } } },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false }, tooltip: { filter: (c) => c.datasetIndex === 1, callbacks: {
+          label: (c) => {
+            const i = c.dataIndex, v = g.monto[i], ant = g.anterior_monto[i];
+            const lineas = [`C$ ${num(v)} · ${num(g.unid[i])} unid.`];
+            if (i >= n24) { lineas.push('Mes en curso (parcial): no entra en promedios'); if (g.proyeccion) lineas.push(`Proyección al cierre: C$ ${num(g.proyeccion)}`); }
+            else if (ant > 0) lineas.push(`vs mismo mes año anterior: ${pctTxt((v / ant - 1) * 100)} (C$ ${num(ant)})`);
+            if (g.pm3[i] != null) lineas.push(`Promedio móvil 3 meses: C$ ${num(g.pm3[i])}`);
+            return lineas;
+          } } } },
+        scales: { y: { stacked: true, beginAtZero: true, ticks: { callback: corto }, grid: { color: '#ecebe8' } },
+                  x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 50, autoSkip: true, font: { size: 10 } } } } }
+    });
+
+    // ---- Rotación (donut con selector) ----
+    const rot = {{ d.graf_rot|tojson }};
+    const donut = new Chart(document.getElementById('grafico-rotacion'), {
+      type: 'doughnut',
+      data: { labels: rot.map(e => e.corto), datasets: [{ data: rot.map(e => e.pct_inventario), backgroundColor: rot.map(e => e.color), borderWidth: 2, borderColor: '#fff' }] },
+      options: { maintainAspectRatio: false, cutout: '62%', plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (c) => { const e = rot[c.dataIndex];
+          return `${e.corto}: ${c.parsed.toFixed(0)}% · ${e.productos} prod. · inv. C$ ${num(e.inventario_costo)} · venta 12m C$ ${num(e.monto_12)}`; } } } } }
+    });
+    const leyenda = document.getElementById('leyenda-rot');
+    selector(document.querySelector('[data-medida]').parentElement, ({ medida }) => {
+      donut.data.datasets[0].data = rot.map(e => e[medida]); donut.update();
+      rot.forEach(e => { const fila = leyenda.querySelector(`[data-estado="${e.estado}"] .valor-rot`); if (fila) fila.textContent = e[medida].toFixed(0) + '%'; });
+    });
+
+    // ---- Ingresado, vendido y existencia por marca (C$ a costo o unidades) ----
+    const mg = {{ d.marcas_grafico|tojson }};
+    const series = {
+      costo: [mg.map(m => m.ingreso_costo), mg.map(m => m.costo_vendido), mg.map(m => Math.max(m.inventario_costo, 0))],
+      unid: [mg.map(m => m.ingreso), mg.map(m => m.vendido), mg.map(m => Math.max(m.disponible, 0))] };
+    let vista = 'costo';
+    const etiquetaPct = {  // % vendido de lo ingresado al final de cada grupo de barras
+      id: 'etiquetaPct', afterDatasetsDraw(chart) {
+        const { ctx } = chart; ctx.save(); ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = '#52514e'; ctx.textBaseline = 'middle';
+        const [ing, ven] = series[vista];
+        mg.forEach((_, i) => {
+          if (!(ing[i] > 0)) return;
+          const fin = Math.max(...chart.data.datasets.map((ds, k) => chart.getDatasetMeta(k).data[i].x));
+          const y = chart.getDatasetMeta(1).data[i].y;
+          ctx.fillText(`${Math.round(ven[i] / ing[i] * 100)}% vendido`, fin + 6, y);
+        });
+        ctx.restore();
+      } };
+    const barras = new Chart(document.getElementById('grafico-marcas'), {
+      type: 'bar', plugins: [etiquetaPct],
+      data: { labels: mg.map(m => m.marca), datasets: [
+        { label: 'Ingresado', data: series.costo[0], backgroundColor: '#8AB17D', borderRadius: 3 },
+        { label: 'Vendido', data: series.costo[1], backgroundColor: '#027266', borderRadius: 3 },
+        { label: 'Existencia disponible', data: series.costo[2], backgroundColor: '#FE6412', borderRadius: 3 },
+      ] },
+      options: { indexAxis: 'y', maintainAspectRatio: false, layout: { padding: { right: 86 } }, plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (c) => vista === 'costo' ? `${c.dataset.label}: C$ ${num(c.parsed.x)}` : `${c.dataset.label}: ${num(c.parsed.x)} unid.` } } },
         scales: { x: { beginAtZero: true, ticks: { callback: corto }, grid: { color: '#ecebe8' } }, y: { grid: { display: false } } } }
+    });
+    selector(document.querySelector('[data-vista]').parentElement, (ds) => {
+      vista = ds.vista; barras.data.datasets.forEach((d, k) => d.data = series[vista][k]); barras.update();
     });
   }
   {% endif %}
