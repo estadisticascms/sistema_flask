@@ -1,4 +1,6 @@
 """Resumen general: una sola pantalla con el acumulado del año (enero a la fecha) contra el mismo corte del año anterior."""
+from concurrent.futures import ThreadPoolExecutor
+
 from flask import Blueprint, render_template, request
 from datetime import date, datetime, timedelta
 from utils.db import get_connection
@@ -160,14 +162,21 @@ def variacion(actual, anterior):
 
 
 def calcular(desde, hasta):
-    corte = min(hasta, ultima_venta(desde, hasta) or hasta)
-    desde_ant, corte_ant = un_anio_antes(desde), un_anio_antes(corte)
-    actual, anterior = indicadores(desde, corte), indicadores(desde_ant, corte_ant)
+    # Las consultas son independientes (cada una abre su conexión): se hacen al mismo tiempo y el resumen tarda
+    # lo que la más lenta (top marcas, que recorre ventas_por_producto), no la suma de todas.
+    with ThreadPoolExecutor(max_workers=7) as hilos:
+        # top marcas no espera el corte: después del último día con ventas no hay ventas, el resultado es el mismo
+        f_marcas = hilos.submit(marcas_top, desde, hasta)
+        corte = min(hasta, ultima_venta(desde, hasta) or hasta)
+        desde_ant, corte_ant = un_anio_antes(desde), un_anio_antes(corte)
+        f_actual, f_anterior = hilos.submit(indicadores, desde, corte), hilos.submit(indicadores, desde_ant, corte_ant)
+        f_mes, f_mes_ant = hilos.submit(venta_neta_por_mes, desde, corte), hilos.submit(venta_neta_por_mes, desde_ant, corte_ant)
+        f_recup, f_tipos = hilos.submit(recuperacion_por_mes, desde, corte), hilos.submit(ventas_por_tipo, desde, corte)
+        actual, anterior = f_actual.result(), f_anterior.result()
+        por_mes, por_mes_ant, recuperado = f_mes.result(), f_mes_ant.result(), f_recup.result()
+        (tipos, total_tipos), marcas = f_tipos.result(), f_marcas.result()
 
     meses = meses_entre(desde, corte)
-    por_mes = venta_neta_por_mes(desde, corte)
-    por_mes_ant = venta_neta_por_mes(desde_ant, corte_ant)
-    recuperado = recuperacion_por_mes(desde, corte)
     # El mes del corte queda incompleto si el corte no es fin de mes
     incompleto = (corte + timedelta(days=1)).month == corte.month
     varios_anios = desde.year != corte.year
@@ -178,7 +187,6 @@ def calcular(desde, hasta):
 
     completos = [(m, v) for m, v in zip(etiquetas, ventas) if v][:-1 if incompleto else None]
     con_recuperacion = [(m, v) for m, v in zip(etiquetas, recuperacion) if v]
-    tipos, total_tipos = ventas_por_tipo(desde, corte)
     return {
         "corte": corte, "actual": actual, "anterior": anterior, "anio_ant": corte_ant.year,
         "var_venta": variacion(actual["neto"], anterior["neto"]),
@@ -191,7 +199,7 @@ def calcular(desde, hasta):
         "peor_mes": min(completos, key=lambda x: x[1], default=None),
         "mejor_recuperacion": max(con_recuperacion, key=lambda x: x[1], default=None),
         "etiquetas": etiquetas, "ventas": ventas, "ventas_ant": ventas_ant, "recuperacion": recuperacion,
-        "mes_incompleto": incompleto, "tipos": tipos, "total_tipos": total_tipos, "marcas": marcas_top(desde, corte),
+        "mes_incompleto": incompleto, "tipos": tipos, "total_tipos": total_tipos, "marcas": marcas,
     }
 
 

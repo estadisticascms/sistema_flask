@@ -20,7 +20,7 @@
 </div>
 
 {% if ve_resumen %}
-  {% set titulo_resumen = "Resumen general del año" %}
+  {% set titulo_resumen = "Resumen de los últimos tres meses" if not request.args.get('fecha_inicio') else "Resumen del período" %}
   {% set accion_resumen = "/" %}
   {% set enlace_resumen = url_for('resumen.resumen_dashboard', fecha_inicio=fecha_inicio, fecha_fin=fecha_fin) %}
   {% include "_resumen_tablero.html" %}

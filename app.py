@@ -55,6 +55,7 @@ from router.cierre_inventario import cierre_inventario_bp
 from router.anular_facturas import anular_facturas_bp
 from router.anulaciones_vendedor import anulaciones_vendedor_bp
 from router.cantidades_minimas import cantidades_minimas_bp
+from router.analisis_proveedor import analisis_proveedor_bp
 from router.menu import contexto_menu
 from utils.db import get_connection
 from router.bitacora import bitacora_bp, iniciar_bitacora
@@ -137,6 +138,7 @@ app.register_blueprint(cierre_inventario_bp)
 app.register_blueprint(anular_facturas_bp)
 app.register_blueprint(anulaciones_vendedor_bp)
 app.register_blueprint(cantidades_minimas_bp)
+app.register_blueprint(analisis_proveedor_bp)
 app.context_processor(contexto_menu)  # menú único para inicio y barra superior
 
 # -----------------------------
@@ -939,7 +941,13 @@ def inicio():
     contexto, error = {}, None
     if ve_resumen:
         try:
-            contexto = contexto_resumen(request.args)
+            # Para que abra rápido: por defecto los últimos tres meses (del día 1 de hace dos meses a hoy)
+            args = request.args.to_dict()
+            if not args.get("fecha_inicio"):
+                hoy = date.today()
+                m = hoy.month - 2
+                args["fecha_inicio"] = date(hoy.year + (m - 1) // 12, (m - 1) % 12 + 1, 1).isoformat()
+            contexto = contexto_resumen(args)
         except Exception as e:   # el inicio siempre abre, aunque falle una consulta
             app.logger.exception("No se pudo armar el resumen del inicio")
             error = str(e)

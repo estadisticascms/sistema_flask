@@ -1,0 +1,203 @@
+{% extends "layout.html" %}
+{% block title %}Análisis de proveedor{% endblock %}
+{% macro n(v, d=0) %}{{ ("{:,.%df}"|format(d)).format(v) if v else '—' }}{% endmacro %}
+{% macro usd(v) %}{{ "{:,.0f}".format(v) if v else '—' }}{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .principal > .contenido { max-width: none; padding: 0 1rem; }
+  .ap h4 { color: var(--credito); }
+  .ap .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .ap .form-control-sm, .ap .form-select-sm { font-size: .82rem; min-height: 32px; }
+  .marcas-box { display: flex; flex-wrap: wrap; gap: .35rem; max-height: 150px; overflow-y: auto; padding: .1rem; }
+  .marca-chk { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--grid); border-radius: 999px; padding: .2rem .65rem;
+               font-size: .78rem; background: #fff; cursor: pointer; min-height: 32px; user-select: none; }
+  .marca-chk:has(input:checked) { border-color: var(--credito); background: #e6f2f0; }
+  .marca-chk:focus-within { outline: 3px solid var(--contado); outline-offset: 1px; }
+  .marca-chk input { accent-color: var(--credito); }
+  .marca-chk .cnt { color: var(--ink-3); font-size: .7rem; }
+  .tabla-ap { width: 100%; font-size: .78rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-ap thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .35rem .4rem;
+                       border-bottom: 1px solid var(--grid); text-align: right; vertical-align: bottom; line-height: 1.15; }
+  .tabla-ap thead tr.sup th { top: 0; text-align: center; border-bottom: 0; color: var(--ink); }
+  .tabla-ap thead tr.inf th { top: 26px; }
+  .tabla-ap th.izq, .tabla-ap td.izq { text-align: left; }
+  .tabla-ap td { padding: .35rem .4rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; vertical-align: top; }
+  .tabla-ap tbody tr:hover td { background: #faf9f6; }
+  .tabla-ap tfoot td { font-weight: 700; background: #f6f5f1; }
+  .tabla-ap .sep { border-left: 1px solid var(--grid); }
+  .tabla-ap .prod { min-width: 230px; max-width: 320px; white-space: normal; }
+  .tabla-ap .cod { font-weight: 600; color: var(--ink); }
+  .tabla-ap .meta { font-size: .7rem; color: var(--ink-3); }
+  .tabla-ap .nhe { color: #9a3412; font-weight: 700; }
+  .estado { display: inline-block; font-size: .7rem; font-weight: 600; border-radius: 999px; padding: .1rem .5rem; white-space: nowrap; }
+  .estado.sin_venta { background: #fde8e1; color: #9a3412; }
+  .estado.lento { background: #fff1e8; color: #b45309; }
+  .estado.rota { background: #e6f2f0; color: var(--credito); }
+  .estado.agotado { background: #eef2ff; color: #3949ab; }
+  .comentario { white-space: normal; min-width: 190px; max-width: 280px; text-align: left !important; font-size: .74rem; }
+  .spark { display: inline-flex; align-items: flex-end; gap: 1px; height: 22px; vertical-align: middle; }
+  .spark span { width: 3px; background: var(--credito); border-radius: 1px 1px 0 0; min-height: 1px; opacity: .85; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .ap a:focus-visible, .ap .btn:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+</style>
+
+{% set base = {'proveedor': f.proveedor, 'marca': f.marcas, 'desde': f.desde.isoformat()} %}
+{% set params = dict(base, q=f.q, estado=f.estado, orden=f.orden) %}
+{% set t = d.total %}
+<div class="dash ap mt-2 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-truck" aria-hidden="true"></i> Análisis de proveedor</h4>
+      <div class="text-muted small">Lo que ingresó y se movió desde una fecha, el inventario, el NHE, la última venta y la temporada de cada producto de las marcas del proveedor.</div>
+    </div>
+    {% if f.proveedor and d.filas %}<a class="btn btn-verde btn-sm" href="{{ url_for('analisis_proveedor.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>{% endif %}
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3" id="form-ap">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-5 col-lg-4"><label class="form-label" for="proveedor">Proveedor</label>
+        <input id="proveedor" name="proveedor" list="lista-proveedores" value="{{ f.proveedor }}" class="form-control form-control-sm" placeholder="Escriba o elija el proveedor" autocomplete="off" required>
+        <datalist id="lista-proveedores">{% for p, cant in proveedores %}<option value="{{ p }}">{{ cant }} productos</option>{% endfor %}</datalist></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="desde">Ingresos desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="estado">Mostrar</label>
+        <select id="estado" name="estado" class="form-select form-select-sm">{% for k, v in estados.items() %}<option value="{{ k }}" {% if k == f.estado %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-2"><label class="form-label" for="orden">Ordenar por</label>
+        <select id="orden" name="orden" class="form-select form-select-sm">{% for k, v in ordenes.items() %}<option value="{{ k }}" {% if k == f.orden %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-auto d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+    {% if marcas_prov %}
+    <div class="mt-2">
+      <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+        <span class="form-label mb-0">Marcas del proveedor <span class="text-muted">({{ marcas_prov|length }}; sin marcar ninguna = todas)</span></span>
+        <button type="button" class="btn btn-link btn-sm p-0" id="marcas-todas">Marcar todas</button>
+        <button type="button" class="btn btn-link btn-sm p-0" id="marcas-ninguna">Quitar todas</button>
+        <input type="search" name="q" value="{{ f.q }}" class="form-control form-control-sm ms-auto" style="max-width: 240px" placeholder="Buscar código, nº parte o descripción" aria-label="Buscar producto">
+      </div>
+      <div class="marcas-box" role="group" aria-label="Marcas a validar">
+        {% for m in marcas_prov %}<label class="marca-chk"><input type="checkbox" name="marca" value="{{ m.marca }}" {% if not f.marcas or m.marca in f.marcas %}checked{% endif %}>
+          {{ m.marca }} <span class="cnt">{{ m.productos }}</span></label>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </form>
+
+  {% if not f.proveedor %}
+    <div class="text-center text-muted py-5"><i class="bi bi-truck fs-1" aria-hidden="true"></i>
+      <p class="mt-2 mb-0 fw-semibold">Elija un proveedor para ver sus marcas y el análisis.</p></div>
+  {% elif not marcas_prov %}
+    <div class="alert alert-warning">No hay productos del catálogo con el proveedor «{{ f.proveedor }}». Elíjalo de la lista.</div>
+  {% elif not t.productos %}
+    <div class="alert alert-info">Las marcas elegidas no tienen ingresos, movimiento ni existencia.</div>
+  {% else %}
+  {# ---------- Indicadores ---------- #}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Ingresado desde {{ f.desde.strftime('%d/%m/%Y') }}</div><div class="valor">US$ {{ usd(t.ingreso_fob) }}</div>
+      <div class="sub">{{ n(t.ingreso) }} unidades</div></div></div>
+    <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Movimiento desde la fecha</div><div class="valor">US$ {{ usd(t.vendido_fob) }}</div>
+      <div class="sub">{{ n(t.vendido) }} unidades vendidas (a precio FOB)</div></div></div>
+    <div class="col-6 col-xl"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Inventario disponible</div><div class="valor">US$ {{ usd(t.inventario_fob) }}</div>
+      <div class="sub">{{ n(t.disponible) }} unidades · {{ t.productos|int }} productos</div></div></div>
+    <div class="col-6 col-xl"><div class="card kpi"><div class="etiqueta">En NHE (no está)</div>
+      <div class="valor" style="color: #9a3412">US$ {{ usd(t.nhe_fob) }}</div>
+      <div class="sub">{{ n(t.nhe) }} unidades · <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='nhe')) }}">ver productos</a></div></div></div>
+    <div class="col-6 col-xl"><div class="card kpi"><div class="etiqueta">Sin venta</div>
+      <div class="valor">{{ t.sin_venta|int }} <span class="fs-6 text-muted">productos</span></div>
+      <div class="sub">US$ {{ usd(t.sin_venta_fob) }} en inventario · <a href="{{ url_for('analisis_proveedor.reporte', **dict(params, estado='sin_venta', orden='sin_venta')) }}">ver</a></div></div></div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    {# ---------- Temporada ---------- #}
+    <div class="col-xl-7"><div class="card h-100">
+      <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>Movimiento por mes <small>últimos 24 meses, valor a precio FOB</small></span>
+        {% if d.temporada[0] %}<small>Temporada más fuerte: <strong style="color: var(--contado)">{{ d.temporada[0] }}</strong> ({{ "{:.0f}".format(d.temporada[1]) }}% de la venta del año)</small>{% endif %}</div>
+      <div class="card-body"><div style="height: 240px"><canvas id="grafico-meses" role="img" aria-label="Venta por mes de los últimos 24 meses"></canvas></div></div>
+    </div></div>
+    {# ---------- Por marca ---------- #}
+    <div class="col-xl-5"><div class="card h-100">
+      <div class="card-header">Por marca <small>US$ FOB</small></div>
+      <div class="card-body p-0"><div class="table-responsive" style="max-height: 270px">
+        <table class="tabla-ap">
+          <thead><tr><th class="izq">Marca</th><th>Ingresado</th><th>Movimiento</th><th>Inventario</th><th>NHE</th><th>Sin venta</th></tr></thead>
+          <tbody>{% for m in d.marcas %}<tr><td class="izq">{{ m.marca }} <span class="meta">{{ m.productos|int }}</span></td>
+            <td>{{ usd(m.ingreso_fob) }}</td><td>{{ usd(m.vendido_fob) }}</td><td class="fw-bold">{{ usd(m.inventario_fob) }}</td>
+            <td class="{{ 'nhe' if m.nhe_fob }}">{{ usd(m.nhe_fob) }}</td><td>{{ m.sin_venta|int or '—' }}</td></tr>{% endfor %}</tbody>
+          <tfoot><tr><td class="izq">Total</td><td>{{ usd(t.ingreso_fob) }}</td><td>{{ usd(t.vendido_fob) }}</td><td>{{ usd(t.inventario_fob) }}</td><td>{{ usd(t.nhe_fob) }}</td><td>{{ t.sin_venta|int }}</td></tr></tfoot>
+        </table></div></div>
+    </div></div>
+  </div>
+
+  {# ---------- Detalle ---------- #}
+  <div class="card">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+      <span>Productos <small>{{ "{:,}".format(d.filas|length) }}{% if f.estado %} · {{ estados[f.estado] }}{% endif %}{% if d.filas|length > max_filas %} (se muestran {{ max_filas }}; todos en el Excel){% endif %}</small></span>
+      <small>{% if t.sin_fob %}{{ t.sin_fob|int }} producto(s) sin precio FOB en el catálogo no suman en US$ · {% endif %}{% if d.sin_actividad %}{{ d.sin_actividad }} del catálogo sin existencia ni movimiento no se muestran{% endif %}</small>
+    </div>
+    <div class="table-responsive" style="max-height: 70vh">
+      <table class="tabla-ap">
+        <caption class="visually-hidden">Análisis por producto del proveedor {{ f.proveedor }}</caption>
+        <thead>
+          <tr class="sup"><th class="izq" colspan="2"></th><th class="sep" colspan="2">Ingresado desde {{ f.desde.strftime('%d/%m/%y') }}</th>
+            <th class="sep" colspan="2">Movimiento desde la fecha</th><th class="sep" colspan="3">Inventario</th><th class="sep" colspan="4">Venta</th></tr>
+          <tr class="inf"><th class="izq">Producto</th><th class="izq">Segmento · familia · subfamilia</th>
+            <th class="sep">Unid.</th><th>FOB US$</th><th class="sep">Unid.</th><th>FOB US$</th>
+            <th class="sep" title="Existencia sin las bodegas NHE">Disponible</th><th>FOB US$</th><th title="Mercadería en bodegas NHE (no está)">NHE</th>
+            <th class="sep izq">Última venta</th><th class="izq" title="Unidades vendidas por mes, últimos 24 meses">24 meses</th><th class="izq">Temporada</th><th class="izq">Comentario</th></tr>
+        </thead>
+        <tbody>{% for x in d.filas[:max_filas] %}<tr>
+          <td class="izq prod"><span class="cod">{{ x.codigo }}</span> <span class="meta">{{ x.parte }}</span><div>{{ x.nombre }}</div>
+            <div class="meta">{{ x.marca }}{% if x.fob %} · FOB {{ "{:,.2f}".format(x.fob) }}{% else %} · sin FOB{% endif %}{% if x.ultimo_ingreso %} · ingresó {{ x.ultimo_ingreso.strftime('%d/%m/%y') }}{% endif %}</div></td>
+          <td class="izq" style="white-space: normal; min-width: 150px"><div>{{ x.segmento }}</div><div class="meta">{{ x.familia }} · {{ x.subfamilia }}</div></td>
+          <td class="sep">{{ n(x.ingreso) }}</td><td>{{ usd(x.ingreso_fob) }}</td>
+          <td class="sep">{{ n(x.vendido) }}</td><td>{{ usd(x.vendido_fob) }}</td>
+          <td class="sep fw-bold">{{ n(x.disponible) }}</td><td>{{ usd(x.inventario_fob) }}</td><td class="{{ 'nhe' if x.nhe > 0 }}">{{ n(x.nhe) }}</td>
+          <td class="sep izq">{{ x.ultima_venta.strftime('%d/%m/%Y') if x.ultima_venta else 'Nunca' }}</td>
+          <td class="izq">{% set mx = x.venta_meses|max %}{% if mx > 0 %}<span class="spark" title="Unidades por mes: {{ x.venta_meses|map('round')|map('int')|join(', ') }}">
+            {% for v in x.venta_meses %}<span style="height: {{ (v / mx * 100) if v > 0 else 0 }}%"></span>{% endfor %}</span>{% else %}<span class="meta">sin venta</span>{% endif %}</td>
+          <td class="izq">{{ x.temporada or '—' }}{% if x.temporada_pct %} <span class="meta">{{ "{:.0f}".format(x.temporada_pct) }}%</span>{% endif %}</td>
+          <td class="comentario"><span class="estado {{ x.estado }}">{{ estados[x.estado] }}</span> {{ x.comentario }}</td>
+        </tr>{% else %}<tr><td colspan="13" class="text-center text-muted py-4">Ningún producto con estos filtros.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="small text-muted mt-2">Proveedor según el catálogo (última compra). Movimiento = salidas por factura menos devoluciones. FOB = cantidad × último precio FOB del catálogo.
+    Inventario disponible = existencia sin bodegas NHE. Temporada = los 3 meses seguidos del año con más venta en los últimos 24 meses.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const form = document.getElementById('form-ap');
+  // Al elegir otro proveedor se recargan sus marcas (todas marcadas)
+  const prov = document.getElementById('proveedor');
+  const inicial = prov.value;
+  prov.addEventListener('change', () => {
+    if (prov.value && prov.value !== inicial) { form.querySelectorAll('input[name=marca]').forEach(c => c.disabled = true); form.submit(); }
+  });
+  document.getElementById('marcas-todas')?.addEventListener('click', () => form.querySelectorAll('input[name=marca]').forEach(c => c.checked = true));
+  document.getElementById('marcas-ninguna')?.addEventListener('click', () => form.querySelectorAll('input[name=marca]').forEach(c => c.checked = false));
+  // Si todas están marcadas no se mandan (= todas): la URL queda corta
+  form.addEventListener('submit', () => {
+    const marcas = [...form.querySelectorAll('input[name=marca]')];
+    if (marcas.length && marcas.every(c => c.checked)) marcas.forEach(c => c.disabled = true);
+  });
+  {% if d.meses %}
+  const etiquetas = {{ d.etiquetas|tojson }}, valores = {{ d.venta_mes_fob|tojson }}, unidades = {{ d.venta_mes|tojson }};
+  if (window.Chart) new Chart(document.getElementById('grafico-meses'), {
+    type: 'bar',
+    data: { labels: etiquetas, datasets: [{ label: 'Venta a precio FOB', data: valores, backgroundColor: '#027266', borderRadius: 3 }] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false },
+      tooltip: { callbacks: { label: (c) => `US$ ${Math.round(c.parsed.y).toLocaleString('en-US')} · ${Math.round(unidades[c.dataIndex]).toLocaleString('en-US')} unid.` } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => v >= 1000 ? Math.round(v / 1000) + ' K' : v }, grid: { color: '#ecebe8' } }, x: { grid: { display: false } } } }
+  });
+  {% endif %}
+})();
+</script>
+{% endblock %}
