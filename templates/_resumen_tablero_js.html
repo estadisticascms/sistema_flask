@@ -1,0 +1,70 @@
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(() => {
+  const VERDE = '#027266', VERDE_CLARO = 'rgba(2,114,102,.5)', GRIS = '#c9c8c2';
+  const etiquetas = {{ r.etiquetas | tojson }}, ventas = {{ r.ventas | tojson }}, anterior = {{ r.ventas_ant | tojson }},
+        recuperacion = {{ r.recuperacion | tojson }}, incompleto = {{ r.mes_incompleto | tojson }};
+  const fmt = (v) => 'C$ ' + Math.round(v).toLocaleString('en-US');
+  const colores = (datos) => datos.map((_, i) => incompleto && i === datos.length - 1 ? VERDE_CLARO : VERDE);
+
+  Chart.defaults.font.family = "'Segoe UI', Arial, sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = '#52514e';
+  Chart.defaults.maintainAspectRatio = false;
+  Chart.defaults.animation = false;   // la imagen y el PDF capturan los gráficos completos
+
+  // Valor en millones sobre las barras de la primera serie: el reporte se lee sin pasar el cursor, también en PDF
+  const rotulos = {
+    id: 'rotulos',
+    afterDatasetsDraw(chart) {
+      const { ctx } = chart;
+      ctx.save();
+      ctx.font = "600 11px 'Segoe UI', Arial, sans-serif";
+      ctx.fillStyle = '#1f1f1d';
+      ctx.textAlign = 'center';
+      chart.getDatasetMeta(0).data.forEach((barra, i) => {
+        const v = chart.data.datasets[0].data[i];
+        if (v) ctx.fillText((v / 1e6).toFixed(1), barra.x, barra.y - 4);
+      });
+      ctx.restore();
+    },
+  };
+  const opciones = {
+    layout: { padding: { top: 16 } },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.parsed.y)}` } } },
+    scales: { x: { grid: { display: false } }, y: { display: false, beginAtZero: true } },
+  };
+  new Chart(document.getElementById('graficoVentas'), {
+    type: 'bar',
+    data: { labels: etiquetas, datasets: [
+      { label: '{{ r.corte.year }}', data: ventas, backgroundColor: colores(ventas), borderRadius: 4, barPercentage: .9, categoryPercentage: .7 },
+      { label: '{{ r.anio_ant }}', data: anterior, backgroundColor: GRIS, borderRadius: 4, barPercentage: .9, categoryPercentage: .7 },
+    ] },
+    options: opciones, plugins: [rotulos],
+  });
+  new Chart(document.getElementById('graficoRecuperacion'), {
+    type: 'bar',
+    data: { labels: etiquetas, datasets: [{ label: 'Recuperado', data: recuperacion, backgroundColor: colores(recuperacion), borderRadius: 4, categoryPercentage: .7 }] },
+    options: opciones, plugins: [rotulos],
+  });
+
+  const nombre = 'resumen_general_{{ r.corte }}';
+  const capturar = () => html2canvas(document.getElementById('resumenContainer'), { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+  document.getElementById('btnDescargar').addEventListener('click', () => capturar().then((canvas) => {
+    const link = document.createElement('a');
+    link.download = nombre + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }));
+  // Una sola hoja horizontal: la imagen se ajusta a la página sin deformarse
+  document.getElementById('btnDescargarPDF').addEventListener('click', () => capturar().then((canvas) => {
+    const pdf = new window.jspdf.jsPDF('l', 'pt', 'a4');
+    const ancho = pdf.internal.pageSize.getWidth() - 40, alto = pdf.internal.pageSize.getHeight() - 40;
+    const escala = Math.min(ancho / canvas.width, alto / canvas.height);
+    const w = canvas.width * escala, h = canvas.height * escala;
+    pdf.addImage(canvas.toDataURL('image/jpeg', .92), 'JPEG', (ancho + 40 - w) / 2, 20, w, h);
+    pdf.save(nombre + '.pdf');
+  }));
+})();
+</script>

@@ -1,0 +1,31 @@
+/* Resumen general (templates/_resumen_tablero.html): lo usan /resumen (pantalla completa) y el tablero de inicio. */
+.resumen { display: grid; gap: .5rem; background: #fff; }
+.resumen-cabeza { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem 1rem; }
+.resumen-cabeza h1 { font-size: 1.15rem; font-weight: 700; color: var(--ink); margin: 0; }
+.resumen-cabeza .periodo { font-size: .8rem; color: var(--ink-2); }
+.resumen-cabeza form { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-left: auto; font-size: .78rem; }
+.resumen-cabeza form input { width: 128px; }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .5rem; }
+.kpis .kpi { padding: .45rem .7rem; border: 1px solid var(--grid); border-radius: 10px; min-width: 0; }
+.kpis .kpi-hero { border-color: var(--credito); }
+.kpis .kpi-hero .valor { font-size: clamp(1.2rem, 1.7vw, 1.8rem); }
+.kpis .kpi .etiqueta { font-size: .68rem; }
+.kpis .kpi .sub, .kpis .kpi .delta-pos, .kpis .kpi .delta-neg { font-size: .72rem; }
+.fila-graficos { display: grid; grid-template-columns: 2fr 1fr; gap: .5rem; min-height: 0; }
+.fila-tablas { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; min-height: 0; }
+.resumen .card { min-height: 0; margin: 0; display: flex; flex-direction: column; }
+.resumen .card-header { padding: .25rem .7rem; font-size: .85rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 .75rem; }
+.resumen .card-header small { font-size: .72rem; }
+.resumen .card-body { padding: .25rem .7rem; flex: 1; min-height: 0; }
+.resumen .grafico { height: 260px; min-height: 0; }
+.dash.resumen table.tabla { font-size: .76rem; }
+.dash.resumen table.tabla td, .dash.resumen table.tabla th { padding: .08rem .35rem; line-height: 1.3; }
+.resumen .barra-celda { min-width: 90px; width: 42%; }
+@media (max-width: 1199.98px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 991.98px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fila-graficos, .fila-tablas { grid-template-columns: minmax(0, 1fr); }
+  .resumen .grafico { height: 220px; }
+  .resumen .card-body { overflow-x: auto; }
+  .resumen-cabeza form { margin-left: 0; }
+}

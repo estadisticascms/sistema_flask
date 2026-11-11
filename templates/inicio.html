@@ -2,110 +2,45 @@
 {% block title %}Inicio{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='resumen_tablero.css') }}">
 <style>
-  .inicio { --naranja: var(--color-principal, #FE6412); --verde: var(--color-secundario, #027266); --gris: var(--color-neutro, #666); }
-  .inicio .bienvenida h2 { color: var(--verde); font-weight: 700; }
-  .inicio .indice a { text-decoration: none; color: var(--gris); font-size: .82rem; padding: .25rem .6rem; border-radius: 999px;
-                      border: 1px solid #e6e4df; background: #fff; }
-  .inicio .indice a:hover, .inicio .indice a:focus-visible { border-color: var(--verde); color: var(--verde); }
-  .inicio .seccion { scroll-margin-top: 1rem; }
-  .inicio .seccion-titulo { display: flex; align-items: center; gap: .6rem; margin: 1.6rem 0 .2rem; }
-  .inicio .seccion-titulo h5 { margin: 0; font-size: 1.05rem; color: #1f1f1d; }
-  .inicio .seccion-titulo .icono { width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center;
-                                   justify-content: center; color: #fff; font-size: 1rem; }
-  .inicio .seccion-desc { color: #74736e; font-size: .82rem; margin-bottom: .7rem; }
-  .inicio .acceso { position: relative; display: flex; gap: .75rem; align-items: center; height: 100%; padding: .75rem .85rem;
-                    background: #fff; border: 1px solid #e6e4df; border-radius: 10px; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
-  .inicio .acceso:hover { border-color: #cfccc4; box-shadow: 0 2px 8px rgba(0,0,0,.07); transform: translateY(-1px); }
-  .inicio .acceso:focus-within { outline: 3px solid var(--naranja); outline-offset: 2px; }
-  .inicio .acceso .icono { flex: 0 0 40px; height: 40px; border-radius: 10px; display: inline-flex; align-items: center;
-                           justify-content: center; font-size: 1.2rem; }
-  .inicio .acceso a { color: #1f1f1d; font-weight: 600; text-decoration: none; font-size: .88rem; }
-  .inicio .acceso a:focus { outline: none; }
-  .inicio .acceso .desc { color: #74736e; font-size: .75rem; line-height: 1.3; }
-  .inicio .busqueda { position: relative; max-width: 620px; }
-  .inicio .busqueda .bi-search { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #8a8984; }
-  .inicio .busqueda input { padding-left: 2.6rem; border-radius: 999px; border: 2px solid #e6e4df; }
-  .inicio .busqueda input:focus { border-color: var(--naranja); box-shadow: 0 0 0 4px rgba(254,100,18,.15); }
-  .inicio .grupo { margin-bottom: .6rem; }
-  .inicio .grupo-titulo { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #8a8984; margin: .5rem 0 .35rem; }
-  .inicio .paso { position: absolute; top: 6px; right: 8px; font-size: .68rem; color: #a3a19a; font-weight: 700; }
-  /* colores corporativos por sección */
-  .inicio .c-naranja .icono { background: #fff1e8; color: var(--naranja); }
-  .inicio .c-verde .icono { background: #e6f2f0; color: var(--verde); }
-  .inicio .c-gris .icono { background: #f1f0ec; color: var(--gris); }
-  .inicio .seccion-titulo.c-naranja .icono { background: var(--naranja); color: #fff; }
-  .inicio .seccion-titulo.c-verde .icono { background: var(--verde); color: #fff; }
-  .inicio .seccion-titulo.c-gris .icono { background: var(--gris); color: #fff; }
-  @media (prefers-reduced-motion: reduce) { .inicio .acceso { transition: none; } .inicio .acceso:hover { transform: none; } }
+  .principal > .contenido { max-width: none; padding: 0 1rem; }
+  .saludo { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .25rem 1rem; margin: .2rem 0 .8rem; }
+  .saludo h2 { font-size: 1.3rem; margin: 0; color: var(--color-secundario, #027266); }
+  .saludo .ayuda { font-size: .8rem; color: #74736e; }
+  .saludo kbd { background: #f1f0ec; color: #1f1f1d; border: 1px solid #d9d7d0; font-size: .7rem; }
+  .inicio-vacio { max-width: 620px; margin: 3rem auto; text-align: center; color: #52514e; }
+  .inicio-vacio .bi { font-size: 2.6rem; color: var(--color-principal, #FE6412); }
 </style>
 
-<div class="inicio container mt-3 mb-5">
-  <div class="bienvenida text-center mb-3">
-    <h2 class="mb-1">Sistema de Reportes Comersa</h2>
-    <p class="text-muted mb-2">Bienvenido, <strong>{{ session["usuario"] }}</strong>. Busque una pantalla o elija su área.</p>
-    <div class="busqueda mx-auto mb-2">
-      <i class="bi bi-search" aria-hidden="true"></i>
-      <input type="search" id="filtro-inicio" class="form-control form-control-lg" placeholder="¿Qué necesita? Ej.: cheque, vendedor, cartera, FOB, precios…"
-             aria-label="Buscar pantalla" autocomplete="off">
-    </div>
-    <nav class="indice d-flex flex-wrap justify-content-center gap-2" aria-label="Ir a un área">
-      {% for s in menu_secciones %}<a href="#sec-{{ s.id }}"><i class="bi {{ s.icono }} me-1" aria-hidden="true"></i>{{ s.titulo }}</a>{% endfor %}
-    </nav>
-  </div>
-  <p class="text-center text-muted" id="sin-resultados" hidden>No hay pantallas con esas palabras.</p>
-  {% if not menu_secciones %}<div class="alert alert-info text-center">Todavía no tiene pantallas habilitadas. Pida acceso al administrador.</div>{% endif %}
-
-  {% for s in menu_secciones %}
-  {% set paso = namespace(n=0) %}
-  <section class="seccion" id="sec-{{ s.id }}" aria-labelledby="tit-{{ s.id }}">
-    <div class="seccion-titulo c-{{ s.color }}">
-      <span class="icono" aria-hidden="true"><i class="bi {{ s.icono }}"></i></span>
-      <h5 id="tit-{{ s.id }}">{{ s.titulo }}</h5>
-    </div>
-    <div class="seccion-desc">{{ s.descripcion }}</div>
-    {% for grupo in s.grupos %}
-    <div class="grupo">
-      {% if s.grupos|length > 1 %}<div class="grupo-titulo">{{ grupo.titulo }}</div>{% endif %}
-      <div class="row g-2">
-        {% for titulo, url, icono, desc in grupo['items'] %}
-        {% set paso.n = paso.n + 1 %}
-        <div class="col-12 col-sm-6 col-lg-4 col-xl-3 tarjeta" data-buscar="{{ (titulo ~ ' ' ~ desc ~ ' ' ~ s.titulo ~ ' ' ~ grupo.titulo)|lower }}">
-          <div class="acceso c-{{ s.color }}">
-            {% if s.pasos %}<span class="paso" title="Orden sugerido">{{ paso.n }}</span>{% endif %}
-            <span class="icono" aria-hidden="true"><i class="bi {{ icono }}"></i></span>
-            <div>
-              <a href="{{ url }}" class="stretched-link">{{ titulo }}</a>
-              <div class="desc">{{ desc }}</div>
-            </div>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endfor %}
-  </section>
-  {% endfor %}
+<div class="saludo">
+  <h2>Bienvenido, {{ session["usuario"] }}</h2>
+  <span class="ayuda"><i class="bi bi-layout-sidebar" aria-hidden="true"></i> Todas las pantallas están en el menú de la izquierda · busque una con <kbd>Ctrl</kbd> + <kbd>K</kbd></span>
 </div>
-<script>
-(() => {
-  // Filtra las tarjetas mientras se escribe (sin importar tildes); Enter abre la primera
-  const caja = document.getElementById('filtro-inicio');
-  const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const tarjetas = [...document.querySelectorAll('.tarjeta')];
-  tarjetas.forEach(t => t.dataset.n = norm(t.dataset.buscar));
-  caja.addEventListener('input', () => {
-    const palabras = norm(caja.value).split(/\s+/).filter(Boolean);
-    tarjetas.forEach(t => t.hidden = palabras.length > 0 && !palabras.every(w => t.dataset.n.includes(w)));
-    document.querySelectorAll('.inicio .grupo').forEach(g => g.hidden = ![...g.querySelectorAll('.tarjeta')].some(t => !t.hidden));
-    document.querySelectorAll('.inicio .seccion').forEach(s => s.hidden = ![...s.querySelectorAll('.tarjeta')].some(t => !t.hidden));
-    document.getElementById('sin-resultados').hidden = tarjetas.some(t => !t.hidden);
-  });
-  caja.addEventListener('keydown', e => {
-    if (e.key !== 'Enter') return;
-    const primera = tarjetas.find(t => !t.hidden);
-    if (primera && caja.value.trim()) { e.preventDefault(); location.href = primera.querySelector('a').href; }
-  });
-})();
-</script>
+
+{% if ve_resumen %}
+  {% set titulo_resumen = "Resumen general del año" %}
+  {% set accion_resumen = "/" %}
+  {% set enlace_resumen = url_for('resumen.resumen_dashboard', fecha_inicio=fecha_inicio, fecha_fin=fecha_fin) %}
+  {% include "_resumen_tablero.html" %}
+{% else %}
+  <div class="inicio-vacio">
+    <i class="bi bi-layout-sidebar-inset" aria-hidden="true"></i>
+    {% if error_resumen %}
+      <p class="mt-2 mb-1 fw-semibold">No se pudo cargar el resumen en este momento.</p>
+      <p class="small">Intente de nuevo en unos minutos; mientras tanto puede abrir cualquier pantalla desde el menú.</p>
+    {% elif menu_secciones %}
+      <p class="mt-2 mb-1 fw-semibold">Elija una pantalla en el menú de la izquierda.</p>
+      <p class="small">Las pantallas están ordenadas por área ({{ menu_secciones|map(attribute='titulo')|join(', ') }}). En el celular, el menú se abre con el botón <i class="bi bi-list" aria-hidden="true"></i>.</p>
+    {% else %}
+      <p class="mt-2 mb-1 fw-semibold">Todavía no tiene pantallas habilitadas.</p>
+      <p class="small">Pida acceso al administrador.</p>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if ve_resumen %}{% include "_resumen_tablero_js.html" %}{% endif %}
 {% endblock %}

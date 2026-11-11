@@ -1,0 +1,133 @@
+{# Resumen general: indicadores del año, ventas y recuperación por mes, top marcas y tipo de vendedor.
+   Lo usan /resumen (resumen_dashboard.html) y el tablero de inicio (inicio.html).
+   Recibe: r, millones, fecha_inicio, fecha_fin, desde_txt, corte_txt; opcionales titulo_resumen, accion_resumen, enlace_resumen.
+   Los gráficos y la descarga están en _resumen_tablero_js.html (va en el bloque scripts). #}
+{% macro delta(valor, texto, unidad='%') %}
+  {% if valor is none %}<span class="sub">{{ texto }}</span>
+  {% else %}<span class="{{ 'delta-pos' if valor >= 0 else 'delta-neg' }}">{{ '▲' if valor >= 0 else '▼' }} {{ '{:.1f}'.format(valor|abs) }}{{ unidad }}</span> <span class="sub">{{ texto }}</span>{% endif %}
+{% endmacro %}
+<div id="resumenContainer" class="dash resumen">
+  <div class="resumen-cabeza">
+    <h1>{{ titulo_resumen or "Resumen general" }}</h1>
+    <span class="periodo">{{ desde_txt }} al {{ corte_txt }} · comparado con el mismo corte de {{ r.anio_ant }}</span>
+    <form method="get" action="{{ accion_resumen or '' }}" data-html2canvas-ignore>
+      <label for="fi">Desde</label>
+      <input type="date" id="fi" class="form-control form-control-sm" name="fecha_inicio" value="{{ fecha_inicio }}">
+      <label for="ff">Hasta</label>
+      <input type="date" id="ff" class="form-control form-control-sm" name="fecha_fin" value="{{ fecha_fin }}">
+      <button type="submit" class="btn btn-sm btn-success">Filtrar</button>
+      <button type="button" id="btnDescargar" class="btn btn-sm btn-outline-secondary" title="Descargar imagen"><i class="bi bi-image" aria-hidden="true"></i> Imagen</button>
+      {% if enlace_resumen %}<a href="{{ enlace_resumen }}" class="btn btn-sm btn-outline-secondary" title="Abrir el resumen en pantalla completa"><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i> Pantalla completa</a>{% endif %}
+      <button type="button" id="btnDescargarPDF" class="btn btn-sm btn-outline-secondary" title="Descargar PDF"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> PDF</button>
+    </form>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi kpi-hero">
+      <div class="etiqueta">Venta neta acumulada</div>
+      <div class="valor">{{ millones(r.actual.neto) }}</div>
+      {{ delta(r.var_venta, 'vs ' ~ r.anio_ant) }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Utilidad</div>
+      <div class="valor">{{ millones(r.actual.utilidad) }}</div>
+      {{ delta(r.var_utilidad, 'vs ' ~ r.anio_ant) }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Margen</div>
+      <div class="valor">{% if r.actual.margen is not none %}{{ '{:.1f}'.format(r.actual.margen) }}%{% else %}—{% endif %}</div>
+      {{ delta(r.dif_margen, 'vs ' ~ r.anio_ant, ' pts') }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Recuperación</div>
+      <div class="valor">{{ millones(r.total_recuperado) }}</div>
+      <span class="sub">{% if r.mejor_recuperacion %}Mayor: {{ r.mejor_recuperacion[0] }} {{ millones(r.mejor_recuperacion[1]) }}{% endif %}</span>
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Clientes atendidos</div>
+      <div class="valor">{{ '{:,.0f}'.format(r.actual.clientes) }}</div>
+      {{ delta(r.var_clientes, 'vs ' ~ r.anio_ant) }}
+    </div>
+    <div class="kpi">
+      <div class="etiqueta">Crédito y contado</div>
+      {% if r.pct_credito is not none %}
+      <div class="medidor" role="img" aria-label="Crédito {{ '{:.0f}'.format(r.pct_credito) }}%, contado {{ '{:.0f}'.format(100 - r.pct_credito) }}%">
+        <span style="width: {{ r.pct_credito }}%; background: var(--credito)"></span>
+        <span style="width: {{ 100 - r.pct_credito }}%; background: var(--contado)"></span>
+      </div>
+      <span class="sub"><span class="clave" style="background: var(--credito)"></span>Crédito {{ '{:.0f}'.format(r.pct_credito) }}%
+        <span class="clave ms-1" style="background: var(--contado)"></span>Contado {{ '{:.0f}'.format(100 - r.pct_credito) }}%</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="fila-graficos">
+    <div class="card">
+      <div class="card-header">
+        <span>Venta neta por mes <small>millones de C$</small></span>
+        <small>
+          <span class="clave" style="background: var(--credito)"></span>{{ r.corte.year }}
+          <span class="clave ms-2" style="background: #c9c8c2"></span>{{ r.anio_ant }}
+          {% if r.mes_incompleto %}· {{ r.etiquetas[-1] }} al día {{ r.corte.day }} en ambos años{% endif %}
+          {% if r.mejor_mes %}· Mejor: {{ r.mejor_mes[0] }}, más bajo: {{ r.peor_mes[0] }}{% endif %}
+        </small>
+      </div>
+      <div class="card-body"><div class="grafico"><canvas id="graficoVentas" role="img" aria-label="Venta neta por mes comparada con el año anterior"></canvas></div></div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span>Recuperación por mes <small>millones de C$, con IVA</small></span></div>
+      <div class="card-body"><div class="grafico"><canvas id="graficoRecuperacion" role="img" aria-label="Recuperación por mes"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="fila-tablas">
+    <div class="card">
+      <div class="card-header"><span>Top {{ r.marcas.filas|length }} marcas <small>acumulado</small></span></div>
+      <div class="card-body">
+        {% if r.marcas.filas %}
+        <table class="tabla">
+          <thead><tr><th>Marca</th><th class="num">Venta</th><th>% del total</th><th class="num">Margen</th></tr></thead>
+          <tbody>
+            {% set mayor = r.marcas.filas[0].venta %}
+            {% for m in r.marcas.filas %}
+            <tr>
+              <td>{{ m.marca }}</td>
+              <td class="num">{{ millones(m.venta) }}</td>
+              <td class="barra-celda"><span class="barra" style="width: {{ m.venta / mayor * 100 }}%"></span><span class="txt">{{ '{:.1f}'.format(m.pct) }}%</span></td>
+              <td class="num">{% if m.margen is not none %}{{ '{:.1f}'.format(m.margen) }}%{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+            <tr class="total">
+              <td>Total top {{ r.marcas.filas|length }}</td>
+              <td class="num">{{ millones(r.marcas.venta) }}</td>
+              <td>{{ '{:.1f}'.format(r.marcas.pct) }}%</td>
+              <td class="num">{% if r.marcas.margen is not none %}{{ '{:.1f}'.format(r.marcas.margen) }}%{% else %}—{% endif %}</td>
+            </tr>
+          </tbody>
+        </table>
+        {% else %}<div class="vacio">Sin ventas en el período.</div>{% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><span>Venta neta por tipo de vendedor <small>acumulado</small></span></div>
+      <div class="card-body">
+        {% if r.tipos %}
+        <table class="tabla">
+          <thead><tr><th>Tipo</th><th class="num">Venta</th><th>Participación</th></tr></thead>
+          <tbody>
+            {% set mayor = r.tipos[0].venta %}
+            {% for t in r.tipos %}
+            <tr>
+              <td>{{ t.tipo }}</td>
+              <td class="num">{{ millones(t.venta) }}</td>
+              <td class="barra-celda"><span class="barra" style="width: {{ (t.venta / mayor * 100) if mayor > 0 and t.venta > 0 else 0 }}%"></span><span class="txt">{{ '{:.1f}'.format(t.pct) }}%</span></td>
+            </tr>
+            {% endfor %}
+            <tr class="total"><td>Total</td><td class="num">{{ millones(r.total_tipos) }}</td><td>100%</td></tr>
+          </tbody>
+        </table>
+        {% else %}<div class="vacio">Sin ventas en el período.</div>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>

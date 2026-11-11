@@ -1,0 +1,86 @@
+/* Menú lateral (layout.html). Colores corporativos: verde azulado #027266 (activo), naranja #FE6412 (foco y acentos). */
+:root { --ancho-menu: 264px; --menu-fondo: #1f2524; --menu-borde: #2f3836; --menu-texto: #d9dedc; --menu-tenue: #8d9996; }
+
+body.app { padding: 0 !important; margin: 0; }
+.app-shell { display: flex; min-height: 100vh; }
+
+/* ---------- Barra lateral ---------- */
+.menu-lateral { width: var(--ancho-menu); flex: 0 0 var(--ancho-menu); color: var(--menu-texto); display: flex; flex-direction: column;
+                --bs-offcanvas-width: 290px; --bs-offcanvas-bg: var(--menu-fondo); --bs-offcanvas-color: var(--menu-texto); }
+.menu-lateral.offcanvas-lg { background-color: var(--menu-fondo) !important; }   /* Bootstrap lo deja transparente en computadora */
+@media (min-width: 992px) {
+  .menu-lateral { position: sticky; top: 0; height: 100vh; border-right: 1px solid var(--menu-borde); }
+  body.sin-menu .menu-lateral { display: none; }
+}
+.menu-lateral .offcanvas-header { padding: .7rem .8rem .5rem; border-bottom: 1px solid var(--menu-borde); }
+.menu-marca { display: flex; align-items: center; gap: .55rem; color: #fff; text-decoration: none; min-width: 0; }
+.menu-marca img { width: 34px; height: 34px; border-radius: 8px; background: #fff; padding: 2px; }
+.menu-marca .nombre { font-weight: 700; font-size: .95rem; line-height: 1.1; }
+.menu-marca .nombre small { display: block; font-weight: 400; font-size: .7rem; color: var(--menu-tenue); }
+.menu-lateral .btn-icono { background: none; border: 0; color: var(--menu-tenue); width: 32px; height: 32px; border-radius: 8px; flex: 0 0 auto; }
+.menu-lateral .btn-icono:hover, .menu-lateral .btn-icono:focus-visible { color: #fff; background: #2b3331; outline: none; }
+.menu-lateral .offcanvas-body { display: flex; flex-direction: column; padding: 0; overflow: hidden; flex: 1; }
+
+/* buscador */
+.menu-lateral .buscador { position: relative; padding: .6rem .8rem; }
+.menu-lateral .buscador input { width: 100%; background: #2a3230; border: 1px solid #3a4441; color: #fff; padding-right: 3rem; font-size: .82rem; }
+.menu-lateral .buscador input::placeholder { color: #9aa5a2; }
+.menu-lateral .buscador input:focus { background: #fff; color: #1f1f1d; border-color: #FE6412; box-shadow: 0 0 0 3px rgba(254,100,18,.3); }
+.menu-lateral .buscador .atajo { position: absolute; right: 1.25rem; top: 50%; transform: translateY(-50%); font-size: .66rem; color: #9aa5a2;
+                                 border: 1px solid #4a5551; border-radius: 4px; padding: 0 4px; pointer-events: none; }
+.menu-lateral .buscador input:focus + .atajo { display: none; }
+.menu-lateral .buscador .resultados { position: absolute; z-index: 1090; top: calc(100% - 4px); left: .8rem; width: min(420px, 92vw); max-height: 70vh;
+                                      overflow-y: auto; background: #fff; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: .3rem; }
+.menu-lateral .buscador .resultados a { display: flex; gap: .6rem; align-items: flex-start; padding: .45rem .6rem; border-radius: 8px; color: #1f1f1d; text-decoration: none; }
+.menu-lateral .buscador .resultados a .bi { color: #027266; font-size: 1.05rem; margin-top: .1rem; }
+.menu-lateral .buscador .resultados a.activo, .menu-lateral .buscador .resultados a:hover { background: #eef7f6; }
+.menu-lateral .buscador .resultados .t { font-weight: 600; font-size: .86rem; }
+.menu-lateral .buscador .resultados .d { font-size: .73rem; color: #6b6a66; }
+.menu-lateral .buscador .resultados .a { font-size: .64rem; font-weight: 700; color: #FE6412; text-transform: uppercase; margin-left: auto; white-space: nowrap; }
+.menu-lateral .buscador .resultados .vacio { padding: .6rem; font-size: .85rem; color: #6b6a66; }
+
+/* lista de áreas */
+.menu-nav { flex: 1; overflow-y: auto; padding: .2rem .5rem 1rem; scrollbar-width: thin; scrollbar-color: #3a4441 transparent; }
+.menu-nav .enlace-inicio, .menu-nav .area-btn { display: flex; align-items: center; gap: .6rem; width: 100%; padding: .5rem .6rem; border-radius: 8px;
+                                                 color: var(--menu-texto); text-decoration: none; background: none; border: 0; font-size: .86rem; font-weight: 600; text-align: left; }
+.menu-nav .enlace-inicio:hover, .menu-nav .area-btn:hover { background: #2a3230; color: #fff; }
+.menu-nav .enlace-inicio:focus-visible, .menu-nav .area-btn:focus-visible, .menu-nav .item:focus-visible { outline: 2px solid #FE6412; outline-offset: -2px; }
+.menu-nav .enlace-inicio.activo { background: #027266; color: #fff; }
+.menu-nav .area-btn .ico { width: 28px; height: 28px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: .95rem; flex: 0 0 28px; }
+.menu-nav .area-btn .ico.c-verde, .menu-nav .enlace-inicio .ico { background: rgba(2,114,102,.28); color: #5fc4b8; }
+.menu-nav .area-btn .ico.c-naranja { background: rgba(254,100,18,.2); color: #ff9a62; }
+.menu-nav .area-btn .ico.c-gris { background: #2f3836; color: #b7c0bd; }
+.menu-nav .enlace-inicio.activo .ico { background: rgba(255,255,255,.18); color: #fff; }
+.menu-nav .area-btn .chev { margin-left: auto; font-size: .7rem; color: var(--menu-tenue); transition: transform .15s ease; }
+.menu-nav .area-btn[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.menu-nav .area-btn.tiene-activo { color: #fff; }
+.menu-nav .area { margin-top: .15rem; }
+.menu-nav .area-items { padding: .1rem 0 .35rem 1.05rem; margin-left: .9rem; border-left: 1px solid var(--menu-borde); }
+.menu-nav .grupo { font-size: .64rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--menu-tenue); padding: .45rem .5rem .15rem; }
+.menu-nav .item { display: flex; align-items: center; gap: .5rem; padding: .32rem .5rem; border-radius: 6px; color: #c3cbc8; text-decoration: none; font-size: .8rem; line-height: 1.25; }
+.menu-nav .item .bi { font-size: .85rem; color: var(--menu-tenue); flex: 0 0 auto; }
+.menu-nav .item:hover { background: #2a3230; color: #fff; }
+.menu-nav .item.activo { background: #027266; color: #fff; font-weight: 600; }
+.menu-nav .item.activo .bi { color: #fff; }
+.menu-nav .vacio { color: var(--menu-tenue); font-size: .8rem; padding: .6rem; }
+
+.menu-usuario { border-top: 1px solid var(--menu-borde); padding: .6rem .8rem; display: flex; align-items: center; gap: .5rem; font-size: .82rem; }
+.menu-usuario .quien { min-width: 0; flex: 1; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-usuario .quien .bi { color: #5fc4b8; }
+.menu-usuario a { color: #ff9a62; text-decoration: none; white-space: nowrap; font-size: .78rem; }
+.menu-usuario a:hover, .menu-usuario a:focus-visible { color: #fff; }
+
+/* ---------- Área de trabajo ---------- */
+.principal { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.barra-movil { display: flex; align-items: center; gap: .6rem; padding: .45rem .75rem; background: var(--menu-fondo); color: #fff; position: sticky; top: 0; z-index: 1020; }
+.barra-movil .btn-menu { background: none; border: 0; color: #fff; font-size: 1.4rem; line-height: 1; padding: .2rem .35rem; border-radius: 6px; }
+.barra-movil .btn-menu:focus-visible { outline: 2px solid #FE6412; }
+.barra-movil img { width: 30px; height: 30px; border-radius: 6px; background: #fff; padding: 2px; }
+.barra-movil .titulo { font-weight: 600; font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.abrir-menu { position: fixed; top: .6rem; left: .6rem; z-index: 1030; display: none; width: 38px; height: 38px; border-radius: 10px; border: 0;
+              background: var(--menu-fondo); color: #fff; font-size: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.abrir-menu:focus-visible { outline: 3px solid #FE6412; }
+@media (min-width: 992px) { body.sin-menu .abrir-menu { display: inline-flex; align-items: center; justify-content: center; } body.sin-menu .principal { padding-left: 2.6rem; } }
+
+@media (prefers-reduced-motion: reduce) { .menu-nav .area-btn .chev { transition: none; } }
+@media print { .menu-lateral, .barra-movil, .abrir-menu { display: none !important; } .principal { padding-left: 0 !important; } }

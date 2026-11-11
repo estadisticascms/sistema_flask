@@ -198,12 +198,17 @@ def calcular(desde, hasta):
 # -----------------------------
 # Ruta principal del resumen
 # -----------------------------
+def contexto_resumen(args):
+    """Variables de _resumen_tablero.html (lo usan /resumen y el tablero de inicio). Por defecto: enero a hoy."""
+    hoy = date.today()
+    desde = leer_fecha(args.get("fecha_inicio"), hoy.replace(month=1, day=1))
+    hasta = leer_fecha(args.get("fecha_fin"), hoy)
+    r = con_cache(f"resumen_{desde}_{hasta}", lambda: calcular(desde, hasta))
+    return {"fecha_inicio": desde, "fecha_fin": hasta, "r": r, "millones": millones,
+            "desde_txt": fecha_larga(desde), "corte_txt": fecha_larga(r["corte"])}
+
+
 @resumen_bp.route("/resumen", methods=["GET"])
 @requiere_acceso("resumen")
 def resumen_dashboard():
-    hoy = date.today()
-    desde = leer_fecha(request.args.get("fecha_inicio"), hoy.replace(month=1, day=1))
-    hasta = leer_fecha(request.args.get("fecha_fin"), hoy)
-    r = con_cache(f"resumen_{desde}_{hasta}", lambda: calcular(desde, hasta))
-    return render_template("resumen_dashboard.html", fecha_inicio=desde, fecha_fin=hasta, r=r, millones=millones,
-                           desde_txt=fecha_larga(desde), corte_txt=fecha_larga(r["corte"]))
+    return render_template("resumen_dashboard.html", **contexto_resumen(request.args))

@@ -927,10 +927,23 @@ def eliminar_zona(idzona):
 
 @app.route("/")
 def inicio():
-    if "usuario" in session:
-        return render_template("inicio.html")
-    # Si no está logueado → redirigir al login
-    return redirect(url_for("login.login"))
+    """Tablero de inicio: el Resumen general (si la persona tiene ese permiso); las pantallas están en el menú lateral."""
+    if "usuario" not in session:
+        return redirect(url_for("login.login"))   # si no está logueado → login
+    from router.menu import permisos_del_usuario
+    from router.resumen import contexto_resumen
+    try:
+        ve_resumen = "resumen" in permisos_del_usuario(session["usuario"])
+    except Exception:
+        ve_resumen = False
+    contexto, error = {}, None
+    if ve_resumen:
+        try:
+            contexto = contexto_resumen(request.args)
+        except Exception as e:   # el inicio siempre abre, aunque falle una consulta
+            app.logger.exception("No se pudo armar el resumen del inicio")
+            error = str(e)
+    return render_template("inicio.html", ve_resumen=ve_resumen and not error, error_resumen=error, **contexto)
 
 # -----------------------------
 # Punto de entrada

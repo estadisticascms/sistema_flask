@@ -7,43 +7,98 @@
     <title>{% block title %}Grupo Comersa{% endblock %}</title>
 
     <!-- Bootstrap -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
 
     <!-- Estilos corporativos -->
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='menu_lateral.css') }}">
 
     <!-- Iconos -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
-    <style>
-      /* Menú por área: en áreas con muchas opciones el desplegable va en dos columnas */
-      @media (min-width: 992px) {
-        .navbar .dropdown-menu.dos-columnas { columns: 2; column-gap: 0; min-width: 560px; }
-        .navbar .dropdown-menu.dos-columnas .bloque { break-inside: avoid; }
-      }
-      .navbar .dropdown-menu .dropdown-header { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #8a8984; padding-top: .55rem; }
-      .navbar .dropdown-menu .dropdown-header.area { font-size: .8rem; text-transform: none; letter-spacing: 0; color: #027266; }
-      .navbar .dropdown-item { font-size: .88rem; }
-      /* Buscador de pantallas */
-      .buscador { position: relative; }
-      .buscador input { width: 230px; background: #2b2b29; border: 1px solid #44443f; color: #fff; padding-right: 3.2rem; }
-      .buscador input::placeholder { color: #a8a6a0; }
-      .buscador input:focus { background: #fff; color: #1f1f1d; border-color: #FE6412; box-shadow: 0 0 0 3px rgba(254,100,18,.3); }
-      .buscador .atajo { position: absolute; right: .45rem; top: 50%; transform: translateY(-50%); font-size: .68rem; color: #a8a6a0;
-                         border: 1px solid #55554f; border-radius: 4px; padding: 0 4px; pointer-events: none; }
-      .buscador input:focus + .atajo { display: none; }
-      .buscador .resultados { position: absolute; z-index: 1080; top: calc(100% + 4px); right: 0; width: min(440px, 92vw); max-height: 70vh; overflow-y: auto;
-                              background: #fff; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: .3rem; }
-      .buscador .resultados a { display: flex; gap: .6rem; align-items: flex-start; padding: .45rem .6rem; border-radius: 8px; color: #1f1f1d; text-decoration: none; }
-      .buscador .resultados a .bi { color: #027266; font-size: 1.05rem; margin-top: .1rem; }
-      .buscador .resultados a.activo, .buscador .resultados a:hover { background: #eef7f6; }
-      .buscador .resultados .t { font-weight: 600; font-size: .88rem; }
-      .buscador .resultados .d { font-size: .74rem; color: #6b6a66; }
-      .buscador .resultados .a { font-size: .66rem; font-weight: 700; color: #FE6412; text-transform: uppercase; margin-left: auto; white-space: nowrap; }
-      .buscador .resultados .vacio { padding: .6rem; font-size: .85rem; color: #6b6a66; }
-      @media (max-width: 991.98px) { .buscador input { width: 100%; } .buscador .resultados { left: 0; right: auto; } }
-    </style>
 </head>
-<body class="container-fluid px-1 py-1">
+<body class="app">
+<script>
+  // Menú oculto en computadora (se recuerda en este navegador); antes de pintar, para que no parpadee
+  try { if (localStorage.getItem('menu_oculto') === '1') document.body.classList.add('sin-menu'); } catch (e) {}
+</script>
+
+{# Área abierta en el menú: la que contiene la pantalla actual (primero las áreas propias, después los atajos de Gerencia) #}
+{% set abierta = namespace(id=None) %}
+{% for s in menu_secciones if not s.acceso_rapido %}
+  {% if abierta.id is none and request.path in (s['items'] | map(attribute=1) | list) %}{% set abierta.id = s.id %}{% endif %}
+{% endfor %}
+{% for s in menu_secciones if s.acceso_rapido %}
+  {% if abierta.id is none and request.path in (s['items'] | map(attribute=1) | list) %}{% set abierta.id = s.id %}{% endif %}
+{% endfor %}
+
+<div class="app-shell">
+  {% if session.get("usuario") %}
+  <!-- Menú lateral: generado desde router/menu.py, solo con las pantallas que la persona tiene habilitadas -->
+  <aside class="menu-lateral offcanvas-lg offcanvas-start" id="menuLateral" tabindex="-1" aria-label="Menú principal">
+    <div class="d-flex align-items-center gap-1 px-2 py-2" style="border-bottom: 1px solid var(--menu-borde)">
+      <a class="menu-marca flex-grow-1 ms-1" href="/" title="Ir al inicio">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+        <span class="nombre">Comersa<small>Sistema de reportes</small></span>
+      </a>
+      <button type="button" class="btn-icono d-none d-lg-inline-flex align-items-center justify-content-center" id="btn-ocultar-menu"
+              title="Ocultar el menú (más espacio para el reporte)" aria-label="Ocultar el menú"><i class="bi bi-layout-sidebar-inset" aria-hidden="true"></i></button>
+      <button type="button" class="btn-close btn-close-white d-lg-none me-1" data-bs-dismiss="offcanvas" data-bs-target="#menuLateral" aria-label="Cerrar menú"></button>
+    </div>
+    <div class="offcanvas-body">
+      {% if menu_buscar %}
+      <div class="buscador" role="search">
+        <input type="search" id="buscar-pantalla" class="form-control form-control-sm" placeholder="Buscar pantalla…" autocomplete="off"
+               aria-label="Buscar pantalla o reporte" aria-controls="buscar-resultados" aria-expanded="false">
+        <span class="atajo d-none d-lg-inline" aria-hidden="true">Ctrl K</span>
+        <div class="resultados" id="buscar-resultados" role="listbox" hidden></div>
+      </div>
+      {% endif %}
+      <nav class="menu-nav" aria-label="Áreas y pantallas">
+        <a class="enlace-inicio {{ 'activo' if request.path == '/' }}" href="/" {% if request.path == '/' %}aria-current="page"{% endif %}>
+          <span class="ico" aria-hidden="true"><i class="bi bi-house-door-fill"></i></span>Inicio</a>
+        {% for s in menu_secciones %}
+        {% set abrir = s.id == abierta.id %}
+        <div class="area">
+          <button type="button" class="area-btn {{ 'tiene-activo' if abrir }}" data-bs-toggle="collapse" data-bs-target="#area-{{ s.id }}"
+                  aria-expanded="{{ 'true' if abrir else 'false' }}" aria-controls="area-{{ s.id }}">
+            <span class="ico c-{{ s.color }}" aria-hidden="true"><i class="bi {{ s.icono }}"></i></span>{{ s.titulo }}
+            <i class="bi bi-chevron-right chev" aria-hidden="true"></i>
+          </button>
+          <div class="collapse {{ 'show' if abrir }}" id="area-{{ s.id }}">
+            <div class="area-items">
+              {% for grupo in s.grupos %}
+                {% if s.grupos|length > 1 %}<div class="grupo">{{ grupo.titulo }}</div>{% endif %}
+                {% for titulo, url, icono, desc in grupo['items'] %}
+                <a class="item {{ 'activo' if request.path == url and abrir }}" href="{{ url }}" title="{{ desc }}"
+                   {% if request.path == url and abrir %}aria-current="page"{% endif %}><i class="bi {{ icono }}" aria-hidden="true"></i>{{ titulo }}</a>
+                {% endfor %}
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="vacio">Todavía no tiene pantallas habilitadas. Pida acceso al administrador.</div>
+        {% endfor %}
+      </nav>
+      <div class="menu-usuario">
+        <span class="quien" title="{{ session['usuario'] }}"><i class="bi bi-person-circle me-1" aria-hidden="true"></i>{{ session["usuario"] }}</span>
+        <a href="{{ url_for('usuarios.logout') }}"><i class="bi bi-box-arrow-right me-1" aria-hidden="true"></i>Cerrar sesión</a>
+      </div>
+    </div>
+  </aside>
+  {% endif %}
+
+  <div class="principal">
+    {% if session.get("usuario") %}
+    <!-- Barra superior solo en celular / tableta: abre el menú -->
+    <header class="barra-movil d-lg-none">
+      <button type="button" class="btn-menu" data-bs-toggle="offcanvas" data-bs-target="#menuLateral" aria-controls="menuLateral" aria-label="Abrir menú">
+        <i class="bi bi-list" aria-hidden="true"></i></button>
+      <a href="/"><img src="{{ url_for('static', filename='logo.png') }}" alt="Inicio"></a>
+      <span class="titulo">{{ self.title() }}</span>
+    </header>
+    <button type="button" class="abrir-menu" id="btn-mostrar-menu" title="Mostrar el menú" aria-label="Mostrar el menú"><i class="bi bi-list" aria-hidden="true"></i></button>
+    {% endif %}
 
     <!-- Mensajes flash -->
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -52,93 +107,40 @@
           {% for category, message in messages %}
             <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
               {{ message }}
-              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
             </div>
           {% endfor %}
         </div>
       {% endif %}
     {% endwith %}
 
-    <!-- Navbar corporativa -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
-
-        <div class="container-fluid">
-            <a class="navbar-brand" href="/" title="Inicio">
-                <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" width="40" height="40" class="d-inline-block align-text-top">
-                
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
-                    aria-controls="navbarNav" aria-expanded="false" aria-label="Abrir menú">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-
-            <div class="collapse navbar-collapse" id="navbarNav">
-                {# Menú generado desde router/menu.py (el mismo que usa la página de inicio) #}
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    {% for s in menu_secciones %}
-                    {% set urls = s['items'] | map(attribute=1) | list %}
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {{ 'active' if request.path in urls and not s.acceso_rapido }}" href="#" id="menu-{{ s.id }}"
-                           role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="bi {{ s.icono }} me-1" aria-hidden="true"></i> {{ s.menu }}
-                        </a>
-                        <div class="dropdown-menu shadow-sm {{ 'dos-columnas' if s['items']|length > 9 }}" aria-labelledby="menu-{{ s.id }}">
-                            <h6 class="dropdown-header area">{{ s.titulo }}</h6>
-                            {% for grupo in s.grupos %}
-                            <div class="bloque">
-                                {% if s.grupos|length > 1 %}<h6 class="dropdown-header">{{ grupo.titulo }}</h6>{% endif %}
-                                {% for titulo, url, icono, desc in grupo['items'] %}
-                                <a class="dropdown-item {{ 'active' if request.path == url }}" href="{{ url }}" title="{{ desc }}"
-                                   {% if request.path == url %}aria-current="page"{% endif %}>
-                                    <i class="bi {{ icono }} me-2 icono-{{ s.color }}" aria-hidden="true"></i>{{ titulo }}
-                                </a>
-                                {% endfor %}
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </li>
-                    {% endfor %}
-                </ul>
-
-                {% if menu_buscar %}
-                <!-- Buscador de pantallas (Ctrl+K) -->
-                <div class="buscador my-2 my-lg-0 me-lg-2" role="search">
-                    <input type="search" id="buscar-pantalla" class="form-control form-control-sm" placeholder="Buscar pantalla…" autocomplete="off"
-                           aria-label="Buscar pantalla o reporte" aria-controls="buscar-resultados" aria-expanded="false">
-                    <span class="atajo d-none d-lg-inline" aria-hidden="true">Ctrl K</span>
-                    <div class="resultados" id="buscar-resultados" role="listbox" hidden></div>
-                </div>
-                {% endif %}
-
-                <!-- Usuario logueado y cierre de sesión -->
-                <ul class="navbar-nav ms-auto">
-                    {% if session.get("usuario") %}
-                    <li class="nav-item">
-                        <span class="nav-link text-info">
-                            <i class="bi bi-person-circle me-2" aria-hidden="true"></i> {{ session["usuario"] }}
-                        </span>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link text-danger" href="{{ url_for('usuarios.logout') }}">
-                            <i class="bi bi-box-arrow-right me-2" aria-hidden="true"></i> Cerrar sesión
-                        </a>
-                    </li>
-                    {% endif %}
-                </ul>
-            </div>
-        </div>
-    </nav>
-
     <!-- Contenido dinámico -->
-    <div class="container mt-4">
+    <main class="container mt-3 contenido" id="contenido">
         {% block content %}{% endblock %}
-    </div>
+    </main>
+  </div>
+</div>
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <!-- Chart.js global -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <script>
+    (() => {
+      // Ocultar / mostrar el menú en computadora
+      const poner = (oculto) => {
+        document.body.classList.toggle('sin-menu', oculto);
+        try { localStorage.setItem('menu_oculto', oculto ? '1' : '0'); } catch (e) {}
+        window.dispatchEvent(new Event('resize'));   // los gráficos se reacomodan al nuevo ancho
+      };
+      document.getElementById('btn-ocultar-menu')?.addEventListener('click', () => { poner(true); document.getElementById('btn-mostrar-menu')?.focus(); });
+      document.getElementById('btn-mostrar-menu')?.addEventListener('click', () => { poner(false); document.getElementById('btn-ocultar-menu')?.focus(); });
+      // La pantalla actual a la vista dentro del menú
+      document.querySelector('.menu-nav .item.activo')?.scrollIntoView({ block: 'center' });
+    })();
+    </script>
 
     {% if menu_buscar %}
     <script>
@@ -147,7 +149,7 @@
       const PANTALLAS = {{ menu_buscar | tojson }};
       const caja = document.getElementById('buscar-pantalla'), lista = document.getElementById('buscar-resultados');
       if (!caja) return;
-      const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const norm = (t) => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
       const esc = (t) => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
       PANTALLAS.forEach(p => { p.n = norm(p.t); p.b = norm(`${p.t} ${p.d} ${p.a} ${p.k}`); });
       let actual = 0, vistos = [];
@@ -177,11 +179,17 @@
         else if (e.key === 'Escape') { caja.value = ''; mostrar(); caja.blur(); }
       });
       document.addEventListener('click', e => { if (!e.target.closest('.buscador')) lista.hidden = true; });
+      // Ctrl+K: abre el menú si está cerrado (celular) u oculto (computadora) y enfoca el buscador
       document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
           e.preventDefault();
-          const menu = document.getElementById('navbarNav');
-          if (menu && !menu.classList.contains('show') && getComputedStyle(caja).display !== 'none' && caja.offsetParent === null) bootstrap.Collapse.getOrCreateInstance(menu).show();
+          if (document.body.classList.contains('sin-menu')) document.getElementById('btn-mostrar-menu')?.click();
+          const menu = document.getElementById('menuLateral');
+          if (menu && getComputedStyle(menu).position === 'fixed' && !menu.classList.contains('show')) {
+            menu.addEventListener('shown.bs.offcanvas', () => { caja.focus(); caja.select(); }, { once: true });
+            bootstrap.Offcanvas.getOrCreateInstance(menu).show();
+            return;
+          }
           caja.focus(); caja.select();
         }
       });
@@ -193,6 +201,3 @@
     {% block scripts %}{% endblock %}
 </body>
 </html>
-
-
-
