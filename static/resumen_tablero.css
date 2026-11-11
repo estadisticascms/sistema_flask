@@ -5,7 +5,7 @@
 .resumen-cabeza .periodo { font-size: .8rem; color: var(--ink-2); }
 .resumen-cabeza form { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-left: auto; font-size: .78rem; }
 .resumen-cabeza form input { width: 128px; }
-.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: .5rem; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
 .kpis .kpi { padding: .45rem .7rem; border: 1px solid var(--grid); border-radius: 10px; min-width: 0; }
 .kpis .kpi-hero { border-color: var(--credito); }
 .kpis .kpi-hero .valor { font-size: clamp(1.2rem, 1.7vw, 1.8rem); }
@@ -21,7 +21,7 @@
 .dash.resumen table.tabla { font-size: .76rem; }
 .dash.resumen table.tabla td, .dash.resumen table.tabla th { padding: .08rem .35rem; line-height: 1.3; }
 .resumen .barra-celda { min-width: 90px; width: 42%; }
-@media (max-width: 1199.98px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
 @media (max-width: 991.98px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fila-graficos, .fila-tablas { grid-template-columns: minmax(0, 1fr); }

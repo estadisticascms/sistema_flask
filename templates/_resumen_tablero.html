@@ -28,16 +28,6 @@
       <div class="valor">{{ millones(r.actual.neto) }}</div>
       {{ delta(r.var_venta, 'vs ' ~ r.anio_ant) }}
     </div>
-    <div class="kpi k-utilidad">
-      <div class="etiqueta"><i class="bi bi-piggy-bank" aria-hidden="true"></i> Utilidad</div>
-      <div class="valor">{{ millones(r.actual.utilidad) }}</div>
-      {{ delta(r.var_utilidad, 'vs ' ~ r.anio_ant) }}
-    </div>
-    <div class="kpi k-margen">
-      <div class="etiqueta"><i class="bi bi-percent" aria-hidden="true"></i> Margen</div>
-      <div class="valor">{% if r.actual.margen is not none %}{{ '{:.1f}'.format(r.actual.margen) }}%{% else %}—{% endif %}</div>
-      {{ delta(r.dif_margen, 'vs ' ~ r.anio_ant, ' pts') }}
-    </div>
     <div class="kpi k-recuperacion">
       <div class="etiqueta"><i class="bi bi-cash-stack" aria-hidden="true"></i> Recuperación</div>
       <div class="valor">{{ millones(r.total_recuperado) }}</div>
@@ -86,7 +76,7 @@
       <div class="card-body">
         {% if r.marcas.filas %}
         <table class="tabla">
-          <thead><tr><th>Marca</th><th class="num">Venta</th><th>% del total</th><th class="num">Margen</th></tr></thead>
+          <thead><tr><th>Marca</th><th class="num">Venta</th><th>% del total</th></tr></thead>
           <tbody>
             {% set mayor = r.marcas.filas[0].venta %}
             {% for m in r.marcas.filas %}
@@ -94,14 +84,12 @@
               <td>{{ m.marca }}</td>
               <td class="num">{{ millones(m.venta) }}</td>
               <td class="barra-celda"><span class="barra" style="width: {{ m.venta / mayor * 100 }}%"></span><span class="txt">{{ '{:.1f}'.format(m.pct) }}%</span></td>
-              <td class="num">{% if m.margen is not none %}{{ '{:.1f}'.format(m.margen) }}%{% else %}—{% endif %}</td>
             </tr>
             {% endfor %}
             <tr class="total">
               <td>Total top {{ r.marcas.filas|length }}</td>
               <td class="num">{{ millones(r.marcas.venta) }}</td>
               <td>{{ '{:.1f}'.format(r.marcas.pct) }}%</td>
-              <td class="num">{% if r.marcas.margen is not none %}{{ '{:.1f}'.format(r.marcas.margen) }}%{% else %}—{% endif %}</td>
             </tr>
           </tbody>
         </table>
