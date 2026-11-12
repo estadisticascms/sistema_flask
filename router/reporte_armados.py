@@ -157,6 +157,10 @@ def calcular(f):
     }
 
 
+# Trabajos de taller que no son manguera, en el orden en que se muestran
+OTROS_TALLER = {"trabajo": "Trabajos", "friccion": "Fricciones", "otro_cobro": "Otros cobros"}
+
+
 def armados_del_dia(dia):
     """Mangueras armadas del día y acumulado del mes (para la tarjeta de ventas del día por vendedor).
     None si no hay armados cargados en el mes; 'pendiente' = el día todavía no se ha cargado."""
@@ -165,9 +169,16 @@ def armados_del_dia(dia):
                        (inicio, dia))
     if not lineas:
         return None
-    r = {"dia": Decimal(0), "credito": Decimal(0), "contado": Decimal(0), "mes": Decimal(0), "facturas": set(), "dias_mes": set()}
+    r = {"dia": Decimal(0), "credito": Decimal(0), "contado": Decimal(0), "mes": Decimal(0), "facturas": set(), "dias_mes": set(),
+         # los otros trabajos de taller (trabajo, fricción y otros cobros), del día y del mes
+         "otros_dia": {k: Decimal(0) for k in OTROS_TALLER}, "otros_mes": {k: Decimal(0) for k in OTROS_TALLER}, "nombres": OTROS_TALLER}
     for l in lineas:
-        if tipo_linea(l["producto"], l["mano_obra"], l["otros"]) != "manguera":
+        tipo = tipo_linea(l["producto"], l["mano_obra"], l["otros"])
+        if tipo in OTROS_TALLER:
+            r["otros_mes"][tipo] += l["cantidad"]
+            if l["fecha"] == dia:
+                r["otros_dia"][tipo] += l["cantidad"]
+        if tipo != "manguera":
             continue
         r["mes"] += l["cantidad"]
         r["dias_mes"].add(l["fecha"])
