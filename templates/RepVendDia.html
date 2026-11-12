@@ -6,6 +6,9 @@
 {% macro c(v) %}C$ {{ "{:,.0f}".format(v or 0) }}{% endmacro %}
 {% macro k(v) %}{% if (v or 0) >= 1000 %}{{ "%.1f"|format(v / 1000) }}k{% else %}{{ "{:,.0f}".format(v or 0) }}{% endif %}{% endmacro %}
 
+{% set nombres_taller = {'manguera': ('Manguera armada', 'Mangueras armadas'), 'trabajo': ('Trabajo', 'Trabajos'), 'friccion': ('Armado de fricción', 'Armados de fricción'), 'otro_cobro': ('Otro cobro', 'Otros cobros')} %}
+{% macro cant(v) %}{{ "{:,.0f}".format(v) if v == v|int else "{:,.1f}".format(v) }}{% endmacro %}
+{% macro nombre(k, v) %}{{ nombres_taller[k][0] if v == 1 else nombres_taller[k][1] }}{% endmacro %}
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
 <style>
@@ -35,12 +38,13 @@
   #reporte .lider-mes { font-size: .85rem; color: #52514e; margin-top: 6px; }
   #reporte .armados { display: flex; gap: 12px; align-items: center; margin-top: 10px; padding: 9px 14px; border-radius: 12px; background: #e9f4f2; }
   #reporte .armados .ico { font-size: 1.6rem; color: #027266; line-height: 1; }
-  #reporte .armados .e { font-size: .75rem; font-weight: 700; text-transform: uppercase; color: #52514e; }
-  #reporte .armados .n { font-size: 1.35rem; font-weight: 800; color: #027266; line-height: 1.1; }
-  #reporte .armados .n small { font-size: .8rem; font-weight: 600; color: #52514e; }
-  #reporte .armados .otros-taller { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .82rem; color: #52514e; margin-top: 2px; }
-  #reporte .armados .otros-taller strong { color: #FE6412; }
-  #reporte .armados .m { font-size: .82rem; color: #52514e; text-align: right; line-height: 1.3; }
+  #reporte .armados .e { font-size: .75rem; font-weight: 700; text-transform: uppercase; color: #52514e; margin-bottom: 2px; }
+  #reporte .armados .linea { display: flex; align-items: baseline; gap: 6px; line-height: 1.25; }
+  #reporte .armados .linea .num { font-size: 1.3rem; font-weight: 800; color: #027266; min-width: 1.6rem; text-align: right; }
+  #reporte .armados .linea.otro .num { color: #FE6412; }
+  #reporte .armados .linea .txt { font-size: .95rem; font-weight: 700; color: #1f1f1d; }
+  #reporte .armados .linea small { font-size: .78rem; font-weight: 600; color: #52514e; }
+  #reporte .armados .m { font-size: .82rem; color: #52514e; text-align: right; line-height: 1.35; }
   #reporte table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: .95rem; }
   #reporte th { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #6b6a66; padding: 4px 6px;
                 border-bottom: 2px solid #e3e1db; text-align: left; }
@@ -153,14 +157,17 @@
       <div class="armados">
         <i class="bi bi-tools ico" aria-hidden="true"></i>
         <div class="flex-grow-1">
-          <div class="e">Mangueras armadas del día</div>
-          {% if armados.pendiente %}<div class="n" style="font-size: 1rem">Pendiente de cargar</div>
-          {% else %}<div class="n">{{ "{:,.0f}".format(armados.dia) }} <small>{% if armados.dia %}en {{ armados.facturas }} facturas · <span style="color: #027266">Cr {{ "{:,.0f}".format(armados.credito) }}</span> · <span style="color: #c2410c">Co {{ "{:,.0f}".format(armados.contado) }}</span>{% endif %}</small></div>
-          {% set otros = armados.otros_dia.items()|selectattr(1)|list %}
-          {% if otros %}<div class="otros-taller">{% for k, v in otros %}<span>{{ armados.nombres[k] }}: <strong>{{ "{:,.0f}".format(v) if v == v|int else "{:,.1f}".format(v) }}</strong></span>{% endfor %}</div>{% endif %}{% endif %}
+          <div class="e">Trabajos de taller del día</div>
+          {% if armados.pendiente %}<div class="linea"><span class="txt">Pendiente de cargar</span></div>
+          {% else %}
+          <div class="linea"><span class="num">{{ cant(armados.dia) }}</span><span class="txt">{{ nombre('manguera', armados.dia) }}</span>
+            {% if armados.dia %}<small>en {{ armados.facturas }} factura{{ 's' if armados.facturas != 1 }} · <span style="color: #027266">Cr {{ cant(armados.credito) }}</span> · <span style="color: #c2410c">Co {{ cant(armados.contado) }}</span></small>{% endif %}</div>
+          {% for k, v in armados.otros_dia.items() if v %}<div class="linea otro"><span class="num">{{ cant(v) }}</span><span class="txt">{{ nombre(k, v) }}</span></div>{% endfor %}
+          {% endif %}
         </div>
-        <div class="m">Acumulado de {{ meses_nombre[dia.month - 1] }}: <strong>{{ "{:,.0f}".format(armados.mes) }}</strong> mangueras<br>Promedio {{ "%.1f"|format(armados.promedio) }} por día
-          {% for k, v in armados.otros_mes.items() if v %}<br>{{ armados.nombres[k] }}: <strong>{{ "{:,.0f}".format(v) if v == v|int else "{:,.1f}".format(v) }}</strong>{% endfor %}</div>
+        <div class="m">Acumulado de {{ meses_nombre[dia.month - 1] }}:<br><strong>{{ cant(armados.mes) }}</strong> {{ nombre('manguera', armados.mes)|lower }}
+          {% for k, v in armados.otros_mes.items() if v %}<br><strong>{{ cant(v) }}</strong> {{ nombre(k, v)|lower }}{% endfor %}
+          <br>Promedio {{ "%.1f"|format(armados.promedio) }} mangueras por día</div>
       </div>
       {% endif %}
 
