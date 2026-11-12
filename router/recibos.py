@@ -1,3 +1,5 @@
+from datetime import date, datetime, timedelta
+
 from flask import Blueprint, request, render_template, redirect, url_for, flash
 from utils.db import get_connection
 from router.accesos import requiere_acceso
@@ -148,60 +150,82 @@ def confirmar_recibos():
     return redirect(url_for("recibos.cargar_recibos"))
 
 
+DIAS_SEMANA = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+TC_RECIBOS = 36.6243
+
+
+def ultima_fecha_recibos():
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT MAX(fecharc) FROM reciboscaja")
+        v = cursor.fetchone()[0]
+        return v.date() if isinstance(v, datetime) else v
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def recibos_por_dia(desde, hasta, tipo_cambio=TC_RECIBOS):
+    """Recibos de caja por día: cantidad, subtotal (total ÷ 1.15), IVA 15%, total C$ y subtotal US$.
+    La usan el reporte de recibos y el de ventas y recibos por día, así los números son los mismos."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT fecharc AS Fecha, COUNT(numerorc) AS Cantidad, SUM(total) AS TotalCordobas "
+                       "FROM reciboscaja WHERE fecharc BETWEEN %s AND %s GROUP BY fecharc ORDER BY fecharc", (desde, hasta))
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+    tipo_cambio = float(tipo_cambio) or TC_RECIBOS
+    for r in rows:
+        fecha = r["Fecha"].date() if isinstance(r["Fecha"], datetime) else r["Fecha"]
+        r["Fecha"], r["Dia"] = fecha, DIAS_SEMANA[fecha.weekday()]
+        subtotal = float(r["TotalCordobas"] or 0) / 1.15
+        r["SubtotalCordobas"] = subtotal
+        r["IVACordobas"] = subtotal * 0.15
+        r["TotalCordobasCalc"] = subtotal * 1.15
+        r["SubtotalUSD"] = subtotal / tipo_cambio
+    total = {"Cantidad": sum(r["Cantidad"] for r in rows),
+             **{k: sum(r[k] for r in rows) for k in ("SubtotalCordobas", "IVACordobas", "TotalCordobasCalc", "SubtotalUSD")}}
+    total["dias"] = len(rows)
+    total["promedio_dia"] = total["TotalCordobasCalc"] / len(rows) if rows else 0
+    total["promedio_recibo"] = total["TotalCordobasCalc"] / total["Cantidad"] if total["Cantidad"] else 0
+    total["max_dia"] = max((r["TotalCordobasCalc"] for r in rows), default=0)
+    mejor = max(rows, key=lambda r: r["TotalCordobasCalc"], default=None)
+    total["mejor"] = mejor
+    return {"rows": rows, "total": total}
+
+
+def _fecha(valor):
+    try:
+        return datetime.strptime(valor or "", "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
 @recibos_bp.route("/reporte_recibos", methods=["GET"])
 @requiere_acceso("reporte_recibos")
 def reporte_recibos():
-    fecha_inicio = request.args.get("fecha_inicio")
-    fecha_fin = request.args.get("fecha_fin")
-    tipo_cambio = float(request.args.get("tipo_cambio", 36.6243))  # valor ingresado por el usuario
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    query = """
-        SELECT fecharc AS Fecha,
-               COUNT(numerorc) AS Cantidad,
-               SUM(total) AS TotalCordobas
-        FROM reciboscaja
-        WHERE fecharc BETWEEN %s AND %s
-        GROUP BY fecharc
-        ORDER BY fecharc;
-    """
-    cursor.execute(query, (fecha_inicio, fecha_fin))
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    # Calcular Subtotal, IVA y Total en Córdobas + Subtotal en USD
-    for r in rows:
-        subtotal_cordobas = float(r["TotalCordobas"]) / 1.15
-        iva_cordobas = subtotal_cordobas * 0.15
-        total_cordobas = subtotal_cordobas + iva_cordobas
-
-        subtotal_usd = subtotal_cordobas / tipo_cambio
-
-        r["SubtotalCordobas"] = subtotal_cordobas
-        r["IVACordobas"] = iva_cordobas
-        r["TotalCordobasCalc"] = total_cordobas
-        r["SubtotalUSD"] = subtotal_usd
-
-    # Totales generales
-    total_general_subtotal = sum(r["SubtotalCordobas"] for r in rows)
-    total_general_iva = sum(r["IVACordobas"] for r in rows)
-    total_general_cordobas = sum(r["TotalCordobasCalc"] for r in rows)
-    total_general_usd = sum(r["SubtotalUSD"] for r in rows)
-
-    labels = [str(r["Fecha"]) for r in rows]
-    valores = [r["TotalCordobasCalc"] for r in rows]
-
-    return render_template("reporte_recibos.html",
-                           rows=rows,
-                           fecha_inicio=fecha_inicio,
-                           fecha_fin=fecha_fin,
-                           tipo_cambio=tipo_cambio,
-                           total_general_subtotal=total_general_subtotal,
-                           total_general_iva=total_general_iva,
-                           total_general_cordobas=total_general_cordobas,
-                           total_general_usd=total_general_usd,
-                           chart_labels=labels,
-                           chart_values=valores)
+    desde, hasta = _fecha(request.args.get("fecha_inicio")), _fecha(request.args.get("fecha_fin"))
+    if not desde and not hasta:     # por defecto: el mes de la última fecha con recibos cargados
+        hasta = ultima_fecha_recibos() or date.today()
+        desde = hasta.replace(day=1)
+    desde, hasta = desde or hasta, hasta or desde
+    if hasta < desde:
+        desde, hasta = hasta, desde
+    try:
+        tipo_cambio = float(str(request.args.get("tipo_cambio") or TC_RECIBOS).replace(",", ""))
+        tipo_cambio = tipo_cambio if tipo_cambio > 0 else TC_RECIBOS
+    except ValueError:
+        tipo_cambio = TC_RECIBOS
+    r = recibos_por_dia(desde, hasta, tipo_cambio)
+    ultima = ultima_fecha_recibos() or date.today()
+    rangos = [("Último día", ultima, ultima), ("Últimos 7 días", ultima - timedelta(days=6), ultima),
+              ("Mes en curso", ultima.replace(day=1), ultima),
+              ("Mes anterior", (ultima.replace(day=1) - timedelta(days=1)).replace(day=1), ultima.replace(day=1) - timedelta(days=1))]
+    return render_template("reporte_recibos.html", rows=r["rows"], total=r["total"], desde=desde, hasta=hasta,
+                           tipo_cambio=tipo_cambio, rangos=rangos,
+                           chart_labels=[f"{x['Dia']} {x['Fecha']:%d/%m}" for x in r["rows"]],
+                           chart_values=[round(x["TotalCordobasCalc"], 2) for x in r["rows"]])

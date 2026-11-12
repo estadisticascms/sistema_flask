@@ -1,11 +1,12 @@
 {% extends "layout.html" %}
-{% block title %}Ventas por Día{% endblock %}
+{% block title %}Ventas y recibos de caja por día{% endblock %}
 {% macro m(v) %}{% if v < 0 %}<span class="neg">−{{ "{:,.2f}".format(-v) }}</span>{% elif v == 0 %}<span class="cero">–</span>{% else %}{{ "{:,.2f}".format(v) }}{% endif %}{% endmacro %}
 
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
 <style>
   .vd h4 { color: var(--credito); }
+  .vd .kpi .valor, .vd .kpi-hero .valor { font-size: clamp(1.05rem, 1.5vw, 1.45rem); }
   .vd .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
   .vd .neg { color: #b42318; } .vd .cero { color: #b9b7b0; }
   .cuadre { width: 100%; font-size: .88rem; border-collapse: collapse; }
@@ -32,6 +33,20 @@
   .tabla-dia tr.general td { background: #1f1f1d; color: #fff; font-weight: 700; } .tabla-dia tr.general .neg, .tabla-dia tr.general .cero { color: #fff; }
   .tabla-dia .tipo { font-size: .7rem; font-weight: 700; border-radius: 8px; padding: 0 7px; }
   .tabla-dia .tipo.CONTADO { background: #fff1e8; color: #9a3412; } .tabla-dia .tipo.CREDITO { background: #e6f1ef; color: var(--credito); }
+  .sec-titulo { display: flex; align-items: center; gap: .5rem; font-size: .8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; margin: .2rem 0 .5rem; }
+  .sec-titulo::after { content: ""; flex: 1; border-top: 1px solid var(--grid); }
+  .sec-titulo.ventas { color: var(--credito); } .sec-titulo.recibos { color: var(--contado); }
+  .tabla-rc { width: 100%; font-size: .84rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-rc thead th { position: sticky; top: 0; background: #fff6ef; color: #9a3412; font-weight: 600; font-size: .74rem; text-transform: uppercase;
+                       letter-spacing: .03em; padding: .45rem .6rem; border-bottom: 2px solid #f6d3bd; text-align: right; white-space: nowrap; }
+  .tabla-rc th.izq, .tabla-rc td.izq { text-align: left; }
+  .tabla-rc td { padding: .38rem .6rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-rc tbody tr:nth-child(even) td { background: #fbfaf8; }
+  .tabla-rc td.total { font-weight: 700; background: #fff6ef !important; }
+  .tabla-rc td .dia { display: inline-block; width: 2.2rem; color: var(--ink-3); text-transform: capitalize; }
+  .tabla-rc .cant { display: inline-block; min-width: 2rem; text-align: center; border-radius: 999px; background: #fff1e8; color: #9a3412; font-weight: 600; font-size: .76rem; padding: 0 .4rem; }
+  .tabla-rc tfoot td { font-weight: 700; background: #1f1f1d; color: #fff; border: 0; }
+  .tabla-rc tfoot td.total { background: var(--contado) !important; }
   .vd .btn:focus-visible, .vd a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
   @media print { .no-imprimir { display: none !important; } .vd .card { break-inside: avoid; } }
 </style>
@@ -41,13 +56,13 @@
 <div class="dash vd container-fluid px-3 my-3">
   <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
     <div>
-      <h4 class="mb-0"><i class="bi bi-calendar3" aria-hidden="true"></i> Ventas por día e impuestos</h4>
+      <h4 class="mb-0"><i class="bi bi-calendar3" aria-hidden="true"></i> Ventas y recibos de caja por día</h4>
       <div class="text-muted small">
         {% if f.desde == f.hasta %}{{ dias[f.desde.weekday()]|capitalize }} {{ f.desde.strftime('%d/%m/%Y') }}{% else %}Del {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}{% endif %}
-        · para cuadrar con Finanzas: venta gravada y exenta, IVA, devoluciones y neto</div>
+        · ventas para cuadrar con Finanzas (gravada, exenta, IVA, devoluciones y neto) y la recuperación con recibos de caja</div>
     </div>
     <div class="d-flex gap-2 no-imprimir">
-      <a class="btn btn-success btn-sm" href="{{ url_for('ventas_dia.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel para Finanzas</a>
+      <a class="btn btn-success btn-sm" href="{{ url_for('ventas_dia.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel (ventas y recibos)</a>
       <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> Imprimir</button>
     </div>
   </div>
@@ -66,6 +81,7 @@
     </div>
   </form>
 
+  {% if d.filas %}<div class="sec-titulo ventas"><i class="bi bi-receipt" aria-hidden="true"></i> Ventas</div>{% endif %}
   {% if not d.filas %}
     <div class="alert alert-warning">No hay ventas cargadas en este período.</div>
   {% else %}
@@ -114,12 +130,51 @@
 
     {# ---------- Gráfico ---------- #}
     <div class="col-xl-5"><div class="card h-100">
-      <div class="card-header">Venta neta final por día</div>
-      <div class="card-body"><canvas id="grafico" height="260" role="img" aria-label="Venta neta final por día, contado y crédito"></canvas>
-        <div class="small mt-1"><span class="clave" style="background: var(--credito)"></span>Crédito <span class="clave ms-2" style="background: var(--contado)"></span>Contado</div></div>
+      <div class="card-header">Venta neta final y recuperación por día <small>sin IVA</small></div>
+      <div class="card-body"><canvas id="grafico" height="260" role="img" aria-label="Venta neta final por día, contado y crédito, y recibos de caja"></canvas>
+        <div class="small mt-1"><span class="clave" style="background: var(--credito)"></span>Crédito <span class="clave ms-2" style="background: var(--contado)"></span>Contado
+          <span class="clave ms-2" style="background: #1f1f1d; height: 3px"></span>Recibos de caja (subtotal)</div></div>
     </div></div>
   </div>
 
+  {% endif %}
+
+  {# ---------- Recibos de caja (los mismos datos del reporte de recibos por día) ---------- #}
+  {% set t = rc.total %}
+  <div class="sec-titulo recibos mt-2"><i class="bi bi-cash-stack" aria-hidden="true"></i> Recibos de caja (recuperación)</div>
+  {% if not rc.rows %}
+    <div class="alert alert-light border">No hay recibos de caja cargados en este período.</div>
+  {% else %}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Total recuperado</div><div class="valor">C$ {{ "{:,.2f}".format(t.TotalCordobasCalc) }}</div>
+      <div class="sub">subtotal {{ "{:,.2f}".format(t.SubtotalCordobas) }} + IVA {{ "{:,.2f}".format(t.IVACordobas) }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Subtotal en dólares</div><div class="valor">US$ {{ "{:,.2f}".format(t.SubtotalUSD) }}</div>
+      <div class="sub">tipo de cambio {{ f.tc }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Recibos</div><div class="valor">{{ "{:,}".format(t.Cantidad) }}</div>
+      <div class="sub">{{ t.dias }} día{{ 's' if t.dias != 1 }} · promedio por recibo C$ {{ "{:,.2f}".format(t.promedio_recibo) }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Recuperado vs venta neta final</div>
+      <div class="valor">{{ "{:.0f}%".format(t.SubtotalCordobas / (g.neto_final|float) * 100) if d.filas and g.neto_final > 0 else '—' }}</div>
+      <div class="sub">subtotal de recibos ÷ venta neta final (ambos sin IVA)</div></div></div>
+  </div>
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>Recibos de caja por día</span>
+      <a class="small no-imprimir" href="{{ url_for('recibos.reporte_recibos', fecha_inicio=f.desde.isoformat(), fecha_fin=f.hasta.isoformat(), tipo_cambio=f.tc) }}">Abrir el reporte de recibos <i class="bi bi-arrow-right" aria-hidden="true"></i></a></div>
+    <div class="table-responsive" style="max-height: 60vh">
+      <table class="tabla-rc">
+        <thead><tr><th class="izq">Fecha</th><th>Recibos</th><th>Subtotal C$</th><th>IVA C$</th><th>Total C$</th><th>Subtotal US$</th></tr></thead>
+        <tbody>{% for r in rc.rows %}<tr><td class="izq"><span class="dia">{{ r.Dia }}</span>{{ r.Fecha.strftime('%d/%m/%Y') }}</td>
+          <td><span class="cant">{{ r.Cantidad }}</span></td><td>{{ "{:,.2f}".format(r.SubtotalCordobas) }}</td><td>{{ "{:,.2f}".format(r.IVACordobas) }}</td>
+          <td class="total">{{ "{:,.2f}".format(r.TotalCordobasCalc) }}</td><td>{{ "{:,.2f}".format(r.SubtotalUSD) }}</td></tr>{% endfor %}</tbody>
+        {% if rc.rows|length > 1 %}<tfoot><tr><td class="izq">Total</td><td>{{ "{:,}".format(t.Cantidad) }}</td><td>{{ "{:,.2f}".format(t.SubtotalCordobas) }}</td>
+          <td>{{ "{:,.2f}".format(t.IVACordobas) }}</td><td class="total">{{ "{:,.2f}".format(t.TotalCordobasCalc) }}</td><td>{{ "{:,.2f}".format(t.SubtotalUSD) }}</td></tr></tfoot>{% endif %}
+      </table>
+    </div>
+    <div class="card-footer small text-muted">El monto de cada recibo incluye IVA: subtotal = total ÷ 1.15; IVA = subtotal × 15%; US$ = subtotal ÷ tipo de cambio. También en la hoja «Recibos de caja» del Excel.</div>
+  </div>
+  {% endif %}
+
+  {% if d.filas %}
   {# ---------- Detalle por día ---------- #}
   <div class="card mb-3">
     <div class="card-header">Detalle por día y tipo de venta</div>
@@ -161,7 +216,9 @@
   new Chart(document.getElementById('grafico'), {
     type: 'bar',
     data: { labels: {{ grafico.labels|tojson }},
-            datasets: [{ label: 'Crédito', data: {{ grafico.credito|tojson }}, backgroundColor: '#027266', stack: 'v' },
+            datasets: [{ type: 'line', label: 'Recibos de caja', data: {{ grafico.recibos|tojson }}, borderColor: '#1f1f1d', backgroundColor: '#1f1f1d',
+                         borderWidth: 2, pointRadius: 3, stack: 'r', order: 0 },
+                       { label: 'Crédito', data: {{ grafico.credito|tojson }}, backgroundColor: '#027266', stack: 'v' },
                        { label: 'Contado', data: {{ grafico.contado|tojson }}, backgroundColor: '#FE6412', stack: 'v' }] },
     options: { animation: false, plugins: { legend: { display: false },
                tooltip: { callbacks: { label: (c) => `${c.dataset.label}: C$ ${c.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` } } },

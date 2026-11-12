@@ -1,0 +1,193 @@
+{% extends "layout.html" %}
+{% block title %}Validación de facturas{% endblock %}
+{% macro c(v) %}{% if v is none %}<span class="cero">—</span>{% elif v|abs < 0.005 %}<span class="cero">0.00</span>{% else %}{{ "{:,.2f}".format(v) }}{% endif %}{% endmacro %}
+{% macro dif(v, tol) %}{% if v is none %}<span class="cero">—</span>{% elif v|abs <= tol %}<span class="cero">{{ "{:,.2f}".format(v|abs if v|abs < 0.005 else v) }}</span>{% else %}<span class="{{ 'mas' if v > 0 else 'menos' }}">{{ "{:+,.2f}".format(v) }}</span>{% endif %}{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .vf h4 { color: var(--credito); }
+  .vf .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .vf .cero { color: #b9b7b0; } .vf .mas { color: #b42318; font-weight: 700; } .vf .menos { color: #1f4f8a; font-weight: 700; }
+  .vf .kpi .valor { font-size: clamp(1.05rem, 1.5vw, 1.45rem); }
+  .fuentes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+  .fuente { border: 1px solid var(--grid); border-radius: 10px; padding: .5rem .75rem; background: #fff; border-top: 4px solid var(--f-color); }
+  .fuente .et { font-size: .7rem; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
+  .fuente .va { font-size: 1.15rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .fuente .su { font-size: .74rem; color: var(--ink-2); }
+  .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .chip { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid var(--grid); border-radius: 999px; padding: .25rem .7rem; font-size: .78rem;
+          text-decoration: none; color: var(--ink); background: #fff; min-height: 30px; }
+  .chip .pt { width: 9px; height: 9px; border-radius: 50%; background: var(--p-color); }
+  .chip .n { font-weight: 700; } .chip .m { color: var(--ink-3); font-size: .72rem; }
+  .chip.activo { border-color: var(--credito); background: #e6f2f0; }
+  .chip.cero-chip { opacity: .5; }
+  .tabla-vf { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-vf thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600; padding: .4rem .5rem;
+                       border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; vertical-align: bottom; }
+  .tabla-vf th.izq, .tabla-vf td.izq { text-align: left; }
+  .tabla-vf td { padding: .35rem .5rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; vertical-align: top; }
+  .tabla-vf tbody tr:hover td { background: #faf9f6; }
+  .tabla-vf .sep { border-left: 1px solid var(--grid); }
+  .tabla-vf tfoot td { font-weight: 700; background: #f6f5f1; position: sticky; bottom: 0; }
+  .tabla-vf .meta { font-size: .7rem; color: var(--ink-3); }
+  .tabla-vf tr.dia-sel td { background: #eef7f6; }
+  .badge-p { display: inline-block; font-size: .68rem; font-weight: 600; border-radius: 4px; padding: .05rem .4rem; margin: 0 .2rem .15rem 0; color: #fff; background: var(--p-color); white-space: nowrap; }
+  .falta { color: #b42318; font-weight: 600; font-size: .72rem; }
+  .btn-verde { background: var(--credito); border-color: var(--credito); color: #fff; }
+  .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
+  .vf a:focus-visible, .vf .btn:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  @media (max-width: 767.98px) { .fuentes { grid-template-columns: 1fr; } }
+</style>
+
+{% set t = d.total %}
+{% set base = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'tol': f.tol} %}
+{% set params = dict(base, estado=f.estado, q=f.q, dia=f.dia.isoformat() if f.dia else '') %}
+<div class="dash vf container-fluid px-3 my-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-shield-check" aria-hidden="true"></i> Validación de facturas</h4>
+      <div class="text-muted small">Cruza transacciones de inventario, facturas por producto y facturas históricas: costo, cantidades y facturas que faltan en alguna fuente.</div>
+    </div>
+    {% if d.facturas %}<a class="btn btn-verde btn-sm" href="{{ url_for('validacion_facturas.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>{% endif %}
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="estado">Mostrar</label>
+        <select id="estado" name="estado" class="form-select form-select-sm">{% for k, v in estados.items() %}<option value="{{ k }}" {% if k == f.estado %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-1"><label class="form-label" for="tol" title="Diferencia de costo que se acepta por redondeo">Tolerancia C$</label>
+        <input type="number" step="0.01" min="0" id="tol" name="tol" value="{{ f.tol }}" class="form-control form-control-sm"></div>
+      <div class="col-8 col-lg-3"><label class="form-label" for="q">Factura o cliente</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Número de factura o nombre del cliente"></div>
+      {% if f.dia %}<input type="hidden" name="dia" value="{{ f.dia.isoformat() }}">{% endif %}
+      <div class="col-4 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+    </div>
+  </form>
+
+  {% if not d.facturas %}
+    <div class="alert alert-warning">No hay facturas en ninguna de las tres fuentes en este período.</div>
+  {% else %}
+  {# ---------- Resumen general ---------- #}
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Facturas revisadas</div><div class="valor">{{ "{:,}".format(t.facturas) }}</div>
+      <div class="sub">{{ d.dias|length }} día{{ 's' if d.dias|length != 1 }} · {{ f.desde.strftime('%d/%m/%Y') }} al {{ f.hasta.strftime('%d/%m/%Y') }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Cuadran</div>
+      <div class="valor" style="color: var(--credito)">{{ "{:,}".format(t.ok) }} <span class="fs-6 text-muted">{{ "{:.1f}%".format(t.ok / t.facturas * 100) }}</span></div>
+      <div class="sub">+ {{ "{:,}".format(t.anuladas) }} anuladas sin movimiento (normal)</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Con problemas</div><div class="valor" style="color: {{ '#b42318' if t.problemas else 'var(--credito)' }}">{{ "{:,}".format(t.problemas) }}</div>
+      <div class="sub"><a href="{{ url_for('validacion_facturas.reporte', **dict(base, estado='problemas')) }}#facturas">ver la lista</a></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Costo repetido en transacciones</div>
+      <div class="valor" style="color: {{ '#b42318' if t.T_repetido_costo else 'inherit' }}">C$ {{ "{:,.2f}".format(t.T_repetido_costo) }}</div>
+      <div class="sub">{{ t.duplicada }} factura{{ 's' if t.duplicada != 1 }} con filas cargadas de más</div></div></div>
+  </div>
+
+  <div class="fuentes mb-2">
+    <div class="fuente" style="--f-color: #027266"><div class="et">Costo según transacciones</div><div class="va">C$ {{ "{:,.2f}".format(t.T_costo) }}</div>
+      <div class="su">salidas por factura (total_mn) · contra históricas: {{ dif(t.dif_TH, f.tol) }}</div></div>
+    <div class="fuente" style="--f-color: #4F6D8A"><div class="et">Costo según facturas por producto</div><div class="va">C$ {{ "{:,.2f}".format(t.P_costo) }}</div>
+      <div class="su">cantidad × costo unitario, sin anuladas · contra transacciones: {{ dif(-t.dif_TP, f.tol) }}</div></div>
+    <div class="fuente" style="--f-color: #6D597A"><div class="et">Costo según facturas históricas</div><div class="va">C$ {{ "{:,.2f}".format(t.H_costo) }}</div>
+      <div class="su">«Costo Total» · contra facturas por producto: {{ dif(-t.dif_PH, f.tol) }}</div></div>
+  </div>
+
+  <div class="card card-body py-2 mb-3">
+    <div class="small fw-semibold mb-1" style="color: var(--ink-2)">Problemas encontrados <span class="fw-normal text-muted">(una factura puede tener varios; clic para filtrar)</span></div>
+    <div class="chips">
+      {% for k, (nombre, desc, color) in problemas.items() %}
+      <a class="chip{{ ' activo' if f.estado == k }}{{ ' cero-chip' if not t[k] }}" style="--p-color: {{ color }}" title="{{ desc }}"
+         href="{{ url_for('validacion_facturas.reporte', **dict(base, estado=k)) }}#facturas"><span class="pt" aria-hidden="true"></span>{{ nombre }}
+        <span class="n">{{ "{:,}".format(t[k]) }}</span>{% if t[k] and d.monto_problema[k] %}<span class="m">C$ {{ "{:,.0f}".format(d.monto_problema[k]) }}</span>{% endif %}</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---------- Por día ---------- #}
+  <div class="card mb-3">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2"><span>Resumen por día <small>costo de las tres fuentes y diferencias (C$)</small></span>
+      {% if f.dia %}<a class="small" href="{{ url_for('validacion_facturas.reporte', **dict(params, dia='')) }}#facturas">Quitar filtro del {{ f.dia.strftime('%d/%m/%Y') }}</a>{% endif %}</div>
+    <div class="table-responsive" style="max-height: 360px">
+      <table class="tabla-vf">
+        <thead><tr><th class="izq">Fecha</th><th>Facturas</th><th>Cuadran</th><th>Con problemas</th>
+          <th class="sep">Transacciones</th><th>Por producto</th><th>Históricas</th>
+          <th class="sep" title="Transacciones − facturas por producto">Dif. T − P</th><th title="Transacciones − facturas históricas">Dif. T − H</th>
+          <th title="Facturas por producto − históricas">Dif. P − H</th><th class="sep" title="Costo de las filas repetidas en transacciones">Repetido</th></tr></thead>
+        <tbody>{% for x in d.dias %}<tr class="{{ 'dia-sel' if f.dia == x.fecha }}">
+          <td class="izq">{{ x.fecha.strftime('%d/%m/%Y') }}</td><td>{{ x.facturas }}</td><td>{{ x.ok }}</td>
+          <td>{% if x.problemas %}<a class="mas" href="{{ url_for('validacion_facturas.reporte', **dict(base, estado='problemas', dia=x.fecha.isoformat())) }}#facturas" title="Ver las facturas con problemas de este día">{{ x.problemas }}</a>{% else %}<span class="cero">0</span>{% endif %}</td>
+          <td class="sep">{{ c(x.T_costo) }}</td><td>{{ c(x.P_costo) }}</td><td>{{ c(x.H_costo) }}</td>
+          <td class="sep">{{ dif(x.dif_TP, f.tol) }}</td><td>{{ dif(x.dif_TH, f.tol) }}</td><td>{{ dif(x.dif_PH, f.tol) }}</td>
+          <td class="sep">{{ dif(x.T_repetido_costo, f.tol) }}</td></tr>{% endfor %}</tbody>
+        <tfoot><tr><td class="izq">Total</td><td>{{ "{:,}".format(t.facturas) }}</td><td>{{ "{:,}".format(t.ok) }}</td><td>{{ "{:,}".format(t.problemas) }}</td>
+          <td class="sep">{{ c(t.T_costo) }}</td><td>{{ c(t.P_costo) }}</td><td>{{ c(t.H_costo) }}</td>
+          <td class="sep">{{ dif(t.dif_TP, f.tol) }}</td><td>{{ dif(t.dif_TH, f.tol) }}</td><td>{{ dif(t.dif_PH, f.tol) }}</td><td class="sep">{{ dif(t.T_repetido_costo, f.tol) }}</td></tr></tfoot>
+      </table>
+    </div>
+    <div class="card-footer small text-muted">T = transacciones · P = facturas por producto · H = facturas históricas. Clic en «Con problemas» para ver las facturas del día. Diferencia en rojo = la primera fuente tiene más costo; en azul = tiene menos. Hasta C$ {{ "{:,.2f}".format(f.tol) }} se toma como redondeo.</div>
+  </div>
+
+  {# ---------- Facturas ---------- #}
+  <div class="card mb-3" id="facturas">
+    <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+      <span>Facturas <small>{{ estados[f.estado] }}{% if f.dia %} · {{ f.dia.strftime('%d/%m/%Y') }}{% endif %}{% if f.q %} · «{{ f.q }}»{% endif %} · {{ "{:,}".format(d.filas|length) }}{% if d.filas|length > max_filas %} (se muestran {{ max_filas }}; todas en el Excel){% endif %}</small></span>
+      <small>ordenadas por la diferencia más grande</small></div>
+    <div class="table-responsive" style="max-height: 70vh">
+      <table class="tabla-vf">
+        <thead><tr><th class="izq">Factura</th><th class="izq">Cliente · vendedor</th>
+          <th class="sep" title="Costo de las salidas de inventario">Transacciones</th><th title="Cantidad × costo unitario, sin anuladas">Por producto</th><th title="Costo Total">Históricas</th>
+          <th class="sep" title="Transacciones − facturas por producto; debajo, transacciones − históricas">Diferencia<div class="meta">T − P · T − H</div></th>
+          <th class="izq sep">Problemas</th><th></th></tr></thead>
+        <tbody>{% for x in d.filas[:max_filas] %}<tr>
+          <td class="izq"><strong>{{ x.num or '(vacío)' }}</strong> <span class="meta">{{ x.tipo }}</span>
+            <div class="meta">{{ x.fecha.strftime('%d/%m/%Y') }} · {{ x.bodegas|join(', ') }}</div>
+            {% if x.estado %}<div class="meta">{{ x.estado }}</div>{% endif %}</td>
+          <td class="izq" style="white-space: normal; min-width: 150px; max-width: 220px">{{ x.cliente or '—' }}<div class="meta">{{ x.vendedor }}</div></td>
+          <td class="sep">{% if x.en.T %}{{ c(x.T_costo) }}<div class="meta">{{ x.T_lineas }} lín. · {{ "{:,.0f}".format(x.T_cant) }} u.{% if x.T_repetidas %} · <span class="falta">{{ x.T_repetidas }} repetidas</span>{% endif %}</div>{% else %}<span class="falta">no está</span>{% endif %}</td>
+          <td>{% if x.en.P %}{{ c(x.P_costo) }}<div class="meta">{{ x.P_lineas }} lín. · {{ "{:,.0f}".format(x.P_cant) }} u.</div>{% else %}<span class="falta">no está</span>{% endif %}</td>
+          <td>{% if x.en.H %}{{ c(x.H_costo) }}<div class="meta">neto {{ "{:,.2f}".format(x.H_neto) }}</div>{% else %}<span class="falta">no está</span>{% endif %}</td>
+          <td class="sep">{{ dif(x.dif_TP, f.tol) }}<div class="meta">{{ dif(x.dif_TH, f.tol) }}</div></td>
+          <td class="izq sep" style="white-space: normal; min-width: 150px; max-width: 230px">{% for k in x.problemas %}<span class="badge-p" style="--p-color: {{ problemas[k][2] }}" title="{{ problemas[k][1] }}">{{ problemas[k][0] }}</span>{% else %}<span class="cero">{{ 'Anulada sin movimiento' if x.anulada else 'Cuadra' }}</span>{% endfor %}
+            {% if 'fecha_distinta' in x.problemas %}<div class="meta">{% for k, v in x.fecha_fuente.items() if v %}{{ fuentes[k] }}: {% for x in v %}{{ x.strftime('%d/%m/%y') }}{{ ', ' if not loop.last }}{% endfor %}{{ ' · ' if not loop.last }}{% endfor %}</div>{% endif %}</td>
+          <td><button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 ver-detalle" title="Ver el detalle de la factura por producto" data-factura="{{ x.num }}" data-fecha="{{ x.fecha.isoformat() }}">
+            <i class="bi bi-search" aria-hidden="true"></i> Ver</button></td>
+        </tr>{% else %}<tr><td colspan="8" class="text-center text-muted py-4">{{ 'Ninguna factura con problemas en este período: las tres fuentes cuadran.' if f.estado == 'problemas' else 'Ninguna factura con estos filtros.' }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="modal fade" id="modalDetalle" tabindex="-1" aria-labelledby="tituloDetalle" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header py-2"><h5 class="modal-title" id="tituloDetalle">Detalle de factura</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+    <div class="modal-body" id="cuerpoDetalle"></div>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const modalEl = document.getElementById('modalDetalle');
+  const modal = new bootstrap.Modal(modalEl);
+  const cuerpo = document.getElementById('cuerpoDetalle');
+  const base = {{ {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'tol': f.tol}|tojson }};
+  document.querySelectorAll('.ver-detalle').forEach(b => b.addEventListener('click', async () => {
+    document.getElementById('tituloDetalle').textContent = `Factura ${b.dataset.factura || '(vacío)'}`;
+    cuerpo.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm"></div> Cargando…</div>';
+    modal.show();
+    const p = new URLSearchParams({ ...base, factura: b.dataset.factura, fecha: b.dataset.fecha });
+    try {
+      const r = await fetch(`{{ url_for('validacion_facturas.detalle') }}?${p}`);
+      cuerpo.innerHTML = r.ok ? await r.text() : '<div class="alert alert-danger">No se pudo cargar el detalle.</div>';
+    } catch (e) { cuerpo.innerHTML = '<div class="alert alert-danger">No se pudo cargar el detalle.</div>'; }
+  }));
+})();
+</script>
+{% endblock %}

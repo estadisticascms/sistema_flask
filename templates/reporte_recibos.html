@@ -1,90 +1,119 @@
 {% extends "layout.html" %}
+{% block title %}Recibos de caja por día{% endblock %}
+{% macro c(v) %}{{ "{:,.2f}".format(v or 0) }}{% endmacro %}
 {% block content %}
-<div class="container mt-2">
-  <h5>📑 Reporte de Recibos Diarios</h5>
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .rc h4 { color: var(--credito); }
+  .rc .kpi .valor, .rc .kpi-hero .valor { font-size: clamp(1.05rem, 1.5vw, 1.45rem); }
+  .rc .form-label { font-size: .78rem; color: var(--ink-2); margin-bottom: 2px; }
+  .tabla-rc { width: 100%; font-size: .86rem; border-collapse: separate; border-spacing: 0; }
+  .tabla-rc thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600; font-size: .76rem;
+                       text-transform: uppercase; letter-spacing: .03em; padding: .5rem .6rem; border-bottom: 2px solid var(--grid); text-align: right; white-space: nowrap; }
+  .tabla-rc th.izq, .tabla-rc td.izq { text-align: left; }
+  .tabla-rc td { padding: .45rem .6rem; border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
+  .tabla-rc tbody tr:nth-child(even) td { background: #fbfaf8; }
+  .tabla-rc tbody tr:hover td { background: #eef7f6; }
+  .tabla-rc td.fecha { font-weight: 600; } .tabla-rc td.fecha .dia { display: inline-block; width: 2.3rem; color: var(--ink-3); font-weight: 400; text-transform: capitalize; }
+  .tabla-rc tr.fin-semana td.fecha .dia { color: var(--contado); }
+  .tabla-rc td.total { font-weight: 700; background: #f0f8f6 !important; }
+  .tabla-rc td.usd { color: var(--ink-2); }
+  .tabla-rc .cant { display: inline-block; min-width: 2.2rem; text-align: center; border-radius: 999px; background: #e6f2f0; color: var(--credito); font-weight: 600; font-size: .78rem; padding: 0 .45rem; }
+  .tabla-rc .barra { height: 6px; border-radius: 3px; background: #efeee9; min-width: 110px; overflow: hidden; }
+  .tabla-rc .barra span { display: block; height: 100%; border-radius: 3px; background: var(--credito); }
+  .tabla-rc .barra span.mejor { background: var(--contado); }
+  .tabla-rc tfoot td { font-weight: 700; background: #1f1f1d; color: #fff; border: 0; position: sticky; bottom: 0; }
+  .tabla-rc tfoot td.total { background: var(--credito) !important; }
+  .grupo-iva { color: var(--ink-3); font-size: .7rem; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .rc .btn:focus-visible, .rc a:focus-visible { outline: 3px solid var(--contado); outline-offset: 2px; box-shadow: none; }
+  @media print { .no-imprimir { display: none !important; } }
+</style>
 
-  <form method="get" class="row g-3 mb-3">
-    <div class="col-auto">
-      <label class="form-label">Fecha inicio</label>
-      <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" class="form-control">
+{% set t = total %}
+<div class="dash rc container-fluid px-3 my-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <div>
+      <h4 class="mb-0"><i class="bi bi-list-check" aria-hidden="true"></i> Recibos de caja por día</h4>
+      <div class="text-muted small">{% if desde == hasta %}{{ desde.strftime('%d/%m/%Y') }}{% else %}Del {{ desde.strftime('%d/%m/%Y') }} al {{ hasta.strftime('%d/%m/%Y') }}{% endif %}
+        · recuperación diaria: subtotal, IVA 15% y total en córdobas</div>
     </div>
-    <div class="col-auto">
-      <label class="form-label">Fecha fin</label>
-      <input type="date" name="fecha_fin" value="{{ fecha_fin }}" class="form-control">
-    </div>
-    <div class="col-auto">
-      <label class="form-label">Tipo de cambio</label>
-      <input type="number" step="0.01" name="tipo_cambio" value="{{ tipo_cambio }}" class="form-control">
-    </div>
-    <div class="col-auto align-self-end">
-      <button type="submit" class="btn btn-primary">Generar</button>
+    <button type="button" class="btn btn-outline-secondary btn-sm no-imprimir" onclick="window.print()"><i class="bi bi-printer" aria-hidden="true"></i> Imprimir</button>
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3 no-imprimir">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label" for="fecha_inicio">Desde</label>
+        <input type="date" id="fecha_inicio" name="fecha_inicio" value="{{ desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="fecha_fin">Hasta</label>
+        <input type="date" id="fecha_fin" name="fecha_fin" value="{{ hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label" for="tipo_cambio">Tipo de cambio</label>
+        <input type="number" step="0.0001" min="1" id="tipo_cambio" name="tipo_cambio" value="{{ tipo_cambio }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-1 d-grid"><button class="btn btn-primary btn-sm"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+      <div class="col-12 col-lg-5 small text-muted">Períodos:
+        {% for nombre, i, fin in rangos %}<a class="ms-2" href="{{ url_for('recibos.reporte_recibos', fecha_inicio=i.isoformat(), fecha_fin=fin.isoformat(), tipo_cambio=tipo_cambio) }}">{{ nombre }}</a>{% endfor %}</div>
     </div>
   </form>
 
-</div class="row">
-    <div class="mt-4">
-    <h6>📊 Totales diarios en C$</h6>
-    <canvas id="chartRecibos" height="50"></canvas>
+  {% if not rows %}
+    <div class="alert alert-warning">No hay recibos de caja cargados en este período.</div>
+  {% else %}
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-lg-3"><div class="card kpi kpi-hero"><div class="franja" style="background: var(--credito)"></div>
+      <div class="etiqueta">Total recuperado</div><div class="valor">C$ {{ c(t.TotalCordobasCalc) }}</div>
+      <div class="sub">subtotal {{ c(t.SubtotalCordobas) }} + IVA {{ c(t.IVACordobas) }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Subtotal en dólares</div><div class="valor">US$ {{ c(t.SubtotalUSD) }}</div>
+      <div class="sub">tipo de cambio {{ tipo_cambio }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="etiqueta">Recibos</div><div class="valor">{{ "{:,}".format(t.Cantidad) }}</div>
+      <div class="sub">{{ t.dias }} día{{ 's' if t.dias != 1 }} · promedio por recibo C$ {{ c(t.promedio_recibo) }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="card kpi"><div class="franja" style="background: var(--contado)"></div>
+      <div class="etiqueta">Promedio por día</div><div class="valor">C$ {{ c(t.promedio_dia) }}</div>
+      <div class="sub">mejor día: {{ t.mejor.Dia }} {{ t.mejor.Fecha.strftime('%d/%m') }} · C$ {{ c(t.mejor.TotalCordobasCalc) }}</div></div></div>
+  </div>
+
+  {% if rows|length > 1 %}
+  <div class="card mb-3">
+    <div class="card-header">Total recuperado por día <small>C$ con IVA · línea: promedio del período</small></div>
+    <div class="card-body"><div style="height: 240px"><canvas id="chartRecibos" role="img" aria-label="Total de recibos de caja por día"></canvas></div></div>
+  </div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-header">Detalle por día</div>
+    <div class="table-responsive" style="max-height: 70vh">
+      <table class="tabla-rc">
+        <thead><tr><th class="izq">Fecha</th><th>Recibos</th><th>Subtotal C$ <span class="grupo-iva">(total ÷ 1.15)</span></th><th>IVA C$ <span class="grupo-iva">(15%)</span></th>
+          <th>Total C$</th><th class="izq">Peso del día</th><th>Subtotal US$</th></tr></thead>
+        <tbody>{% for r in rows %}<tr class="{{ 'fin-semana' if r.Fecha.weekday() >= 5 }}">
+          <td class="izq fecha"><span class="dia">{{ r.Dia }}</span>{{ r.Fecha.strftime('%d/%m/%Y') }}</td>
+          <td><span class="cant">{{ r.Cantidad }}</span></td>
+          <td>{{ c(r.SubtotalCordobas) }}</td><td>{{ c(r.IVACordobas) }}</td><td class="total">{{ c(r.TotalCordobasCalc) }}</td>
+          <td class="izq"><div class="barra" title="{{ '{:.1f}'.format(r.TotalCordobasCalc / t.TotalCordobasCalc * 100 if t.TotalCordobasCalc else 0) }}% del período">
+            <span class="{{ 'mejor' if r.TotalCordobasCalc == t.max_dia }}" style="width: {{ (r.TotalCordobasCalc / t.max_dia * 100) if t.max_dia else 0 }}%"></span></div></td>
+          <td class="usd">{{ c(r.SubtotalUSD) }}</td></tr>{% endfor %}</tbody>
+        <tfoot><tr><td class="izq">Total general</td><td>{{ "{:,}".format(t.Cantidad) }}</td><td>{{ c(t.SubtotalCordobas) }}</td><td>{{ c(t.IVACordobas) }}</td>
+          <td class="total">{{ c(t.TotalCordobasCalc) }}</td><td></td><td>{{ c(t.SubtotalUSD) }}</td></tr></tfoot>
+      </table>
     </div>
-</div>  
-
-<div class="table-responsive">
-<table class="table table-sm table-hover table-bordered tabla-compacta">
-    <thead>
-      <tr>
-        <th>Fecha</th>
-        <th>Cantidad Recibos</th>
-        <th>Subtotal C$</th>
-        <th>IVA C$</th>
-        <th>Total C$</th>
-        <th>Subtotal USD</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in rows %}
-      <tr>
-        <td>{{ r.Fecha }}</td>
-        <td class="text-center">{{ r.Cantidad }}</td>
-        <td class="text-end">{{ r.SubtotalCordobas|cordobas}}</td>
-        <td class="text-end">{{ r.IVACordobas|cordobas }}</td>
-        <td class="text-end">{{ r.TotalCordobasCalc|cordobas}}</td>
-        <td class="text-end">{{ r.SubtotalUSD|dolares}}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-    <tfoot>
-      <tr class="table-light fw-bold">
-        <td>Total General</td>
-        <td></td>
-        <td class="text-end">{{ total_general_subtotal|cordobas }}</td>
-        <td class="text-end">{{ total_general_iva|cordobas }}</td>
-        <td class="text-end">{{ total_general_cordobas|cordobas }}</td>
-        <td class="text-end">{{ total_general_usd|dolares }}</td>
-      </tr>
-    </tfoot>
-  </table>
-
+    <div class="card-footer small text-muted">El monto de cada recibo incluye IVA: subtotal = total ÷ 1.15; IVA = subtotal × 15%; US$ = subtotal ÷ tipo de cambio. La barra naranja es el día de más recuperación.</div>
+  </div>
+  {% endif %}
+</div>
 {% endblock %}
 {% block scripts %}
+{% if rows|length > 1 %}
 <script>
-  const ctx = document.getElementById('chartRecibos').getContext('2d');
-  new Chart(ctx, {
+  const valores = {{ chart_values|tojson }};
+  const promedio = valores.reduce((a, b) => a + b, 0) / valores.length;
+  new Chart(document.getElementById('chartRecibos'), {
     type: 'bar',
-    data: {
-      labels: {{ chart_labels|tojson }},
-      datasets: [{
-        label: 'Total C$',
-        data: {{ chart_values|tojson }},
-        backgroundColor: 'rgba(2, 114, 102,0.5)',
-        borderColor: '#e05510',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      scales: {
-        y: { beginAtZero: true }
-      }
-    }
+    data: { labels: {{ chart_labels|tojson }}, datasets: [
+      { type: 'line', label: 'Promedio', data: valores.map(() => promedio), borderColor: '#FE6412', borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0 },
+      { label: 'Total C$', data: valores, backgroundColor: '#027266', borderRadius: 3 } ] },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false },
+      tooltip: { callbacks: { label: (c) => `${c.dataset.label}: C$ ${c.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` } } },
+      scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#ecebe8' },
+        ticks: { callback: (v) => v >= 1e6 ? (v / 1e6).toFixed(1) + ' M' : (v / 1000).toLocaleString() + 'k' } } } }
   });
 </script>
+{% endif %}
 {% endblock %}

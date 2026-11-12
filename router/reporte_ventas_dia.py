@@ -1,4 +1,5 @@
-"""Ventas por día con desglose de impuestos, para cuadrar con el área financiera.
+"""Ventas y recibos de caja por día: ventas con desglose de impuestos (para cuadrar con el área financiera) y la recuperación
+(recibos de caja) del mismo período, con los mismos números del reporte de recibos (router/recibos.recibos_por_dia).
 
 Por día y tipo de venta (contado / crédito):
 - Facturado: subtotal, descuento, venta neta (gravada y exenta), IVA débito y total. Sin facturas anuladas.
@@ -19,6 +20,7 @@ from openpyxl.utils import get_column_letter
 
 from router.accesos import requiere_acceso
 from utils.db import get_connection
+from router.recibos import recibos_por_dia
 
 ventas_dia_bp = Blueprint("ventas_dia", __name__)
 
@@ -173,10 +175,16 @@ def reporte():
     rangos = [("Último día", ultima, ultima), ("Ayer", ultima - timedelta(days=1), ultima - timedelta(days=1)),
               ("Mes en curso", ultima.replace(day=1), ultima),
               ("Mes anterior", (ultima.replace(day=1) - timedelta(days=1)).replace(day=1), ultima.replace(day=1) - timedelta(days=1))]
-    grafico = {"labels": [f"{DIAS[x['fecha'].weekday()]} {x['fecha']:%d/%m}" for x in d["filas"]],
-               "contado": [float(x["tipos"]["CONTADO"]["neto_final"]) for x in d["filas"]],
-               "credito": [float(x["tipos"]["CREDITO"]["neto_final"]) for x in d["filas"]]}
-    return render_template("reporte_ventas_dia.html", f=f, d=d, cuadre=CUADRE, tipos=TIPOS, dias=DIAS,
+    rc = recibos_por_dia(f["desde"], f["hasta"], f["tc"])
+    # Gráfico: todos los días con ventas o recibos
+    ventas = {x["fecha"]: x for x in d["filas"]}
+    recibos = {r["Fecha"]: r for r in rc["rows"]}
+    fechas = sorted(set(ventas) | set(recibos))
+    grafico = {"labels": [f"{DIAS[x.weekday()]} {x:%d/%m}" for x in fechas],
+               "contado": [float(ventas[x]["tipos"]["CONTADO"]["neto_final"]) if x in ventas else 0 for x in fechas],
+               "credito": [float(ventas[x]["tipos"]["CREDITO"]["neto_final"]) if x in ventas else 0 for x in fechas],
+               "recibos": [round(recibos[x]["SubtotalCordobas"], 2) if x in recibos else 0 for x in fechas]}
+    return render_template("reporte_ventas_dia.html", f=f, d=d, rc=rc, cuadre=CUADRE, tipos=TIPOS, dias=DIAS,
                            rangos=rangos, grafico=grafico, tasa=int(TASA_IVA * 100))
 
 
@@ -262,9 +270,35 @@ def excel():
     fila("TOTAL", "", d["general"], True)
     ws2.freeze_panes = "C2"
 
+    # Hoja 3: recibos de caja (mismos datos del reporte de recibos por día)
+    rc = recibos_por_dia(f["desde"], f["hasta"], f["tc"])
+    ws3 = wb.create_sheet("Recibos de caja")
+    for i, (t, ancho) in enumerate([("Fecha", 12), ("Día", 6), ("Recibos", 9), ("Subtotal C$", 15), ("IVA C$", 13), ("Total C$", 15),
+                                    ("Subtotal US$", 13)], start=1):
+        c = ws3.cell(row=1, column=i, value=t)
+        c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor=VERDE)
+        c.alignment = Alignment(horizontal="center")
+        ws3.column_dimensions[get_column_letter(i)].width = ancho
+    n = 2
+    for r in rc["rows"]:
+        for col, v in enumerate([r["Fecha"], r["Dia"], r["Cantidad"], round(r["SubtotalCordobas"], 2), round(r["IVACordobas"], 2),
+                                 round(r["TotalCordobasCalc"], 2), round(r["SubtotalUSD"], 2)], start=1):
+            c = ws3.cell(row=n, column=col, value=v)
+            c.number_format = "dd/mm/yyyy" if col == 1 else ("#,##0.00" if col > 3 else "General")
+        n += 1
+    ws3.cell(row=n, column=1, value="TOTAL").font = Font(bold=True)
+    for col in range(3, 8):
+        letra = get_column_letter(col)
+        c = ws3.cell(row=n, column=col, value=f"=SUM({letra}2:{letra}{n - 1})" if n > 2 else 0)
+        c.font = Font(bold=True)
+        c.number_format = "#,##0" if col == 3 else "#,##0.00"
+    ws3.cell(row=n + 2, column=1, value="El monto de cada recibo incluye IVA: subtotal = total ÷ 1.15; IVA = subtotal × 15%; "
+             "US$ = subtotal ÷ tipo de cambio.").font = Font(size=9, italic=True)
+    ws3.freeze_panes = "A2"
+
     salida = io.BytesIO()
     wb.save(salida)
     salida.seek(0)
-    nombre = f"ventas_impuestos_{f['desde']:%Y%m%d}" + (f"_{f['hasta']:%Y%m%d}" if f["hasta"] != f["desde"] else "") + ".xlsx"
+    nombre = f"ventas_recibos_{f['desde']:%Y%m%d}" + (f"_{f['hasta']:%Y%m%d}" if f["hasta"] != f["desde"] else "") + ".xlsx"
     return send_file(salida, as_attachment=True, download_name=nombre,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

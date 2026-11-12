@@ -33,7 +33,7 @@ SECCIONES = [
         "grupos": [
             {"titulo": "Reportes de ventas", "items": [
                 ("Resumen de ventas", "/dashboard", "bi-speedometer2", "Mes en curso: ventas, recuperación, cartera e ingresos", "dashboard tablero"),
-                ("Ventas por día", "/reporte_ventas_dia", "bi-calendar3", "Evolución diaria", "diario"),
+                ("Ventas y recibos de caja por día", "/reporte_ventas_dia", "bi-calendar3", "Ventas, IVA y recuperación del día", "diario recibos caja recuperacion cobro"),
                 ("Ventas mensuales", "/reporte_ventas_mes", "bi-calendar-month", "Comparativo de meses: vendedores, top 10 productos y marcas", "mes neta contado credito devoluciones ranking comparativo"),
                 ("Armado de mangueras", "/reporte_armados", "bi-tools", "Mangueras por día, venta, margen, mano de obra y soldadura", "armados mixtas bienes taller hidraulica"),
                 ("Ventas por bodega", "/ventas_bodega", "bi-shop", "Unidades vendidas por bodega", "sucursal"),
@@ -55,6 +55,7 @@ SECCIONES = [
                 ("Revisión de precios para comisionistas", "/revision_precios_venta", "bi-tags", "¿Se respetó el precio del cliente? Para pagar su comisión", "comision comisionista precio venta descuento factura recibo auditoria"),
                 ("Ventas perdidas", "/ventas_perdidas", "bi-graph-down-arrow", "Registrar y ver oportunidades no concretadas", "faltante"),
                 ("Anulaciones por vendedor", "/anulaciones_vendedor", "bi-file-earmark-x", "Facturas anuladas por vendedor y motivo (NHE, PMF…), por día o mes", "anuladas anulacion nhe pmf existencia mal facturado"),
+                ("Validación de facturas y transacciones", "/validacion_facturas", "bi-shield-check", "Costo y cantidades: transacciones, facturas por producto e históricas; facturas que faltan", "validacion cuadre costo transacciones historicas detalle faltante duplicada auditoria"),
             ]},
         ],
     },
