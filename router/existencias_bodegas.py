@@ -10,7 +10,6 @@ from openpyxl.utils import get_column_letter
 
 from utils.db import get_connection
 from router.accesos import requiere_acceso
-from router.sugerido_compras import lista_marcas
 
 existencias_bodegas_bp = Blueprint("existencias_bodegas", __name__)
 
@@ -31,7 +30,7 @@ ORDENES = {
 def leer_filtros(fuente):
     return {
         "bodegas": sorted({b.strip() for b in fuente.getlist("bodega") if b.strip()}),
-        "marca": (fuente.get("marca") or "").strip(),
+        "marcas": sorted({m.strip() for m in fuente.getlist("marca") if m.strip()}),
         "q": (fuente.get("q") or "").strip(),
         "orden": fuente.get("orden") if fuente.get("orden") in ORDENES else "costo_total_desc",
         # por defecto solo unidades reales; la casilla desmarcada manda "0"
@@ -41,14 +40,15 @@ def leer_filtros(fuente):
 
 def params_url(f):
     p = [("bodega", b) for b in f["bodegas"]]
-    p += [(k, f[k]) for k in ("marca", "q", "orden") if f[k]]
+    p += [("marca", m) for m in f["marcas"]]
+    p += [(k, f[k]) for k in ("q", "orden") if f[k]]
     return p + [("solo_con_existencia", "1" if f["solo_con_existencia"] else "0")]
 
 
 def descripcion_filtros(f):
     partes = [("Bodega: " if len(f["bodegas"]) == 1 else "Bodegas: ") + ", ".join(f["bodegas"]) if f["bodegas"] else "Todas las bodegas"]
-    if f["marca"]:
-        partes.append(f"Marca: {f['marca']}")
+    if f["marcas"]:
+        partes.append(("Marca: " if len(f["marcas"]) == 1 else "Marcas: ") + ", ".join(f["marcas"]))
     if f["q"]:
         partes.append(f"Búsqueda: {f['q']}")
     return " · ".join(partes)
@@ -65,14 +65,41 @@ def lista_bodegas():
         conn.close()
 
 
+def lista_marcas():
+    """Marcas presentes en existencias, con cuántos productos tienen unidades."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT TRIM(Marca), COUNT(DISTINCT CASE WHEN Cant_Final > 0 THEN Codigo_producto END) FROM existencias_bodega "
+                       "WHERE Marca IS NOT NULL AND TRIM(Marca) <> '' GROUP BY TRIM(Marca) ORDER BY TRIM(Marca)")
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def clasificacion(codigos):
+    """Segmento, familia y subfamilia de cada código (clase_prod)."""
+    if not codigos:
+        return {}
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT codigo, segmento, familia, subfamilia FROM clase_prod")
+        return {str(c).strip(): (s, fa, sf) for c, s, fa, sf in cursor.fetchall() if str(c).strip() in codigos}
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def calcular(f):
     where, params = ["(Cant_Final <> 0 OR `Monto Final` <> 0)"], []
     if f["bodegas"]:
         where.append(f"Bodega IN ({', '.join(['%s'] * len(f['bodegas']))})")
         params += f["bodegas"]
-    if f["marca"]:
-        where.append("Marca = %s")
-        params.append(f["marca"])
+    if f["marcas"]:
+        where.append(f"TRIM(Marca) IN ({', '.join(['%s'] * len(f['marcas']))})")
+        params += f["marcas"]
     for palabra in f["q"].split():
         where.append("(Codigo_producto LIKE %s OR Producto LIKE %s OR `Número Parte` LIKE %s)")
         params += [f"%{palabra}%"] * 3
@@ -168,24 +195,27 @@ def excel():
     ws["A2"] = f"{descripcion_filtros(f)} · Orden: {ORDENES[f['orden']][0]} · Generado {datetime.now():%d/%m/%Y %H:%M}"
     ws["A2"].font = Font(size=9, color="52514E")
     ft = 4
-    encabezados(ws, ft, [("Código", 12), ("Nº parte", 20), ("Descripción", 42), ("Marca", 16), ("Unidad", 8), ("Bodegas", 44),
-                         ("Existencia", 11), ("Costo unitario C$", 14), ("Costo total C$", 16)])
+    encabezados(ws, ft, [("Código", 12), ("Nº parte", 20), ("Descripción", 42), ("Marca", 16), ("Segmento", 16), ("Familia", 22),
+                         ("Subfamilia", 24), ("Unidad", 8), ("Bodegas", 44), ("Existencia", 11), ("Costo unitario C$", 14), ("Costo total C$", 16)])
+    clase = clasificacion({str(x["codigo"]).strip() for x in filas})
     for n, x in enumerate(filas, start=ft + 1):
-        for col, valor in ((1, x["codigo"]), (2, x["numero_parte"]), (3, x["nombre"]), (4, x["marca"]), (5, x["uom"]), (6, texto_detalle(x))):
+        seg, fam, sub = clase.get(str(x["codigo"]).strip(), (None, None, None))
+        for col, valor in ((1, x["codigo"]), (2, x["numero_parte"]), (3, x["nombre"]), (4, x["marca"]), (5, seg or "Sin clasificar"),
+                           (6, fam or "Sin clasificar"), (7, sub or "Sin clasificar"), (8, x["uom"]), (9, texto_detalle(x))):
             celda_texto(ws, n, col, valor)
-        ws.cell(row=n, column=7, value=x["existencia"]).number_format = "#,##0.##"
-        ws.cell(row=n, column=8, value=x["costo_unit"]).number_format = "#,##0.00"
-        ws.cell(row=n, column=9, value=x["costo_total"]).number_format = "#,##0.00"
+        ws.cell(row=n, column=10, value=x["existencia"]).number_format = "#,##0.##"
+        ws.cell(row=n, column=11, value=x["costo_unit"]).number_format = "#,##0.00"
+        ws.cell(row=n, column=12, value=x["costo_total"]).number_format = "#,##0.00"
     if filas:
         tot = ft + len(filas) + 1
         ws.cell(row=tot, column=1, value=f"Total · {len(filas):,} productos").font = Font(bold=True)
-        for col, formato in ((7, "#,##0.##"), (9, "#,##0.00")):
+        for col, formato in ((10, "#,##0.##"), (12, "#,##0.00")):
             letra = get_column_letter(col)
             c = ws.cell(row=tot, column=col, value=f"=SUM({letra}{ft + 1}:{letra}{tot - 1})")
             c.font = Font(bold=True)
             c.number_format = formato
     ws.freeze_panes = ws.cell(row=ft + 1, column=4)
-    ws.auto_filter.ref = f"A{ft}:I{ft + max(len(filas), 1)}"
+    ws.auto_filter.ref = f"A{ft}:L{ft + max(len(filas), 1)}"
 
     hoja = wb.create_sheet("Por bodega")
     encabezados(hoja, 1, [("Bodega", 34), ("Productos", 11), ("Unidades", 13), ("Costo total C$", 17), ("% del costo", 11)])

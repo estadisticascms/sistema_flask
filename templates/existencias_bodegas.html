@@ -14,6 +14,9 @@
   .btn-verde:hover, .btn-verde:focus-visible { background: #025a52; border-color: #025a52; color: #fff; }
   .lista-bod { min-width: 280px; max-height: 340px; overflow-y: auto; }
   .lista-bod .form-check { padding-top: .15rem; padding-bottom: .15rem; }
+  .lista-marcas { min-width: 300px; }
+  .lista-marcas .opciones { max-height: 300px; overflow-y: auto; }
+  .lista-marcas .n { font-size: .7rem; color: var(--ink-3); }
   .tabla-eb { width: 100%; font-size: .8rem; border-collapse: separate; border-spacing: 0; min-width: 720px; }
   .tabla-eb thead th { position: sticky; top: 0; z-index: 2; background: #f6f5f1; color: var(--ink-2); font-weight: 600;
                        border-bottom: 1px solid var(--grid); padding: .45rem .5rem; white-space: nowrap; }
@@ -45,7 +48,7 @@
 
   <form method="get" id="form-filtros" class="card card-body py-2 mb-3">
     <div class="row g-2 align-items-end">
-      <div class="col-lg-4"><label class="form-label" for="btn-bodegas">Bodegas <span class="text-muted">(una o varias)</span></label>
+      <div class="col-lg-3"><label class="form-label" for="btn-bodegas">Bodegas <span class="text-muted">(una o varias)</span></label>
         <div class="dropdown">
           <button type="button" id="btn-bodegas" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown"
                   data-bs-auto-close="outside" aria-expanded="false">{{ f.bodegas|join(', ') if f.bodegas else 'Todas' }}</button>
@@ -59,8 +62,25 @@
             <div class="border-top mt-1 pt-1"><button type="button" class="btn btn-link btn-sm p-0" id="bod-ninguna">Quitar selección (todas)</button></div>
           </div>
         </div></div>
-      <div class="col-6 col-lg-2"><label class="form-label" for="marca">Marca</label>
-        <input id="marca" name="marca" list="dl-marcas" value="{{ f.marca }}" class="form-control form-control-sm" placeholder="Todas" autocomplete="off"></div>
+      <div class="col-lg-3"><label class="form-label" for="btn-marcas">Marcas <span class="text-muted">(una o varias)</span></label>
+        <div class="dropdown">
+          <button type="button" id="btn-marcas" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown"
+                  data-bs-auto-close="outside" aria-expanded="false">{{ f.marcas|join(', ') if f.marcas else 'Todas' }}</button>
+          <div class="dropdown-menu p-2 shadow-sm lista-marcas" aria-labelledby="btn-marcas">
+            <input type="search" id="buscar-marca" class="form-control form-control-sm mb-1" placeholder="Buscar marca…" autocomplete="off" aria-label="Buscar marca">
+            <div class="opciones">
+              {% for m, n in marcas %}
+              <div class="form-check opc-marca" data-texto="{{ m|lower }}">
+                <input class="form-check-input chk-marca" type="checkbox" name="marca" value="{{ m }}" id="mar-{{ loop.index }}" {% if m in f.marcas %}checked{% endif %}>
+                <label class="form-check-label small" for="mar-{{ loop.index }}">{{ m }} <span class="n">{{ n }}</span></label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="border-top mt-1 pt-1 d-flex justify-content-between gap-2">
+              <button type="button" class="btn btn-link btn-sm p-0" id="mar-visibles">Marcar las visibles</button>
+              <button type="button" class="btn btn-link btn-sm p-0" id="mar-ninguna">Quitar selección (todas)</button></div>
+          </div>
+        </div></div>
       <div class="col-6 col-lg-2"><label class="form-label" for="q">Buscar</label>
         <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, descripción, Nº parte"></div>
       <div class="col-6 col-lg-2"><label class="form-label" for="orden">Ordenar por</label>
@@ -139,20 +159,35 @@
   </div>
   {% endif %}
 </div>
-<datalist id="dl-marcas">{% for m, n in marcas %}<option value="{{ m }}">{{ n }} productos</option>{% endfor %}</datalist>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (() => {
-  const boton = document.getElementById('btn-bodegas'), casillas = [...document.querySelectorAll('.chk-bod')];
-  function texto() {
-    const v = casillas.filter(c => c.checked).map(c => c.value);
-    boton.textContent = !v.length ? 'Todas' : v.length <= 2 ? v.join(', ') : `${v.length} bodegas`;
+  function multiple(idBoton, selector, idNinguna, plural) {
+    const boton = document.getElementById(idBoton), casillas = [...document.querySelectorAll(selector)];
+    const texto = () => {
+      const v = casillas.filter(c => c.checked).map(c => c.value);
+      boton.textContent = !v.length ? 'Todas' : v.length <= 2 ? v.join(', ') : `${v.length} ${plural}`;
+    };
+    casillas.forEach(c => c.addEventListener('change', texto));
+    document.getElementById(idNinguna).addEventListener('click', () => { casillas.forEach(c => c.checked = false); texto(); });
+    texto();
+    return texto;
   }
-  casillas.forEach(c => c.addEventListener('change', texto));
-  document.getElementById('bod-ninguna').addEventListener('click', () => { casillas.forEach(c => c.checked = false); texto(); });
-  texto();
+  multiple('btn-bodegas', '.chk-bod', 'bod-ninguna', 'bodegas');
+  const textoMarcas = multiple('btn-marcas', '.chk-marca', 'mar-ninguna', 'marcas');
+  const opciones = [...document.querySelectorAll('.opc-marca')], buscar = document.getElementById('buscar-marca');
+  buscar.addEventListener('input', () => {
+    const q = buscar.value.trim().toLowerCase();
+    opciones.forEach(o => o.classList.toggle('d-none', !!q && !o.dataset.texto.includes(q)));
+  });
+  buscar.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+  document.getElementById('mar-visibles').addEventListener('click', () => {
+    opciones.filter(o => !o.classList.contains('d-none')).forEach(o => o.querySelector('input').checked = true);
+    textoMarcas();
+  });
+  document.getElementById('btn-marcas').addEventListener('shown.bs.dropdown', () => buscar.focus());
   document.getElementById('orden').addEventListener('change', (e) => e.target.form.submit());
 })();
 </script>

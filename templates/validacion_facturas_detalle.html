@@ -14,6 +14,10 @@
   .det tr.mal td { background: #fff6ef; }
   .det .est { display: inline-block; font-size: .68rem; font-weight: 600; border-radius: 4px; padding: .05rem .4rem; }
   .det .est.ok { background: #e6f2f0; color: #015a51; } .det .est.mal { background: #ffe9dc; color: #a3400a; } .det .est.anul { background: #efefed; color: #52514e; }
+  .det .donde { background: #fff6ef; border-left: 4px solid #FE6412; border-radius: 6px; padding: .45rem .7rem; font-size: .82rem; color: #1f1f1d; }
+  .det .donde div + div { margin-top: .2rem; }
+  .det .caja .dif { font-size: .72rem; font-weight: 700; }
+  .det .est.bajo { background: #fde4dc; color: #a3260a; margin-left: .2rem; }
   .det .badge-p { display: inline-block; font-size: .7rem; font-weight: 600; border-radius: 4px; padding: .05rem .45rem; margin-right: .25rem; color: #fff; background: var(--p-color); }
 </style>
 <div class="det">
@@ -26,6 +30,13 @@
     <div>{% for k in fac.problemas %}<span class="badge-p" style="--p-color: {{ problemas[k][2] }}" title="{{ problemas[k][1] }}">{{ problemas[k][0] }}</span>{% else %}
       <span class="est {{ 'anul' if fac.anulada else 'ok' }}">{{ 'Anulada sin movimiento' if fac.anulada else 'Las tres fuentes cuadran' }}</span>{% endfor %}</div>
   </div>
+  {% if fac.explicacion or fac.perdida %}
+  <div class="donde mb-2">
+    {% for frase in fac.explicacion %}<div><i class="bi bi-search" aria-hidden="true"></i> {{ frase }}</div>{% endfor %}
+    {% if fac.perdida %}<div><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ fac.bajo_costo|length }} línea{{ 's' if fac.bajo_costo|length != 1 }}
+      facturada{{ 's' if fac.bajo_costo|length != 1 }} por debajo del costo después del descuento: pérdida de <strong>C$ {{ "{:,.2f}".format(fac.perdida) }}</strong>.</div>{% endif %}
+  </div>
+  {% endif %}
   <div class="cajas mb-3">
     <div class="caja" style="--f-color: #027266"><div class="et">Transacciones</div>
       <div class="va">{% if fac.en.T %}C$ {{ c(fac.T_costo) }}{% else %}<span class="mas">No está</span>{% endif %}</div>
@@ -34,31 +45,35 @@
     <div class="caja" style="--f-color: #4F6D8A"><div class="et">Facturas por producto</div>
       <div class="va">{% if fac.anulada %}<span class="cero">Anulada</span>{% elif fac.en.P %}C$ {{ c(fac.P_costo) }}{% else %}<span class="mas">No está</span>{% endif %}</div>
       <div class="su">{{ fac.P_lineas }} líneas · {{ q(fac.P_cant) }} unid. · venta neta C$ {{ "{:,.2f}".format(fac.P_venta) }}
-        {% if fac.fecha_fuente.P %}<br>fecha {% for x in fac.fecha_fuente.P %}{{ x.strftime('%d/%m/%Y') }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</div></div>
+        {% if fac.fecha_fuente.P %}<br>fecha {% for x in fac.fecha_fuente.P %}{{ x.strftime('%d/%m/%Y') }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
+        {% if fac.dif_TP is not none and fac.dif_TP|abs > tol %}<br><span class="dif {{ 'menos' if fac.dif_TP > 0 else 'mas' }}">{{ "{:+,.2f}".format(-fac.dif_TP) }} contra transacciones</span>{% endif %}</div></div>
     <div class="caja" style="--f-color: #6D597A"><div class="et">Facturas históricas</div>
       <div class="va">{% if fac.en.H %}C$ {{ c(fac.H_costo) }}{% else %}<span class="mas">No está</span>{% endif %}</div>
       <div class="su">{{ fac.H_filas }} fila{{ 's' if fac.H_filas != 1 }} · neto C$ {{ "{:,.2f}".format(fac.H_neto) }}
-        {% if fac.fecha_fuente.H %}<br>fecha {% for x in fac.fecha_fuente.H %}{{ x.strftime('%d/%m/%Y') }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</div></div>
+        {% if fac.fecha_fuente.H %}<br>fecha {% for x in fac.fecha_fuente.H %}{{ x.strftime('%d/%m/%Y') }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
+        {% if fac.dif_TH is not none and fac.dif_TH|abs > tol %}<br><span class="dif {{ 'menos' if fac.dif_TH > 0 else 'mas' }}">{{ "{:+,.2f}".format(-fac.dif_TH) }} contra transacciones</span>{% endif %}
+        {% if fac.dif_PH is not none and fac.dif_PH|abs > tol %}<br><span class="dif {{ 'menos' if fac.dif_PH > 0 else 'mas' }}">{{ "{:+,.2f}".format(-fac.dif_PH) }} contra facturas por producto</span>{% endif %}</div></div>
   </div>
 
   <div class="fw-semibold small mb-1">Por producto: transacciones contra facturas por producto</div>
   <div class="table-responsive mb-3">
     <table>
       <thead><tr><th class="izq">Producto</th><th class="sep">Filas</th><th>Unid.</th><th>Costo unit.</th><th>Costo C$</th>
-        <th class="sep">Filas</th><th>Unid.</th><th>Costo unit.</th><th>Costo C$</th><th>Venta neta</th>
+        <th class="sep">Filas</th><th>Unid.</th><th>Costo unit.</th><th>Costo C$</th><th>Venta neta</th><th title="Venta neta (con descuento) ÷ unidades">Precio neto unit.</th>
         <th class="sep">Dif. unid.</th><th>Dif. costo</th><th class="izq">Revisión</th></tr>
-        <tr><th></th><th class="sep" colspan="4" style="text-align: center">Transacciones</th><th class="sep" colspan="5" style="text-align: center">Facturas por producto</th><th class="sep" colspan="3"></th></tr></thead>
-      <tbody>{% for p in productos %}{% set malo = p.estado not in ('Cuadra', 'Anulado') %}<tr class="{{ 'mal' if malo }}">
-        <td class="izq" style="white-space: normal; min-width: 200px"><strong>{{ p.codigo }}</strong> <span class="text-muted">{{ p.producto }}</span></td>
+        <tr><th></th><th class="sep" colspan="4" style="text-align: center">Transacciones</th><th class="sep" colspan="6" style="text-align: center">Facturas por producto</th><th class="sep" colspan="3"></th></tr></thead>
+      <tbody>{% for p in productos %}{% set malo = p.estado not in ('Cuadra', 'Anulado') %}<tr class="{{ 'mal' if malo or p.perdida }}">
+        <td class="izq" style="white-space: normal; min-width: 200px"><strong>{{ p.codigo }}</strong> <span class="text-muted">{{ p.producto }}</span>{% if p.marca %} · <span class="small">{{ p.marca }}</span>{% endif %}</td>
         <td class="sep">{{ p.T_filas or '—' }}</td><td>{{ q(p.T_cant) }}</td><td>{{ c(p.T_unit) }}</td><td>{{ c(p.T_costo) if p.T_filas else c(none) }}</td>
         <td class="sep">{{ p.P_filas or '—' }}</td><td>{{ q(p.P_cant) }}</td><td>{{ c(p.P_unit) }}</td><td>{{ c(p.P_costo) if p.P_filas else c(none) }}</td><td>{{ c(p.P_venta) if p.P_filas else c(none) }}</td>
+        <td>{% if p.P_filas %}<span class="{{ 'mas' if p.perdida }}">{{ c(p.P_precio_neto) }}</span>{% if p.desc %}<div class="small text-muted">desc. {{ "{:g}".format(p.desc) }}%</div>{% endif %}{% else %}{{ c(none) }}{% endif %}</td>
         <td class="sep">{% if p.dif_cant|abs > 0.001 %}<span class="{{ 'mas' if p.dif_cant > 0 else 'menos' }}">{{ "{:+,.2f}".format(p.dif_cant) }}</span>{% else %}<span class="cero">0</span>{% endif %}</td>
-        <td>{% if p.dif_costo|abs > tol %}<span class="{{ 'mas' if p.dif_costo > 0 else 'menos' }}">{{ "{:+,.2f}".format(p.dif_costo) }}</span>{% else %}<span class="cero">{{ "{:,.2f}".format(p.dif_costo) }}</span>{% endif %}</td>
-        <td class="izq"><span class="est {{ 'mal' if malo else ('anul' if p.estado == 'Anulado' else 'ok') }}">{{ p.estado }}</span></td></tr>
-      {% else %}<tr><td colspan="13" class="text-center text-muted py-3">Sin líneas de producto en transacciones ni en facturas por producto.</td></tr>{% endfor %}</tbody>
+        <td>{% if p.dif_costo|abs > tol %}<span class="{{ 'mas' if p.dif_costo > 0 else 'menos' }}">{{ "{:+,.2f}".format(p.dif_costo) }}</span>{% else %}<span class="cero">0.00</span>{% endif %}</td>
+        <td class="izq"><span class="est {{ 'mal' if malo else ('anul' if p.estado == 'Anulado' else 'ok') }}">{{ p.estado }}</span>{% if p.perdida %}<span class="est bajo" title="Venta neta menor que el costo">Bajo costo −{{ "{:,.2f}".format(p.perdida) }}</span>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="14" class="text-center text-muted py-3">Sin líneas de producto en transacciones ni en facturas por producto.</td></tr>{% endfor %}</tbody>
       {% if productos %}<tfoot><tr><td class="izq fw-bold">Total</td><td class="sep">{{ productos|sum(attribute='T_filas') }}</td><td>{{ q(productos|sum(attribute='T_cant')) }}</td><td></td>
         <td class="fw-bold">{{ c(productos|sum(attribute='T_costo')) }}</td><td class="sep">{{ productos|sum(attribute='P_filas') }}</td><td>{{ q(productos|sum(attribute='P_cant')) }}</td><td></td>
-        <td class="fw-bold">{{ c(productos|sum(attribute='P_costo')) }}</td><td>{{ c(productos|sum(attribute='P_venta')) }}</td>
+        <td class="fw-bold">{{ c(productos|sum(attribute='P_costo')) }}</td><td>{{ c(productos|sum(attribute='P_venta')) }}</td><td></td>
         <td class="sep"></td><td class="fw-bold">{{ c(productos|sum(attribute='dif_costo')) }}</td><td></td></tr></tfoot>{% endif %}
     </table>
   </div>
@@ -75,6 +90,7 @@
   </div>
   {% else %}<div class="text-muted small">La factura no está en facturas históricas.</div>{% endif %}
   <div class="small text-muted mt-2">«Repetida en transacciones»: la misma salida (transacción, producto, bodega, cantidad y costo) está cargada más veces que en la factura.
-    Dif. = transacciones − facturas por producto (rojo: transacciones tiene más).</div>
+    Dif. = transacciones − facturas por producto (rojo: transacciones tiene más); hasta C$ {{ "{:,.2f}".format(tol) }} se toma como redondeo.
+    «Bajo costo»: la venta neta (con descuento) es menor que unidades × costo unitario.</div>
 {% endif %}
 </div>

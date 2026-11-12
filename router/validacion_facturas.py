@@ -10,6 +10,7 @@ fecha (hasta 15 días de diferencia) se junta y se marca «Fecha distinta».
 Problemas que se detectan por factura:
   duplicada        filas idénticas repetidas en transacciones (misma transacción, producto, bodega, cantidad y costo) de más
   dif_costo        el costo no coincide entre las fuentes (más de la tolerancia)
+  bajo_costo       una línea se facturó por debajo del costo después del descuento (más de un centavo por unidad)
   dif_cantidad     las unidades de transacciones y de facturas por producto no coinciden
   sin_historica    no está en facturas históricas
   sin_detalle      no está en facturas por producto
@@ -36,11 +37,13 @@ validacion_facturas_bp = Blueprint("validacion_facturas", __name__)
 MARGEN_DIAS = 15            # se cargan días de más a cada lado para encontrar la misma factura con otra fecha
 TOLERANCIA = 1.0            # C$ de diferencia de costo que se aceptan (redondeos)
 MAX_FILAS = 1000
+CENTAVO = 0.01              # pérdida por unidad menor a un centavo no cuenta como venta bajo costo
 VERDE, NARANJA = "027266", "FE6412"
 FUENTES = {"T": "Transacciones", "P": "Facturas por producto", "H": "Facturas históricas"}
 PROBLEMAS = {
     "duplicada": ("Transacción duplicada", "Filas repetidas en transacciones: el costo y las unidades salen de más", "#b42318"),
     "dif_costo": ("Costo distinto", "El costo no coincide entre transacciones, facturas por producto e históricas", "#FE6412"),
+    "bajo_costo": ("Venta bajo costo", "Se facturó por debajo del costo después del descuento (Sub-Total 2 menor que cantidad × costo)", "#c4320a"),
     "dif_cantidad": ("Cantidad distinta", "Las unidades de transacciones y de facturas por producto no coinciden", "#D9A441"),
     "sin_historica": ("No está en históricas", "La factura no aparece en facturas históricas", "#6D597A"),
     "sin_detalle": ("No está en facturas por producto", "La factura no aparece en el detalle por producto", "#4F6D8A"),
@@ -122,13 +125,14 @@ def cargar(a, b):
             # ventas_por_producto no tiene índices y la fecha es texto 'AAAA-MM-DD'
             cursor.execute("""
                 SELECT `No. Factura`, Fecha, `Tipo Factura`, Estatus, Cliente, Vendedor, Bodega, Codigo, `Descrip Prod.`,
-                       `Cantidad Vendida`, `Costo Unit.`, `Sub-Total 2`
+                       `Cantidad Vendida`, `Costo Unit.`, `Sub-Total 2`, Marca, `Precio Facturado`, `% Desc`
                 FROM ventas_por_producto WHERE Fecha BETWEEN %s AND %s
             """, (a.isoformat(), b.isoformat()))
             P = [{"num": num_factura(r[0]), "fecha": a_fecha(r[1]), "tipo": r[2] or "", "estatus": r[3] or "", "cliente": r[4] or "",
                   "vendedor": r[5] or "", "bodega": r[6] or "", "codigo": r[7] or "", "producto": r[8] or "",
                   "cantidad": float(r[9] or 0), "costo_u": float(r[10] or 0), "costo": float(r[9] or 0) * float(r[10] or 0),
-                  "venta": float(r[11] or 0)} for r in cursor.fetchall()]
+                  "venta": float(r[11] or 0), "marca": (r[12] or "").strip(), "precio": float(r[13] or 0),
+                  "desc": float(r[14] or 0)} for r in cursor.fetchall()]
             cursor.execute("""
                 SELECT factura, Fecha, `tipo factura`, tipo_venta, Bodega, cliente, vendedor, estado_factura, neto, `Costo Total`, Total
                 FROM ventas_historicas WHERE Fecha BETWEEN %s AND %s
@@ -140,7 +144,13 @@ def cargar(a, b):
         finally:
             cursor.close()
             conn.close()
-    return en_cache(f"validacion_facturas_{a}_{b}", leer)
+    return en_cache(f"validacion_facturas2_{a}_{b}", leer)
+
+
+def bajo_costo(x):
+    """Pérdida de una línea de facturas por producto vendida por debajo del costo (0 si no)."""
+    perdida = x["costo"] - x["venta"]
+    return perdida if x["costo"] > 0 and x["cantidad"] > 0 and perdida > CENTAVO * x["cantidad"] else 0.0
 
 
 def agrupar(lineas):
@@ -202,6 +212,8 @@ def armar(num, grupo, tol):
             extra_costo += sobra * costo
             extra_cant += sobra * cant
     f["T_repetidas"], f["T_repetido_costo"] = int(extra_filas), extra_costo
+    f["bajo_costo"] = [x for x in Pv if bajo_costo(x)]
+    f["perdida"] = sum(bajo_costo(x) for x in f["bajo_costo"])
     f["dif_TP"] = f["T_costo"] - f["P_costo"] if T and Pv else None
     f["dif_TH"] = f["T_costo"] - f["H_costo"] if T and H else None
     f["dif_PH"] = f["P_costo"] - f["H_costo"] if Pv and H else None
@@ -224,6 +236,8 @@ def armar(num, grupo, tol):
                                          f["dif_PH"]) if v is not None]
         if difs_sin_rep and max(difs_sin_rep) > tol:
             p.append("dif_costo")
+        if f["bajo_costo"]:
+            p.append("bajo_costo")
         if f["dif_cant"] is not None and abs(t_cant - f["P_cant"]) > 0.001:
             p.append("dif_cantidad")
         if (T or Pv) and not H:
@@ -269,6 +283,7 @@ def calcular(f):
     dias = [{"fecha": k, **v} for k, v in sorted(por_dia.items())]
     monto_problema = {k: sum(x["dif_max"] for x in facturas if k in x["problemas"]) for k in PROBLEMAS}
     monto_problema["duplicada"] = sum(x["T_repetido_costo"] for x in facturas)
+    monto_problema["bajo_costo"] = sum(x["perdida"] for x in facturas)
 
     # ---- Tabla (filtros) ----
     filas = facturas
@@ -285,7 +300,7 @@ def calcular(f):
         filas = [x for x in filas if x["estado_val"] == "anulada"]
     elif e in PROBLEMAS:
         filas = [x for x in filas if e in x["problemas"]]
-    filas.sort(key=lambda x: (-(x["T_repetido_costo"] + x["dif_max"]), x["fecha"], x["num"]))
+    filas.sort(key=lambda x: (-(x["T_repetido_costo"] + x["dif_max"] + x["perdida"]), x["fecha"], x["num"]))
     return {"facturas": facturas, "filas": filas, "total": total, "dias": dias, "monto_problema": monto_problema}
 
 
@@ -318,8 +333,10 @@ def detalle_factura(num, fecha, tol, desde=None, hasta=None, indice=None):
             break
     else:
         return None, [], []
-    productos = defaultdict(lambda: {"codigo": "", "producto": "", "T_filas": 0, "T_cant": 0.0, "T_costo": 0.0,
-                                     "P_filas": 0, "P_cant": 0.0, "P_costo": 0.0, "P_venta": 0.0, "anulada": False})
+    fac["explicacion"] = explicar(fac, tol)
+    productos = defaultdict(lambda: {"codigo": "", "producto": "", "marca": "", "T_filas": 0, "T_cant": 0.0, "T_costo": 0.0,
+                                     "P_filas": 0, "P_cant": 0.0, "P_costo": 0.0, "P_venta": 0.0, "perdida": 0.0, "desc": 0.0,
+                                     "anulada": False})
     for x in lin["T"]:
         p = productos[x["codigo"]]
         p["codigo"], p["producto"] = x["codigo"], p["producto"] or x["producto"]
@@ -331,10 +348,14 @@ def detalle_factura(num, fecha, tol, desde=None, hasta=None, indice=None):
             p["anulada"] = True
             continue
         p["P_filas"] += 1; p["P_cant"] += x["cantidad"]; p["P_costo"] += x["costo"]; p["P_venta"] += x["venta"]
+        p["perdida"] += bajo_costo(x)
+        p["marca"] = x["marca"] or p["marca"]
+        p["desc"] = max(p["desc"], x["desc"])
     filas = []
     for p in productos.values():
         p["T_unit"] = p["T_costo"] / p["T_cant"] if p["T_cant"] else None
         p["P_unit"] = p["P_costo"] / p["P_cant"] if p["P_cant"] else None
+        p["P_precio_neto"] = p["P_venta"] / p["P_cant"] if p["P_cant"] else None
         p["dif_cant"], p["dif_costo"] = p["T_cant"] - p["P_cant"], p["T_costo"] - p["P_costo"]
         if not p["T_filas"] and not p["P_filas"]:
             p["estado"] = "Anulado"
@@ -351,8 +372,42 @@ def detalle_factura(num, fecha, tol, desde=None, hasta=None, indice=None):
         else:
             p["estado"] = "Cuadra"
         filas.append(p)
-    filas.sort(key=lambda p: (p["estado"] == "Cuadra", -abs(p["dif_costo"]), p["codigo"]))
+    filas.sort(key=lambda p: (p["estado"] == "Cuadra" and not p["perdida"], -abs(p["dif_costo"]) - p["perdida"], p["codigo"]))
     return fac, filas, lin["H"]
+
+
+def explicar(fac, tol):
+    """Frases que dicen en qué fuente está la diferencia de costo de la factura."""
+    costos = {k: fac[f"{k}_costo"] for k in ("T", "P", "H") if fac["en"][k] and not (k == "P" and fac["anulada"])}
+    if len(costos) < 2:
+        return []
+    m = lambda v: f"C$ {v:,.2f}"
+    iguales = lambda a, b: abs(costos[a] - costos[b]) <= tol
+    if all(iguales(a, b) for a in costos for b in costos):
+        return []
+    frases = []
+    if len(costos) == 3:
+        for raro, otros in (("H", ("T", "P")), ("T", ("P", "H")), ("P", ("T", "H"))):
+            if iguales(*otros) and not iguales(raro, otros[0]):
+                d = costos[raro] - costos[otros[0]]
+                frases.append(f"La diferencia está en {FUENTES[raro]}: registra {m(costos[raro])}, {m(abs(d))} "
+                              f"{'más' if d > 0 else 'menos'} que {FUENTES[otros[0]].lower()} y {FUENTES[otros[1]].lower()} "
+                              f"({m(costos[otros[0]])}), que sí cuadran entre ellas.")
+                break
+        else:
+            frases.append("Las tres fuentes tienen costos distintos: " + " · ".join(f"{FUENTES[k]} {m(v)}" for k, v in costos.items()) + ".")
+    else:
+        a, b = list(costos)
+        frases.append(f"{FUENTES[a]} registra {m(costos[a])} y {FUENTES[b].lower()} {m(costos[b])}: diferencia {m(abs(costos[a] - costos[b]))}.")
+    # ¿Históricas equivale a otra cantidad de unidades?
+    base = "T" if fac["T_cant"] else ("P" if fac["P_cant"] else None)
+    if "H" in costos and base and not iguales("H", base):
+        unit = costos[base] / fac[f"{base}_cant"]
+        n = costos["H"] / unit if unit else 0
+        if n > 0 and abs(n - round(n)) < 0.01:
+            frases.append(f"El costo de históricas equivale a {round(n):,} unidad{'es' if round(n) != 1 else ''} al costo unitario de "
+                          f"{m(unit)}, pero las líneas de la factura suman {fac[base + '_cant']:,.0f}.")
+    return frases
 
 
 # ---------------------------------------------------------------- rutas
@@ -458,6 +513,20 @@ def excel():
                   for p in prods if p["estado"] not in ("Cuadra", "Anulado")]
     escribir(ws, filas, [None, "dd/mm/yyyy", None, None, "#,##0", "#,##0.##", C, "#,##0", "#,##0.##", C, "#,##0.##", C, None],
              sumas=[7, 10, 12])
+
+    # Líneas facturadas por debajo del costo (venta neta con descuento < cantidad × costo unitario)
+    ws = wb.create_sheet("Ventas bajo costo")
+    hoja(ws, "Productos facturados por debajo del costo", [("Factura", 11), ("Fecha", 12), ("Tipo", 10), ("Cliente", 30), ("Vendedor", 22),
+         ("Bodega", 18), ("Código", 12), ("Producto", 36), ("Marca", 14), ("Cantidad", 9), ("Costo unit. C$", 12),
+         ("Precio facturado C$", 12), ("% desc.", 8), ("Precio neto unit. C$", 12), ("Costo total C$", 13), ("Venta neta C$", 13),
+         ("Dif. venta − costo C$", 13), ("Margen %", 9)])
+    bajas = sorted(((x, l) for x in d["facturas"] for l in x["bajo_costo"]), key=lambda t: (t[0]["fecha"], t[0]["num"], t[1]["codigo"]))
+    escribir(ws, [[x["num"], x["fecha"], l["tipo"], l["cliente"], l["vendedor"], l["bodega"], l["codigo"], l["producto"], l["marca"],
+                   l["cantidad"], round(l["costo_u"], 4), round(l["precio"], 4), l["desc"] / 100, round(l["venta"] / l["cantidad"], 4),
+                   round(l["costo"], 2), round(l["venta"], 2), round(l["venta"] - l["costo"], 2),
+                   (l["venta"] - l["costo"]) / l["venta"] if l["venta"] else None] for x, l in bajas],
+             [None, "dd/mm/yyyy", None, None, None, None, None, None, None, "#,##0.##", "#,##0.00", "#,##0.00", "0.0%", "#,##0.00",
+              C, C, C, "0.0%"], sumas=[10, 15, 16, 17])
 
     salida = io.BytesIO()
     wb.save(salida)
