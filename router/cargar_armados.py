@@ -43,18 +43,38 @@ NOMBRES = {"nfactura": "Factura", "fecha": "Fecha", "tipo_venta": "Contado/Créd
            "precio": "Precio", "subtotal": "Subtotal", "ganancia": "Ganancia", "mano_obra": "Mano de obra",
            "otros": "Soldadura (otros)", "estatus": "Estatus", "clave": "Factura (fecha)", "lineas": "Líneas de la factura"}
 
-# Trabajos que no son una manguera nueva (se cobra mano de obra sobre una pieza del cliente)
-SERVICIO = re.compile(r"^(HACER|ELABORACION|REPARACION|PONER|CORTAR|CAMBIAR|SOLDAR)\b")
+# Regla (gerencia, 12/11/2026): solo cuenta lo que se cobra (mano de obra y/o «otros»).
+#  - Manguera armada: el producto dice MANGUERA (o un código SAE 100R…) y la línea cobra mano de obra y/o otros.
+#  - Trabajo: el producto empieza con un trabajo (cortar, remachar, poner, hacer, reparar…) y cobra mano de obra y/o otros,
+#    aunque diga «manguera» (p. ej. «CORTAR Y PONER TERMINAL EN MANGUERA DEL CLIENTE»).
+#  - Otro cobro: cobra mano de obra u otros pero no es manguera ni trabajo (se muestra para revisar; no cuenta como manguera).
+#  - Repuesto: sin cobro de mano de obra ni otros (pieza o manguera vendida suelta).
+TRABAJO = re.compile(r"^(CORTAR|CORTE|REMACHAR|REMACHADO|PONER|COLOCAR|HACER|REPARAR|REPARACION|REPARAACION|ELABORAR|ELABORACION|"
+                     r"FABRICAR|FABRICACION|TRABAJO|CAMBIAR|CAMBIO|SOLDAR|SOLDADURA|PRENSAR|ENSAMBLAR|ARMAR|ARMADO|INSTALAR|"
+                     r"ADAPTAR|EMPALMAR|UNIR|ALARGAR|ACORTAR)\b")
+#  - Armado de fricción (12/11/2026): fricciones / revestimiento de fricción (p. ej. «UNIDAD DE REVESTIMIENTO DE FRICCIONES 4515 STD»)
+#    que cobran mano de obra y/o otros.
+# Los tres (manguera, trabajo y fricción) son los trabajos de taller.
+# «MANGUERA(S)» y sus errores de escritura frecuentes (MANGUEA, ANGUERA, MANGGUERA, MANGUREA) o el código SAE 100R1, 100R06-06…
+MANGUERA = re.compile(r"\bM?ANG+U?(?:ERA|EA|REA|RA)S?\b|\b100R\d")
+# Fricción(es) y revestimiento (también REVESTIMEINTO); sin tildes porque el sistema las quita
+FRICCION = re.compile(r"\bFRIC+I?ON(?:ES)?\b|\bREVESTIM(?:IENTO|EINTO|IETO)S?\b")
+TIPOS_LINEA = {"manguera": "Armado de manguera", "trabajo": "Trabajo", "friccion": "Armado de fricción",
+               "otro_cobro": "Otro cobro", "repuesto": "Repuesto"}
 
 
-def tipo_linea(producto, mano_obra=0):
-    """'manguera' (cuenta como manguera armada), 'servicio' (trabajo con mano de obra) o 'repuesto' (pieza suelta)."""
-    p = " ".join((producto or "").upper().split())
-    if p.startswith("MANGUERA"):
+def tipo_linea(producto, mano_obra=0, otros=0):
+    """'manguera', 'trabajo', 'friccion' (trabajos de taller), 'otro_cobro' o 'repuesto', según la regla de arriba."""
+    p = " ".join((producto or "").upper().replace("Ó", "O").split())
+    if not ((mano_obra or 0) > 0 or (otros or 0) > 0):
+        return "repuesto"
+    if FRICCION.search(p):
+        return "friccion"
+    if TRABAJO.match(p):
+        return "trabajo"
+    if MANGUERA.search(p):
         return "manguera"
-    if SERVICIO.match(p) or (mano_obra or 0) > 0:
-        return "servicio"
-    return "repuesto"
+    return "otro_cobro"
 
 
 def _encabezado(valor):
@@ -237,7 +257,7 @@ def cargar_armados():
                   f, ensure_ascii=False)
     session["carga_armados_token"] = token
     fechas = [r["fecha"] for r in registros]
-    mangueras = [r for r in registros if tipo_linea(r["producto"], r["mano_obra"]) == "manguera"]
+    mangueras = [r for r in registros if tipo_linea(r["producto"], r["mano_obra"], r["otros"]) == "manguera"]
     return _pantalla(validado=True, token=token, dif=dif, total=len(registros), desde=min(fechas), hasta=max(fechas),
                      facturas=len({(r["nfactura"], r["fecha"]) for r in registros}),
                      mangueras=sum(r["cantidad"] for r in mangueras), venta=sum(r["subtotal"] for r in registros),

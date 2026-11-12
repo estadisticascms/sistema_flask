@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block title %}Armado de Mangueras · Gerencia{% endblock %}
+{% block title %}Trabajos de taller · Gerencia{% endblock %}
 {% set meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'] %}
 {% macro cs(v) %}C$ {{ "{:,.0f}".format(v or 0) }}{% endmacro %}
 {% macro u(v) %}{{ "{:,.0f}".format(v or 0) }}{% endmacro %}
@@ -66,7 +66,7 @@
   <div class="cab">
     <img src="{{ url_for('static', filename='logo.png') }}" alt="Comersa">
     <div>
-      <div class="t">Armado de mangueras</div>
+      <div class="t">Trabajos de taller</div>
       <div class="s">Resumen para gerencia · {{ rango(f.desde, f.hasta) }}{% if c %} · comparado con {{ rango(c.desde, c.hasta) }}{% endif %}</div>
     </div>
   </div>
@@ -79,7 +79,7 @@
     <div class="kpis">
       <div class="kpi hero"><div class="e">Mangueras armadas</div><div class="v">{{ u(t.mangueras) }}</div>
         <div class="s">{% if c %}{{ dlt(c.mangueras) }} vs {{ u(c.anterior.mangueras) }} antes<br>{% endif %}
-          {{ "%.1f"|format(d.promedio_dia) }} por día · {{ t.facturas }} facturas{% if t.servicios %}<br>+ {{ u(t.servicios) }} trabajos sobre piezas del cliente{% endif %}</div></div>
+          {{ "%.1f"|format(d.promedio_dia) }} por día · {{ t.facturas }} facturas<br>+ {{ u(t.servicios) }} trabajos · {{ u(t.fricciones) }} armados de fricción</div></div>
       <div class="kpi"><div class="e">Venta neta</div><div class="v">{{ cs(t.neto) }}</div>
         <div class="s">{% if c %}{{ dlt(c.neto) }} vs período anterior<br>{% endif %}sin IVA, con descuento</div></div>
       <div class="kpi"><div class="e">Ganancia</div><div class="v">{{ cs(t.utilidad) }}</div>

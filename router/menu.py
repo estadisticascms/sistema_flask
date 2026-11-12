@@ -35,7 +35,7 @@ SECCIONES = [
                 ("Resumen de ventas", "/dashboard", "bi-speedometer2", "Mes en curso: ventas, recuperación, cartera e ingresos", "dashboard tablero"),
                 ("Ventas y recibos de caja por día", "/reporte_ventas_dia", "bi-calendar3", "Ventas, IVA y recuperación del día", "diario recibos caja recuperacion cobro"),
                 ("Ventas mensuales", "/reporte_ventas_mes", "bi-calendar-month", "Comparativo de meses: vendedores, top 10 productos y marcas", "mes neta contado credito devoluciones ranking comparativo"),
-                ("Armado de mangueras", "/reporte_armados", "bi-tools", "Mangueras por día, venta, margen, mano de obra y soldadura", "armados mixtas bienes taller hidraulica"),
+                ("Trabajos de taller", "/reporte_armados", "bi-tools", "Armado de mangueras, trabajos y armado de fricción: venta, margen y mano de obra", "armados mangueras friccion fricciones mixtas bienes taller hidraulica"),
                 ("Ventas por bodega", "/ventas_bodega", "bi-shop", "Unidades vendidas por bodega", "sucursal"),
             ]},
             {"titulo": "Por zona y departamento", "items": [
@@ -125,7 +125,7 @@ SECCIONES = [
                 ("Transacciones de inventario", "/cargar_inventario", "bi-arrow-left-right", "Entradas, salidas y ajustes", "subir excel"),
                 ("Recibos de caja", "/cargar_recibos", "bi-receipt-cutoff", "Recuperación del día", "subir excel"),
                 ("Recuperación (comisiones)", "/cargar_recuperacion", "bi-cash-stack", "Pagos de crédito por vendedor", "subir excel"),
-                ("Armado de mangueras", "/cargar_armados", "bi-tools", "Reporte Factura de Armados", "subir excel mangueras"),
+                ("Trabajos de taller (armados)", "/cargar_armados", "bi-tools", "Reporte Factura de Armados: mangueras, trabajos y fricciones", "subir excel mangueras friccion taller"),
                 ("Devoluciones", "/devoluciones", "bi-arrow-return-left", "Devoluciones de clientes", "subir excel"),
                 ("Facturas anuladas (sistema)", "/cargar_anuladas_sistema", "bi-file-earmark-x", "Reporte de anuladas del sistema, para Anulaciones por vendedor", "subir excel csv anuladas"),
             ]},

@@ -1,4 +1,4 @@
-"""Reporte de armado de mangueras (reemplaza a "Bienes y mixtas").
+"""Trabajos de taller: armado de mangueras, trabajos y armado de fricciones (reemplaza a "Bienes y mixtas").
 
 Sale de ventas_armados (router/cargar_armados.py): cuántas mangueras se arman por día, la venta, la mano de obra (MO) y lo
 cobrado de soldadura (Otros). El reporte de armados no trae el costo, así que la ganancia y el margen se toman de la factura en
@@ -11,7 +11,7 @@ from flask import Blueprint, render_template, request
 
 from utils.db import get_connection
 from router.accesos import requiere_acceso
-from router.cargar_armados import tipo_linea
+from router.cargar_armados import TIPOS_LINEA, tipo_linea
 from router.ventas_vendedor import rangos_rapidos
 
 reporte_armados_bp = Blueprint("reporte_armados", __name__)
@@ -66,14 +66,14 @@ def leer_filtros(args):
 
 
 def _acumulador(**extra):
-    return {"facturas": 0, "mangueras": Decimal(0), "servicios": Decimal(0), "subtotal": Decimal(0), "mano_obra": Decimal(0),
+    return {"facturas": 0, "mangueras": Decimal(0), "servicios": Decimal(0), "fricciones": Decimal(0), "otros_cobros": Decimal(0), "subtotal": Decimal(0), "mano_obra": Decimal(0),
             "otros": Decimal(0), "neto": Decimal(0), "costo": Decimal(0), "utilidad": Decimal(0), "neto_con_costo": Decimal(0),
             "credito": Decimal(0), "contado": Decimal(0), "mang_credito": Decimal(0), "mang_contado": Decimal(0), **extra}
 
 
 def _sumar(acc, f):
     acc["facturas"] += 1
-    for c in ("mangueras", "servicios", "subtotal", "mano_obra", "otros", "neto"):
+    for c in ("mangueras", "servicios", "fricciones", "otros_cobros", "subtotal", "mano_obra", "otros", "neto"):
         acc[c] += f[c]
     acc["credito" if f["tipo_venta"] == "CREDITO" else "contado"] += f["neto"]
     acc["mang_credito" if f["tipo_venta"] == "CREDITO" else "mang_contado"] += f["mangueras"]
@@ -98,26 +98,31 @@ def calcular(f):
                        (f["desde"], f["hasta"], f["desde"], f["hasta"])):
         ventas.setdefault((v["factura"], v["Fecha"]), []).append(v)
 
-    facturas, medidas = {}, {}
+    facturas, medidas, otros_cobros = {}, {}, []
     for l in lineas:
         clave = (l["nfactura"], l["fecha"])
         fac = facturas.get(clave)
         if fac is None:
             fac = facturas[clave] = {"nfactura": l["nfactura"], "fecha": l["fecha"], "tipo_venta": l["tipo_venta"], "cliente": l["cliente"],
                                      "facturador": l["facturador"] or "Sin dato", "vendedor": l["vendedor"] or "Sin dato",
-                                     "estatus": l["estatus"], "mangueras": Decimal(0), "servicios": Decimal(0), "subtotal": Decimal(0),
+                                     "estatus": l["estatus"], "mangueras": Decimal(0), "servicios": Decimal(0), "fricciones": Decimal(0), "otros_cobros": Decimal(0), "subtotal": Decimal(0),
                                      "mano_obra": Decimal(0), "otros": Decimal(0), "productos": []}
-        tipo = tipo_linea(l["producto"], l["mano_obra"])
+        tipo = tipo_linea(l["producto"], l["mano_obra"], l["otros"])
         if tipo == "manguera":
             fac["mangueras"] += l["cantidad"]
             m = medidas.setdefault(medida(l["producto"]), {"medida": medida(l["producto"]), "mangueras": Decimal(0), "subtotal": Decimal(0)})
             m["mangueras"] += l["cantidad"]
             m["subtotal"] += l["subtotal"]
-        elif tipo == "servicio":
+        elif tipo == "trabajo":
             fac["servicios"] += l["cantidad"]
+        elif tipo == "friccion":
+            fac["fricciones"] += l["cantidad"]
+        elif tipo == "otro_cobro":
+            fac["otros_cobros"] += l["cantidad"]
+            otros_cobros.append({**l, "tipo": tipo})
         for c in ("subtotal", "mano_obra", "otros"):
             fac[c] += l[c]
-        fac["productos"].append({**l, "tipo": tipo})
+        fac["productos"].append({**l, "tipo": tipo, "tipo_nombre": TIPOS_LINEA[tipo]})
 
     sin_costo = []
     for clave, fac in facturas.items():
@@ -148,7 +153,7 @@ def calcular(f):
         "por_vendedor": sorted((_cerrar(a) for a in por_vendedor.values()), key=lambda a: -a["neto"]),
         "medidas": sorted(medidas.values(), key=lambda m: _pulgadas(m["medida"])),
         "facturas": sorted(facturas.values(), key=lambda x: (x["fecha"], x["nfactura"])),
-        "sin_costo": sin_costo, "mixtas_sin_armado": mixtas_sin_armado,
+        "sin_costo": sin_costo, "mixtas_sin_armado": mixtas_sin_armado, "otros_cobros": otros_cobros,
     }
 
 
@@ -156,13 +161,13 @@ def armados_del_dia(dia):
     """Mangueras armadas del día y acumulado del mes (para la tarjeta de ventas del día por vendedor).
     None si no hay armados cargados en el mes; 'pendiente' = el día todavía no se ha cargado."""
     inicio = dia.replace(day=1)
-    lineas = _consulta("SELECT fecha, nfactura, tipo_venta, producto, cantidad, mano_obra FROM ventas_armados WHERE fecha BETWEEN %s AND %s",
+    lineas = _consulta("SELECT fecha, nfactura, tipo_venta, producto, cantidad, mano_obra, otros FROM ventas_armados WHERE fecha BETWEEN %s AND %s",
                        (inicio, dia))
     if not lineas:
         return None
     r = {"dia": Decimal(0), "credito": Decimal(0), "contado": Decimal(0), "mes": Decimal(0), "facturas": set(), "dias_mes": set()}
     for l in lineas:
-        if tipo_linea(l["producto"], l["mano_obra"]) != "manguera":
+        if tipo_linea(l["producto"], l["mano_obra"], l["otros"]) != "manguera":
             continue
         r["mes"] += l["cantidad"]
         r["dias_mes"].add(l["fecha"])
