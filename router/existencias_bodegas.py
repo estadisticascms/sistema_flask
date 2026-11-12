@@ -79,18 +79,16 @@ def lista_marcas():
 
 
 def clasificacion():
-    """({código: (segmento, familia, subfamilia, grupo_equival)}, {grupo: [códigos]}) de clase_prod."""
+    """({código: (segmento, familia, subfamilia)} de clase_prod, {código: Equivalencias} del catálogo de productos)."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT codigo, segmento, familia, subfamilia, grupo_equival FROM clase_prod")
-        clase, grupos = {}, {}
-        for c, s, fa, sf, g in cursor.fetchall():
-            c, g = str(c).strip(), (g or "").strip()
-            clase[c] = (s, fa, sf, g)
-            if g:
-                grupos.setdefault(g, []).append(c)
-        return clase, grupos
+        cursor.execute("SELECT codigo, segmento, familia, subfamilia FROM clase_prod")
+        clase = {str(c).strip(): (s, fa, sf) for c, s, fa, sf in cursor.fetchall()}
+        cursor.execute("SELECT `Codigo Producto`, Equivalencias FROM catalogo_productos "
+                       "WHERE Equivalencias IS NOT NULL AND TRIM(Equivalencias) <> ''")
+        equivalencias = {str(c).strip(): " ".join(e.split()) for c, e in cursor.fetchall() if c}
+        return clase, equivalencias
     finally:
         cursor.close()
         conn.close()
@@ -199,39 +197,30 @@ def excel():
     ws["A2"] = f"{descripcion_filtros(f)} · Orden: {ORDENES[f['orden']][0]} · Generado {datetime.now():%d/%m/%Y %H:%M}"
     ws["A2"].font = Font(size=9, color="52514E")
     ft = 4
-    encabezados(ws, ft, [("Código", 12), ("Nº parte", 20), ("Descripción", 42), ("Marca", 16), ("Segmento", 16), ("Familia", 22),
-                         ("Subfamilia", 24), ("Unidad", 8), ("Bodegas", 44), ("Existencia", 11), ("Costo unitario C$", 14), ("Costo total C$", 16),
-                         ("Grupo equivalente", 12), ("Códigos equivalentes (existencia)", 46), ("Existencia equivalentes", 12)])
-    clase, grupos = clasificacion()
-    # Existencia de los equivalentes en las mismas bodegas, de cualquier marca (sin filtro de marca ni búsqueda)
-    todas = filas if not (f["marcas"] or f["q"]) else calcular({**f, "marcas": [], "q": ""})[0]
-    existencia = {str(x["codigo"]).strip(): x["existencia"] for x in todas}
+    encabezados(ws, ft, [("Código", 12), ("Nº parte", 20), ("Descripción", 42), ("Equivalencias", 34), ("Marca", 16), ("Segmento", 16),
+                         ("Familia", 22), ("Subfamilia", 24), ("Unidad", 8), ("Bodegas", 44), ("Existencia", 11), ("Costo unitario C$", 14),
+                         ("Costo total C$", 16)])
+    clase, equivalencias = clasificacion()
     for n, x in enumerate(filas, start=ft + 1):
         codigo = str(x["codigo"]).strip()
-        seg, fam, sub, grupo = clase.get(codigo, (None, None, None, ""))
-        otros = [c for c in grupos.get(grupo, []) if c != codigo]
-        otros.sort(key=lambda c: -existencia.get(c, 0))
-        txt_eq = ", ".join(f"{c} ({existencia[c]:,.2f})".replace(".00)", ")") if c in existencia else c for c in otros[:20])
-        if len(otros) > 20:
-            txt_eq += f" … y {len(otros) - 20} más"
-        for col, valor in ((1, x["codigo"]), (2, x["numero_parte"]), (3, x["nombre"]), (4, x["marca"]), (5, seg or "Sin clasificar"),
-                           (6, fam or "Sin clasificar"), (7, sub or "Sin clasificar"), (8, x["uom"]), (9, texto_detalle(x)),
-                           (13, grupo), (14, txt_eq or ("Sin equivalentes" if grupo else "Sin grupo"))):
+        seg, fam, sub = clase.get(codigo, (None, None, None))
+        for col, valor in ((1, x["codigo"]), (2, x["numero_parte"]), (3, x["nombre"]), (4, equivalencias.get(codigo)), (5, x["marca"]),
+                           (6, seg or "Sin clasificar"), (7, fam or "Sin clasificar"), (8, sub or "Sin clasificar"), (9, x["uom"]),
+                           (10, texto_detalle(x))):
             celda_texto(ws, n, col, valor)
-        ws.cell(row=n, column=10, value=x["existencia"]).number_format = "#,##0.##"
-        ws.cell(row=n, column=11, value=x["costo_unit"]).number_format = "#,##0.00"
-        ws.cell(row=n, column=12, value=x["costo_total"]).number_format = "#,##0.00"
-        ws.cell(row=n, column=15, value=sum(existencia.get(c, 0) for c in otros)).number_format = "#,##0.##"
+        ws.cell(row=n, column=11, value=x["existencia"]).number_format = "#,##0.##"
+        ws.cell(row=n, column=12, value=x["costo_unit"]).number_format = "#,##0.00"
+        ws.cell(row=n, column=13, value=x["costo_total"]).number_format = "#,##0.00"
     if filas:
         tot = ft + len(filas) + 1
         ws.cell(row=tot, column=1, value=f"Total · {len(filas):,} productos").font = Font(bold=True)
-        for col, formato in ((10, "#,##0.##"), (12, "#,##0.00")):
+        for col, formato in ((11, "#,##0.##"), (13, "#,##0.00")):
             letra = get_column_letter(col)
             c = ws.cell(row=tot, column=col, value=f"=SUM({letra}{ft + 1}:{letra}{tot - 1})")
             c.font = Font(bold=True)
             c.number_format = formato
     ws.freeze_panes = ws.cell(row=ft + 1, column=4)
-    ws.auto_filter.ref = f"A{ft}:O{ft + max(len(filas), 1)}"
+    ws.auto_filter.ref = f"A{ft}:M{ft + max(len(filas), 1)}"
 
     hoja = wb.create_sheet("Por bodega")
     encabezados(hoja, 1, [("Bodega", 34), ("Productos", 11), ("Unidades", 13), ("Costo total C$", 17), ("% del costo", 11)])
