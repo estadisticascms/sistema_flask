@@ -47,7 +47,8 @@ NOMBRES = {"nfactura": "Factura", "fecha": "Fecha", "tipo_venta": "Contado/Créd
 #  - Manguera armada: el producto dice MANGUERA (o un código SAE 100R…) y la línea cobra mano de obra y/o otros.
 #  - Trabajo: el producto empieza con un trabajo (cortar, remachar, poner, hacer, reparar…) y cobra mano de obra y/o otros,
 #    aunque diga «manguera» (p. ej. «CORTAR Y PONER TERMINAL EN MANGUERA DEL CLIENTE»).
-#  - Otro cobro: cobra mano de obra u otros pero no es manguera ni trabajo (se muestra para revisar; no cuenta como manguera).
+#  - Todo lo demás que cobra mano de obra y/o otros y no dice manguera también es trabajo (13/11/2026: «SOLDAR ADAPTADORES…»,
+#    códigos sueltos…). Ya no queda «otro cobro».
 #  - Repuesto: sin cobro de mano de obra ni otros (pieza o manguera vendida suelta).
 TRABAJO = re.compile(r"^(CORTAR|CORTE|REMACHAR|REMACHADO|PONER|COLOCAR|HACER|REPARAR|REPARACION|REPARAACION|ELABORAR|ELABORACION|"
                      r"FABRICAR|FABRICACION|TRABAJO|CAMBIAR|CAMBIO|SOLDAR|SOLDADURA|PRENSAR|ENSAMBLAR|ARMAR|ARMADO|INSTALAR|"
@@ -55,8 +56,9 @@ TRABAJO = re.compile(r"^(CORTAR|CORTE|REMACHAR|REMACHADO|PONER|COLOCAR|HACER|REP
 #  - Armado de fricción (12/11/2026): fricciones / revestimiento de fricción (p. ej. «UNIDAD DE REVESTIMIENTO DE FRICCIONES 4515 STD»)
 #    que cobran mano de obra y/o otros.
 # Los tres (manguera, trabajo y fricción) son los trabajos de taller.
-# «MANGUERA(S)» y sus errores de escritura frecuentes (MANGUEA, ANGUERA, MANGGUERA, MANGUREA) o el código SAE 100R1, 100R06-06…
-MANGUERA = re.compile(r"\bM?ANG+U?(?:ERA|EA|REA|RA)S?\b|\b100R\d")
+# «MANGUERA(S)» y sus errores de escritura frecuentes (MANGUEA, ANGUERA, MANGGUERA, MANGUREA, MAGUERA, MANGUERAQ: letras pegadas
+# al final cuentan) o el código SAE 100R1, 100R06-06…
+MANGUERA = re.compile(r"\b(?:M?ANG+U?(?:ERA|EA|REA|RA)|MAGUERA|MANGUER)[A-Z]*\b|\b100R\d")
 # Fricción(es) y revestimiento (también REVESTIMEINTO); sin tildes porque el sistema las quita
 FRICCION = re.compile(r"\bFRIC+I?ON(?:ES)?\b|\bREVESTIM(?:IENTO|EINTO|IETO)S?\b")
 TIPOS_LINEA = {"manguera": "Armado de manguera", "trabajo": "Trabajo", "friccion": "Armado de fricción",
@@ -74,7 +76,7 @@ def tipo_linea(producto, mano_obra=0, otros=0):
         return "trabajo"
     if MANGUERA.search(p):
         return "manguera"
-    return "otro_cobro"
+    return "trabajo"
 
 
 def _encabezado(valor):
