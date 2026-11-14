@@ -5,8 +5,9 @@ from datetime import datetime
 
 from flask import Blueprint, render_template, request, send_file
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.pagebreak import Break
 
 from utils.db import get_connection
 from router.accesos import requiere_acceso
@@ -31,6 +32,7 @@ def leer_filtros(fuente):
     return {
         "bodegas": sorted({b.strip() for b in fuente.getlist("bodega") if b.strip()}),
         "marcas": sorted({m.strip() for m in fuente.getlist("marca") if m.strip()}),
+        "proveedores": sorted({p.strip() for p in fuente.getlist("proveedor") if p.strip()}),
         "q": (fuente.get("q") or "").strip(),
         "orden": fuente.get("orden") if fuente.get("orden") in ORDENES else "costo_total_desc",
         # por defecto solo unidades reales; la casilla desmarcada manda "0"
@@ -41,12 +43,15 @@ def leer_filtros(fuente):
 def params_url(f):
     p = [("bodega", b) for b in f["bodegas"]]
     p += [("marca", m) for m in f["marcas"]]
+    p += [("proveedor", m) for m in f["proveedores"]]
     p += [(k, f[k]) for k in ("q", "orden") if f[k]]
     return p + [("solo_con_existencia", "1" if f["solo_con_existencia"] else "0")]
 
 
 def descripcion_filtros(f):
     partes = [("Bodega: " if len(f["bodegas"]) == 1 else "Bodegas: ") + ", ".join(f["bodegas"]) if f["bodegas"] else "Todas las bodegas"]
+    if f["proveedores"]:
+        partes.append(("Proveedor: " if len(f["proveedores"]) == 1 else "Proveedores: ") + ", ".join(f["proveedores"]))
     if f["marcas"]:
         partes.append(("Marca: " if len(f["marcas"]) == 1 else "Marcas: ") + ", ".join(f["marcas"]))
     if f["q"]:
@@ -78,6 +83,23 @@ def lista_marcas():
         conn.close()
 
 
+def lista_proveedores():
+    """Proveedores de última compra (catálogo) con cuántos productos tienen existencia."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT TRIM(p.`Proveedor Ultima Compra`), COUNT(DISTINCT e.Codigo_producto)
+            FROM existencias_bodega e JOIN catalogo_productos p ON p.`Codigo Producto` = e.Codigo_producto
+            WHERE e.Cant_Final > 0 AND p.`Proveedor Ultima Compra` IS NOT NULL AND TRIM(p.`Proveedor Ultima Compra`) <> ''
+            GROUP BY 1 ORDER BY 1
+        """)
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def clasificacion():
     """({código: (segmento, familia, subfamilia)} de clase_prod, {código: Equivalencias} del catálogo de productos)."""
     conn = get_connection()
@@ -102,6 +124,10 @@ def calcular(f):
     if f["marcas"]:
         where.append(f"TRIM(Marca) IN ({', '.join(['%s'] * len(f['marcas']))})")
         params += f["marcas"]
+    if f["proveedores"]:
+        where.append(f"Codigo_producto IN (SELECT `Codigo Producto` FROM catalogo_productos "
+                     f"WHERE TRIM(`Proveedor Ultima Compra`) IN ({', '.join(['%s'] * len(f['proveedores']))}))")
+        params += f["proveedores"]
     for palabra in f["q"].split():
         where.append("(Codigo_producto LIKE %s OR Producto LIKE %s OR `Número Parte` LIKE %s)")
         params += [f"%{palabra}%"] * 3
@@ -163,7 +189,7 @@ def reporte():
     f = leer_filtros(request.args)
     filas, por_bodega, t = calcular(f)
     return render_template("existencias_bodegas.html", f=f, filas=filas[:MAX_FILAS_PANTALLA], t=t, por_bodega=por_bodega,
-                           bodegas=lista_bodegas(), marcas=lista_marcas(), ordenes=ORDENES, params=params_url(f),
+                           bodegas=lista_bodegas(), marcas=lista_marcas(), proveedores=lista_proveedores(), ordenes=ORDENES, params=params_url(f),
                            filtros_txt=descripcion_filtros(f), texto_detalle=texto_detalle)
 
 
@@ -243,4 +269,143 @@ def excel():
     wb.save(salida)
     salida.seek(0)
     return send_file(salida, as_attachment=True, download_name=f"existencias_costo_bodegas_{datetime.now():%Y-%m-%d}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# -----------------------------
+# Excel para conteo físico: por familia, una columna por bodega, total del sistema, conteo físico y diferencia
+# -----------------------------
+SIN_FAMILIA = "Sin clasificar"
+
+
+@existencias_bodegas_bp.route("/existencias_bodegas/conteo")
+@requiere_acceso("existencias_bodegas")
+def excel_conteo():
+    f = leer_filtros(request.args)
+    filas, _, _ = calcular(f)
+    clase, equivalencias = clasificacion()
+    bodegas = sorted({b for x in filas for b, _ in x["detalle"]})
+    nb = len(bodegas)
+
+    # Columnas: Código, Nº parte, Equivalencia, Descripción, Marca, Unidad, <bodegas>, Total sistema, Conteo físico, Diferencia
+    c_bod = 7
+    c_tot, c_conteo, c_dif = c_bod + nb, c_bod + nb + 1, c_bod + nb + 2
+    L = get_column_letter
+    fino, grueso = Side(style="thin", color="000000"), Side(style="medium", color="000000")
+    borde = Border(left=fino, right=fino, top=fino, bottom=fino)
+    centro = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    izq = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    NUM = '#,##0;-#,##0;"-"'
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Conteo físico"
+    ws["A1"] = "Grupo Comersa · Inventario por familia y bodega"
+    ws["A1"].font = Font(bold=True, size=13)
+    ws["A2"] = (f"{descripcion_filtros(f)} · Existencias del sistema al {datetime.now():%d/%m/%Y %H:%M}. "
+                f"Columna {L(c_conteo)} para el conteo físico; {L(c_dif)} calcula la diferencia (conteo − sistema).")
+    ws["A2"].font = Font(italic=True, size=9)
+
+    enc = 4
+    nombres = ["Código", "Nº parte", "Equivalencia", "Descripción", "Marca", "Unidad"] + bodegas + ["Total sistema", "Conteo físico", "Diferencia"]
+    anchos = [11, 18, 34, 40, 11, 7] + [8] * nb + [8, 13, 11]
+    for i, (nombre, ancho) in enumerate(zip(nombres, anchos), start=1):
+        c = ws.cell(row=enc, column=i, value=nombre)
+        c.font = Font(bold=True, size=9)
+        c.border = Border(left=fino, right=fino, top=grueso, bottom=grueso)
+        vertical = c_bod <= i <= c_tot
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True, text_rotation=90 if vertical else 0)
+        ws.column_dimensions[L(i)].width = ancho
+    ws.row_dimensions[enc].height = 70 if nb else 30
+
+    # Agrupar por familia (sin clasificar al final) y ordenar por número de parte
+    grupos = {}
+    for x in filas:
+        fam = (clase.get(str(x["codigo"]).strip(), (None, None, None))[1] or "").strip() or SIN_FAMILIA
+        grupos.setdefault(fam, []).append(x)
+    orden_fam = sorted(grupos, key=lambda k: (k == SIN_FAMILIA, k.upper()))
+
+    n = enc + 1
+    sumables = list(range(c_bod, c_conteo + 1)) + [c_dif]
+    primera_prod = n
+    for fam in orden_fam:
+        prods = sorted(grupos[fam], key=lambda x: (x["numero_parte"] or "", x["codigo"]))
+        c = ws.cell(row=n, column=1, value=f"FAMILIA: {fam.upper()}")
+        c.font = Font(bold=True, size=11)
+        ws.merge_cells(start_row=n, start_column=1, end_row=n, end_column=c_dif)
+        for col in range(1, c_dif + 1):
+            ws.cell(row=n, column=col).border = Border(top=grueso, bottom=grueso, left=grueso if col == 1 else None,
+                                                       right=grueso if col == c_dif else None)
+        ws.row_dimensions[n].height = 18
+        n += 1
+        ini = n
+        for x in prods:
+            codigo = str(x["codigo"]).strip()
+            por_bod = {}
+            for b, cant in x["detalle"]:
+                por_bod[b] = por_bod.get(b, 0) + cant
+            for col, valor in ((1, x["codigo"]), (2, x["numero_parte"]), (3, equivalencias.get(codigo)), (4, x["nombre"]),
+                               (5, x["marca"]), (6, x["uom"])):
+                celda_texto(ws, n, col, valor)
+                ws.cell(row=n, column=col).alignment = centro if col in (5, 6) else izq
+            for j, b in enumerate(bodegas):
+                ws.cell(row=n, column=c_bod + j, value=por_bod.get(b, 0))
+            ws.cell(row=n, column=c_tot, value=f"=SUM({L(c_bod)}{n}:{L(c_tot - 1)}{n})" if nb else x["existencia"])
+            ws.cell(row=n, column=c_dif, value=f'=IF({L(c_conteo)}{n}="","",{L(c_conteo)}{n}-{L(c_tot)}{n})')
+            for col in range(1, c_dif + 1):
+                c = ws.cell(row=n, column=col)
+                c.border = borde
+                c.font = Font(size=8, bold=(col == c_tot))
+                if col >= c_bod:
+                    c.number_format = NUM
+                    c.alignment = centro
+            n += 1
+        fin = n - 1
+        # Subtotal de la familia (SUBTOTAL para que el total general no lo cuente dos veces)
+        ws.cell(row=n, column=1, value=f"Subtotal {fam}")
+        ws.cell(row=n, column=6, value=f"{len(prods)} artículo{'s' if len(prods) != 1 else ''}")
+        for col in sumables:
+            ws.cell(row=n, column=col, value=f"=SUBTOTAL(9,{L(col)}{ini}:{L(col)}{fin})").number_format = NUM
+        for col in range(1, c_dif + 1):
+            c = ws.cell(row=n, column=col)
+            c.font = Font(bold=True, size=8)
+            c.border = Border(left=fino, right=fino, top=grueso, bottom=Side(style="double", color="000000"))
+            if col >= 6:
+                c.alignment = centro
+        ws.row_breaks.append(Break(id=n))          # cada familia empieza en hoja nueva al imprimir
+        n += 1
+    if filas:
+        n += 1
+        ws.cell(row=n, column=1, value="TOTAL GENERAL")
+        ws.cell(row=n, column=6, value=f"{len(filas):,} artículos")
+        for col in sumables:
+            ws.cell(row=n, column=col, value=f"=SUBTOTAL(9,{L(col)}{primera_prod}:{L(col)}{n - 2})").number_format = NUM
+        for col in range(1, c_dif + 1):
+            c = ws.cell(row=n, column=col)
+            c.font = Font(bold=True, size=9)
+            c.border = Border(top=grueso, bottom=grueso, left=grueso if col == 1 else fino, right=grueso if col == c_dif else fino)
+            if col >= 6:
+                c.alignment = centro
+    else:
+        ws.cell(row=n, column=1, value="No hay productos con esos filtros.")
+
+    # Impresión: horizontal, a lo ancho de una hoja, encabezado repetido y número de página
+    ws.freeze_panes = ws.cell(row=enc + 1, column=1)
+    ws.print_title_rows = f"{enc}:{enc}"
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
+    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_options.horizontalCentered = True
+    ws.page_margins.left = ws.page_margins.right = 0.3
+    ws.page_margins.top, ws.page_margins.bottom = 0.5, 0.6
+    ws.oddFooter.center.text = "Página &P de &N · &F"
+    ws.oddFooter.center.size = 8
+
+    salida = io.BytesIO()
+    wb.save(salida)
+    salida.seek(0)
+    nombre = "_".join(x for x in ["inventario_conteo", "_".join(f["proveedores"] or f["marcas"])[:40], f"{datetime.now():%Y-%m-%d}"] if x)
+    nombre = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in nombre)
+    return send_file(salida, as_attachment=True, download_name=f"{nombre}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

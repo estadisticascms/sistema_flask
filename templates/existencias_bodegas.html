@@ -41,8 +41,13 @@
       <div class="text-muted small">{{ filtros_txt }}</div>
     </div>
     {% if filas %}
-    <a class="btn btn-verde btn-sm" href="{{ url_for('existencias_bodegas.excel') }}?{{ params|urlencode }}">
-      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-verde btn-sm" href="{{ url_for('existencias_bodegas.excel') }}?{{ params|urlencode }}">
+        <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>
+      <a class="btn btn-outline-dark btn-sm" href="{{ url_for('existencias_bodegas.excel_conteo') }}?{{ params|urlencode }}"
+         title="Por familia, una columna por bodega, total del sistema y columnas para conteo físico y diferencia; listo para imprimir">
+        <i class="bi bi-clipboard-check" aria-hidden="true"></i> Excel para conteo físico</a>
+    </div>
     {% endif %}
   </div>
 
@@ -62,26 +67,28 @@
             <div class="border-top mt-1 pt-1"><button type="button" class="btn btn-link btn-sm p-0" id="bod-ninguna">Quitar selección (todas)</button></div>
           </div>
         </div></div>
-      <div class="col-lg-3"><label class="form-label" for="btn-marcas">Marcas <span class="text-muted">(una o varias)</span></label>
-        <div class="dropdown">
-          <button type="button" id="btn-marcas" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown"
-                  data-bs-auto-close="outside" aria-expanded="false">{{ f.marcas|join(', ') if f.marcas else 'Todas' }}</button>
-          <div class="dropdown-menu p-2 shadow-sm lista-marcas" aria-labelledby="btn-marcas">
-            <input type="search" id="buscar-marca" class="form-control form-control-sm mb-1" placeholder="Buscar marca…" autocomplete="off" aria-label="Buscar marca">
+      {% for clave, titulo, singular, lista, elegidos in [('proveedor', 'Proveedores', 'proveedor', proveedores, f.proveedores), ('marca', 'Marcas', 'marca', marcas, f.marcas)] %}
+      <div class="col-lg-3"><label class="form-label" for="btn-{{ clave }}">{{ titulo }} <span class="text-muted">(uno o varios)</span></label>
+        <div class="dropdown multi" data-clave="{{ clave }}" data-plural="{{ titulo|lower }}">
+          <button type="button" id="btn-{{ clave }}" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown"
+                  data-bs-auto-close="outside" aria-expanded="false">{{ elegidos|join(', ') if elegidos else 'Todos' }}</button>
+          <div class="dropdown-menu p-2 shadow-sm lista-marcas" aria-labelledby="btn-{{ clave }}">
+            <input type="search" class="form-control form-control-sm mb-1 buscar" placeholder="Buscar {{ singular }}…" autocomplete="off" aria-label="Buscar {{ singular }}">
             <div class="opciones">
-              {% for m, n in marcas %}
-              <div class="form-check opc-marca" data-texto="{{ m|lower }}">
-                <input class="form-check-input chk-marca" type="checkbox" name="marca" value="{{ m }}" id="mar-{{ loop.index }}" {% if m in f.marcas %}checked{% endif %}>
-                <label class="form-check-label small" for="mar-{{ loop.index }}">{{ m }} <span class="n">{{ n }}</span></label>
+              {% for m, n in lista %}
+              <div class="form-check opc" data-texto="{{ m|lower }}">
+                <input class="form-check-input chk" type="checkbox" name="{{ clave }}" value="{{ m }}" id="{{ clave }}-{{ loop.index }}" {% if m in elegidos %}checked{% endif %}>
+                <label class="form-check-label small" for="{{ clave }}-{{ loop.index }}">{{ m }} <span class="n">{{ n }}</span></label>
               </div>
               {% endfor %}
             </div>
             <div class="border-top mt-1 pt-1 d-flex justify-content-between gap-2">
-              <button type="button" class="btn btn-link btn-sm p-0" id="mar-visibles">Marcar las visibles</button>
-              <button type="button" class="btn btn-link btn-sm p-0" id="mar-ninguna">Quitar selección (todas)</button></div>
+              <button type="button" class="btn btn-link btn-sm p-0 visibles">Marcar los visibles</button>
+              <button type="button" class="btn btn-link btn-sm p-0 ninguna">Quitar selección (todos)</button></div>
           </div>
         </div></div>
-      <div class="col-6 col-lg-2"><label class="form-label" for="q">Buscar</label>
+      {% endfor %}
+      <div class="col-6 col-lg-3"><label class="form-label" for="q">Buscar</label>
         <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, descripción, Nº parte"></div>
       <div class="col-6 col-lg-2"><label class="form-label" for="orden">Ordenar por</label>
         <select id="orden" name="orden" class="form-select form-select-sm">
@@ -176,18 +183,28 @@
     return texto;
   }
   multiple('btn-bodegas', '.chk-bod', 'bod-ninguna', 'bodegas');
-  const textoMarcas = multiple('btn-marcas', '.chk-marca', 'mar-ninguna', 'marcas');
-  const opciones = [...document.querySelectorAll('.opc-marca')], buscar = document.getElementById('buscar-marca');
-  buscar.addEventListener('input', () => {
-    const q = buscar.value.trim().toLowerCase();
-    opciones.forEach(o => o.classList.toggle('d-none', !!q && !o.dataset.texto.includes(q)));
+  // Proveedores y marcas: lista con buscador
+  document.querySelectorAll('.multi').forEach(caja => {
+    const boton = caja.querySelector('button[data-bs-toggle]'), buscar = caja.querySelector('.buscar');
+    const opciones = [...caja.querySelectorAll('.opc')], casillas = [...caja.querySelectorAll('.chk')];
+    const texto = () => {
+      const v = casillas.filter(c => c.checked).map(c => c.value);
+      boton.textContent = !v.length ? 'Todos' : v.length <= 2 ? v.join(', ') : `${v.length} ${caja.dataset.plural}`;
+    };
+    casillas.forEach(c => c.addEventListener('change', texto));
+    buscar.addEventListener('input', () => {
+      const q = buscar.value.trim().toLowerCase();
+      opciones.forEach(o => o.classList.toggle('d-none', !!q && !o.dataset.texto.includes(q)));
+    });
+    buscar.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+    caja.querySelector('.visibles').addEventListener('click', () => {
+      opciones.filter(o => !o.classList.contains('d-none')).forEach(o => o.querySelector('input').checked = true);
+      texto();
+    });
+    caja.querySelector('.ninguna').addEventListener('click', () => { casillas.forEach(c => c.checked = false); texto(); });
+    boton.addEventListener('shown.bs.dropdown', () => buscar.focus());
+    texto();
   });
-  buscar.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
-  document.getElementById('mar-visibles').addEventListener('click', () => {
-    opciones.filter(o => !o.classList.contains('d-none')).forEach(o => o.querySelector('input').checked = true);
-    textoMarcas();
-  });
-  document.getElementById('btn-marcas').addEventListener('shown.bs.dropdown', () => buscar.focus());
   document.getElementById('orden').addEventListener('change', (e) => e.target.form.submit());
 })();
 </script>
