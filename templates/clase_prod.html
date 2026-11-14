@@ -330,15 +330,15 @@
           </td>
           <td class="num">{{ "{:,.0f}".format(r.existencia or 0) }}</td>
           <td><input form="{{ fid }}" name="segmento" value="{{ r.segmento or '' }}" list="dl-segmentos" class="campo"
-                     placeholder="Asignar…" maxlength="45" aria-label="Segmento de {{ r.codigo }}">{% if r.sug and r.sug.segmento and r.sug.segmento != (r.segmento or '') %}<button type="button" class="sug" data-campo="segmento" data-valor="{{ r.sug.segmento }}" title="Usar sugerencia: {{ r.sug.segmento }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.segmento }}</button>{% endif %}</td>
+                     placeholder="Asignar…" maxlength="100" aria-label="Segmento de {{ r.codigo }}">{% if r.sug and r.sug.segmento and r.sug.segmento != (r.segmento or '') %}<button type="button" class="sug" data-campo="segmento" data-valor="{{ r.sug.segmento }}" title="Usar sugerencia: {{ r.sug.segmento }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.segmento }}</button>{% endif %}</td>
           <td><input form="{{ fid }}" name="familia" value="{{ r.familia or '' }}" list="dl-familias" class="campo campo-familia"
-                     data-sub="sub-{{ fid }}" placeholder="Asignar…" maxlength="45" aria-label="Familia de {{ r.codigo }}">{% if r.sug and r.sug.familia and r.sug.familia != (r.familia or '') %}<button type="button" class="sug" data-campo="familia" data-valor="{{ r.sug.familia }}" title="Usar sugerencia: {{ r.sug.familia }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.familia }}</button>{% endif %}</td>
+                     data-sub="sub-{{ fid }}" placeholder="Asignar…" maxlength="100" aria-label="Familia de {{ r.codigo }}">{% if r.sug and r.sug.familia and r.sug.familia != (r.familia or '') %}<button type="button" class="sug" data-campo="familia" data-valor="{{ r.sug.familia }}" title="Usar sugerencia: {{ r.sug.familia }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.familia }}</button>{% endif %}</td>
           <td><input form="{{ fid }}" name="subfamilia" id="sub-{{ fid }}" value="{{ r.subfamilia or '' }}" list="dl-sub-todas" class="campo"
-                     placeholder="Asignar…" maxlength="45" aria-label="Subfamilia de {{ r.codigo }}">{% if r.sug and r.sug.subfamilia and r.sug.subfamilia != (r.subfamilia or '') %}<button type="button" class="sug" data-campo="subfamilia" data-valor="{{ r.sug.subfamilia }}" title="Usar sugerencia: {{ r.sug.subfamilia }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.subfamilia }}</button>{% endif %}</td>
+                     placeholder="Asignar…" maxlength="100" aria-label="Subfamilia de {{ r.codigo }}">{% if r.sug and r.sug.subfamilia and r.sug.subfamilia != (r.subfamilia or '') %}<button type="button" class="sug" data-campo="subfamilia" data-valor="{{ r.sug.subfamilia }}" title="Usar sugerencia: {{ r.sug.subfamilia }}"><i class="bi bi-lightbulb" aria-hidden="true"></i> {{ r.sug.subfamilia }}</button>{% endif %}</td>
           <td>
             <div class="grupo-celda">
               <input form="{{ fid }}" name="grupo_equival" value="{{ r.grupo_equival or '' }}" class="campo"
-                     placeholder="—" maxlength="45" aria-label="Grupo de equivalencia de {{ r.codigo }}">
+                     placeholder="—" maxlength="100" aria-label="Grupo de equivalencia de {{ r.codigo }}">
               {% if r.grupo_equival %}
                 <a class="btn-icono" href="{{ url_for('clase_prod.clase_prod', grupo=r.grupo_equival) }}"
                    title="Ver productos equivalentes" aria-label="Ver productos del grupo {{ r.grupo_equival }}"><i class="bi bi-diagram-3" aria-hidden="true"></i></a>

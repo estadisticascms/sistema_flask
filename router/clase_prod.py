@@ -22,7 +22,7 @@ clase_prod_bp = Blueprint("clase_prod", __name__)
 
 POR_PAGINA = 50
 LARGO_CODIGO = 10
-LARGO_CAMPO = 45
+LARGO_CAMPO = 100           # segmento, familia, subfamilia y grupo_equival: VARCHAR(100) desde 14/11/2026
 CAMPOS = ["segmento", "familia", "subfamilia", "grupo_equival"]
 POR_CLASIFICAR = "Por clasificar"
 SEGMENTOS_BASE = ["Liviano", "Pesado", "Agrícola", "Industrial", "Mixto (liviano/pesado)", "Universal",
