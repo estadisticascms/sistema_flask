@@ -449,17 +449,24 @@ def hoja_indice(wb, ws, f, indice, articulos, existencia):
     wb.active = 0
     hi["A1"] = "Grupo Comersa · Índice del inventario por familia y subfamilia"
     hi["A1"].font = Font(bold=True, size=13, color=VERDE)
-    hi["A2"] = f"{descripcion_filtros(f)} · Existencias del sistema al {datetime.now():%d/%m/%Y %H:%M}. Clic en la familia o subfamilia para ir a su sección."
+    hi["A2"] = f"{descripcion_filtros(f)} · Existencias del sistema al {datetime.now():%d/%m/%Y %H:%M}. Clic en el nombre para ir a su sección del conteo."
     hi["A2"].font = Font(italic=True, size=9, color="52514E")
     fino = Side(style="thin", color="BFBFBF")
     borde = Border(left=fino, right=fino, top=fino, bottom=fino)
-    encabezados(hi, 4, [("Familia", 34), ("Subfamilia", 40), ("Nº de ítems", 12), ("Total existencias", 16)])
+    encabezados(hi, 4, [("Familia | Subfamilia", 58), ("Nº de ítems", 12), ("Total existencias", 16)])
     hoja = ws.title.replace("'", "''")
+    # Una fila por subfamilia ("Familia | Subfamilia") y al cierre de cada familia su total
+    filas_indice, total_fam = [], None
+    for fam, sub, items, exist, fila in indice + [(None, None, 0, 0, 0)]:
+        if sub is None:
+            if total_fam:
+                filas_indice.append(total_fam)
+            total_fam = (f"Total {fam}", items, exist, fila, True) if fam is not None else None
+        else:
+            filas_indice.append((f"{fam} | {sub}", items, exist, fila, False))
     n = 5
-    for fam, sub, items, exist, fila in indice:
-        es_fam = sub is None
-        valores = (fam, None if es_fam else sub, items, exist)
-        for col, valor in enumerate(valores, start=1):
+    for texto, items, exist, fila, es_fam in filas_indice:
+        for col, valor in enumerate((texto, items, exist), start=1):
             c = hi.cell(row=n, column=col, value=valor)
             if c.data_type == "f":
                 c.data_type = "s"
@@ -467,18 +474,16 @@ def hoja_indice(wb, ws, f, indice, articulos, existencia):
             c.font = Font(bold=es_fam, size=10 if es_fam else 9)
             if es_fam:
                 c.fill = PatternFill("solid", fgColor="E6F1EF")
-            if col >= 3:
-                c.number_format = "#,##0" if col == 3 else "#,##0.##"
-        vinculo = hi.cell(row=n, column=1 if es_fam else 2)
+            if col >= 2:
+                c.number_format = "#,##0" if col == 2 else "#,##0.##"
+        vinculo = hi.cell(row=n, column=1)
         vinculo.hyperlink = Hyperlink(ref=vinculo.coordinate, location=f"'{hoja}'!A{fila}")
         vinculo.font = Font(bold=es_fam, size=10 if es_fam else 9, color="0563C1", underline="single")
-        if not es_fam:
-            hi.cell(row=n, column=1).font = Font(size=9, color="808080")
         n += 1
     hi.cell(row=n, column=1, value="TOTAL GENERAL")
-    hi.cell(row=n, column=3, value=articulos).number_format = "#,##0"
-    hi.cell(row=n, column=4, value=existencia).number_format = "#,##0.##"
-    for col in range(1, 5):
+    hi.cell(row=n, column=2, value=articulos).number_format = "#,##0"
+    hi.cell(row=n, column=3, value=existencia).number_format = "#,##0.##"
+    for col in range(1, 4):
         c = hi.cell(row=n, column=col)
         c.font = Font(bold=True)
         c.border = Border(top=Side(style="medium"), bottom=Side(style="double"))
