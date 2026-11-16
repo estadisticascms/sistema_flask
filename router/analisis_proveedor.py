@@ -316,8 +316,9 @@ def calcular(f):
                       "venta_meses": unid_serie[n36 - 24:n36], "unid_serie": unid_serie, "monto_serie": monto_serie})
 
     # ---------- Resumen por marca, total y rotación (antes de los filtros de la tabla, para que cuadre con el proveedor) ----------
-    total, por_marca = nuevo_total(), defaultdict(nuevo_total)
+    total, por_marca, por_linea = nuevo_total(), defaultdict(nuevo_total), defaultdict(nuevo_total)
     sin_venta_inv = defaultdict(list)       # productos sin venta en 12 meses con inventario, por marca (para la mediana)
+    sin_venta_linea = defaultdict(list)     # lo mismo por línea (familia de la clasificación)
     por_estado = {k: {"estado": k, "nombre": nombre, "corto": corto, "color": color, "productos": 0, "disponible": 0.0,
                       "inventario_costo": 0.0, "venta_neta": 0.0, "monto_12": 0.0, "marcas": defaultdict(lambda: defaultdict(float))}
                   for k, nombre, corto, color in M.ESTADOS}
@@ -325,11 +326,13 @@ def calcular(f):
     for x in filas:
         acumular(total, x)
         acumular(por_marca[x["marca"]], x)
+        acumular(por_linea[x["familia"]], x)
         if x["estado"] == "sin_venta":
             if x["disponible"] <= 0:          # sin venta y sin existencia: no cuenta en la rotación
                 sin_venta_sin_existencia += 1
                 continue
             sin_venta_inv[x["marca"]].append(x)
+            sin_venta_linea[x["familia"]].append(x)
         e = por_estado[x["estado"]]
         e["productos"] += 1
         e["disponible"] += max(x["disponible"], 0)
@@ -360,6 +363,16 @@ def calcular(f):
     marcas = sorted(por_marca.values(), key=lambda x: -x["inventario_costo"])
     for m in marcas:
         m["lento_desde"] = M.etiqueta_mes(meses24[m["lento_desde_idx"]]) if m["lento_desde_idx"] is not None else None
+    # Resumen por línea (familia de Clasificación y fichas), con los mismos indicadores que por marca
+    segmentos = defaultdict(set)
+    for x in filas:
+        segmentos[x["familia"]].add(x["segmento"])
+    for k, v in por_linea.items():
+        v["linea"] = k
+        v["segmento"] = ", ".join(sorted(segmentos[k]))
+        resumir(v, dias, n36, sin_venta_linea[k])
+        v["lento_desde"] = M.etiqueta_mes(meses24[v["lento_desde_idx"]]) if v["lento_desde_idx"] is not None else None
+    lineas = sorted(por_linea.values(), key=lambda x: -x["inventario_costo"])
     if filas:
         resumir(total, dias, n36, [x for v in sin_venta_inv.values() for x in v])
     rent_total = total.get("rent")
@@ -434,7 +447,7 @@ def calcular(f):
                "costo_estimado": int(total["costo_estimado"]), "sin_costo": int(total["sin_costo"]),
                "estimados": [x for x in filas if x["costo_estimado"]]}
 
-    d = {"total": total, "marcas": marcas, "marcas_rent": marcas_rent, "marcas_grafico": marcas_grafico, "rotacion": rotacion,
+    d = {"total": total, "marcas": marcas, "lineas": lineas, "marcas_rent": marcas_rent, "marcas_grafico": marcas_grafico, "rotacion": rotacion,
          "rot": rot, "rent": rent_total, "dias": dias, "temporada": temp_total, "sin_actividad": sin_actividad,
          "sin_venta_sin_existencia": sin_venta_sin_existencia, "graf_meses": graf_meses, "meses": meses24,
          "etiquetas_24": [M.etiqueta_mes(m) for m in meses24], "mes_actual": mes_actual, "corte": corte, "alerta": alerta,
@@ -565,6 +578,44 @@ def _pct(v):
     return v / 100 if v is not None else None
 
 
+def _hoja_resumen(wb, nombre, titulo, nota, etiqueta, clave, grupos, d, t, extra=None):
+    """Hoja de resumen (por marca o por línea): una fila por grupo con los mismos indicadores y la fila TOTAL del proveedor.
+    `extra` = (encabezado, campo) agrega una columna de texto después del nombre (p. ej. el segmento de la línea)."""
+    cols = [(etiqueta, 30 if extra else 22)] + ([(extra[0], 18)] if extra else []) + [
+            ("Productos", 10), ("Ingresado (unid.)", 11), ("Ingresado a costo C$", 14), ("Vendido (unid.)", 11),
+            ("% vendido de lo ingresado (unid.)", 11), ("Venta neta C$", 14), ("Costo de lo vendido C$", 14), ("Utilidad bruta C$", 14),
+            ("Margen %", 9), ("Inventario disponible (unid.)", 12), ("Inventario a costo C$", 14), ("% inventario lento o sin venta", 11),
+            ("NHE (unid.)", 10), ("NHE a costo C$", 13), ("Productos sin venta 12m (con inv.)", 11), ("Inventario sin venta 12m C$", 14),
+            ("Venta 12 meses C$", 14), ("Rotación histórica", 10), ("Rotación 12 meses", 10), ("GMROI histórico", 10), ("GMROI 12 meses", 10),
+            ("Cambio 12m C$", 10), ("Cambio 12m unid.", 10), ("Lento desde", 11), ("Veredicto", 60),
+            ("Ingresado FOB US$ (ref.)", 13), ("Inventario FOB US$ (ref.)", 13)]
+    fm = [None] + ([None] if extra else []) + [U, U, C, U, P, C, C, C, P, U, C, P, U, C, U, C, C, "0.00", "0.00", "0.00", "0.00", P, P, None, None, C, C]
+    k = 1 if extra else 0                   # desplazamiento de columnas por la columna extra
+    ws = _hoja(wb, nombre, titulo, nota, cols)
+    filas = []
+    for m in grupos:
+        r = m["rent"]
+        filas.append([m[clave]] + ([m[extra[1]]] if extra else []) + [
+                      m["productos"], m["ingreso"], _r(m["ingreso_costo"]), m["vendido"], _pct(m["pct_vendido"]),
+                      _r(m["venta_neta"]), _r(m["costo_vendido"]), _r(r["utilidad"]), _pct(r["margen"]), m["disponible"],
+                      _r(m["inventario_costo"]), _pct(m["pct_lento"]), m["nhe"], _r(m["nhe_costo"]), m["sin_venta"], _r(m["sin_venta_costo"]),
+                      _r(m["monto_12"]), _r(r["rotacion_hist"]), _r(r["rotacion_12"]), _r(r["gmroi_hist"]), _r(r["gmroi_12"]),
+                      _pct(m["cambio"]), _pct(m["cambio_unid"]), m["lento_desde"], r["veredicto"], _r(m["ingreso_fob"]), _r(m["inventario_fob"])])
+    tot = _filas(ws, filas, fm, sumas=[c + k for c in (2, 3, 4, 5, 7, 8, 9, 11, 12, 14, 15, 16, 17, 18, 27, 28)])
+    if tot and d.get("rent"):
+        r = d["rent"]
+        L = get_column_letter
+        for col, v, fmt in ((6, _pct(t["pct_vendido"]), P), (10, f"=IFERROR({L(9 + k)}{tot}/{L(7 + k)}{tot},\"\")", P),
+                            (13, _pct(t["pct_lento"]), P), (19, _r(r["rotacion_hist"]), "0.00"), (20, _r(r["rotacion_12"]), "0.00"),
+                            (21, _r(r["gmroi_hist"]), "0.00"), (22, _r(r["gmroi_12"]), "0.00"), (23, _pct(t["cambio"]), P),
+                            (24, _pct(t["cambio_unid"]), P), (26, r["veredicto"], None)):
+            c = ws.cell(row=tot, column=col + k, value=v)
+            c.font = Font(bold=True)
+            if fmt:
+                c.number_format = fmt
+    return ws
+
+
 @analisis_proveedor_bp.route("/analisis_proveedor/excel")
 @requiere_acceso("analisis_proveedor")
 def excel():
@@ -599,34 +650,10 @@ def excel():
             n += 1
     ws.freeze_panes = "A5"
 
-    # --- Por marca (todas las marcas) ---
-    cols = [("Marca", 22), ("Productos", 10), ("Ingresado (unid.)", 11), ("Ingresado a costo C$", 14), ("Vendido (unid.)", 11),
-            ("% vendido de lo ingresado (unid.)", 11), ("Venta neta C$", 14), ("Costo de lo vendido C$", 14), ("Utilidad bruta C$", 14),
-            ("Margen %", 9), ("Inventario disponible (unid.)", 12), ("Inventario a costo C$", 14), ("% inventario lento o sin venta", 11),
-            ("NHE (unid.)", 10), ("NHE a costo C$", 13), ("Productos sin venta 12m (con inv.)", 11), ("Inventario sin venta 12m C$", 14),
-            ("Venta 12 meses C$", 14), ("Rotación histórica", 10), ("Rotación 12 meses", 10), ("GMROI histórico", 10), ("GMROI 12 meses", 10),
-            ("Cambio 12m C$", 10), ("Cambio 12m unid.", 10), ("Lento desde", 11), ("Veredicto", 60),
-            ("Ingresado FOB US$ (ref.)", 13), ("Inventario FOB US$ (ref.)", 13)]
-    fm = [None, U, U, C, U, P, C, C, C, P, U, C, P, U, C, U, C, C, "0.00", "0.00", "0.00", "0.00", P, P, None, None, C, C]
-    ws = _hoja(wb, "Por marca", f"Resumen por marca: {f['proveedor']}", nota, cols)
-    filas = []
-    for m in d.get("marcas", []):
-        r = m["rent"]
-        filas.append([m["marca"], m["productos"], m["ingreso"], _r(m["ingreso_costo"]), m["vendido"], _pct(m["pct_vendido"]),
-                      _r(m["venta_neta"]), _r(m["costo_vendido"]), _r(r["utilidad"]), _pct(r["margen"]), m["disponible"],
-                      _r(m["inventario_costo"]), _pct(m["pct_lento"]), m["nhe"], _r(m["nhe_costo"]), m["sin_venta"], _r(m["sin_venta_costo"]),
-                      _r(m["monto_12"]), _r(r["rotacion_hist"]), _r(r["rotacion_12"]), _r(r["gmroi_hist"]), _r(r["gmroi_12"]),
-                      _pct(m["cambio"]), _pct(m["cambio_unid"]), m["lento_desde"], r["veredicto"], _r(m["ingreso_fob"]), _r(m["inventario_fob"])])
-    tot = _filas(ws, filas, fm, sumas=[2, 3, 4, 5, 7, 8, 9, 11, 12, 14, 15, 16, 17, 18, 27, 28])
-    if tot and d.get("rent"):
-        r = d["rent"]
-        for col, v, fmt in ((6, _pct(t["pct_vendido"]), P), (10, f"=IFERROR(I{tot}/G{tot},\"\")", P), (13, _pct(t["pct_lento"]), P),
-                            (19, _r(r["rotacion_hist"]), "0.00"), (20, _r(r["rotacion_12"]), "0.00"), (21, _r(r["gmroi_hist"]), "0.00"),
-                            (22, _r(r["gmroi_12"]), "0.00"), (23, _pct(t["cambio"]), P), (24, _pct(t["cambio_unid"]), P), (26, r["veredicto"], None)):
-            c = ws.cell(row=tot, column=col, value=v)
-            c.font = Font(bold=True)
-            if fmt:
-                c.number_format = fmt
+    # --- Por marca (todas las marcas) y por línea (familia), con las mismas columnas ---
+    _hoja_resumen(wb, "Por marca", f"Resumen por marca: {f['proveedor']}", nota, "Marca", "marca", d.get("marcas", []), d, t)
+    _hoja_resumen(wb, "Por línea", f"Resumen por línea (familia de Clasificación y fichas): {f['proveedor']}", nota, "Línea", "linea",
+                  d.get("lineas", []), d, t, extra=("Segmento", "segmento"))
 
     # --- Tendencia por marca: venta mensual de 24 meses ---
     etiquetas = d.get("etiquetas_24", [])

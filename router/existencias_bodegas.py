@@ -7,6 +7,7 @@ from flask import Blueprint, render_template, request, send_file
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.hyperlink import Hyperlink
 from openpyxl.worksheet.pagebreak import Break
 
 from utils.db import get_connection
@@ -273,9 +274,10 @@ def excel():
 
 
 # -----------------------------
-# Excel para conteo físico: por familia, una columna por bodega, total del sistema, conteo físico y diferencia
+# Excel para conteo físico: índice + por familia y subfamilia, una columna por bodega, total del sistema, conteo físico y diferencia
 # -----------------------------
 SIN_FAMILIA = "Sin clasificar"
+SIN_SUBFAMILIA = "Sin subfamilia"
 
 
 @existencias_bodegas_bp.route("/existencias_bodegas/conteo")
@@ -318,27 +320,43 @@ def excel_conteo():
         ws.column_dimensions[L(i)].width = ancho
     ws.row_dimensions[enc].height = 70 if nb else 30
 
-    # Agrupar por familia (sin clasificar al final) y ordenar por número de parte
+    # Agrupar por familia y subfamilia (sin clasificar al final) y ordenar por número de parte
     grupos = {}
     for x in filas:
-        fam = (clase.get(str(x["codigo"]).strip(), (None, None, None))[1] or "").strip() or SIN_FAMILIA
-        grupos.setdefault(fam, []).append(x)
+        _, fam, sub = clase.get(str(x["codigo"]).strip(), (None, None, None))
+        fam = (fam or "").strip() or SIN_FAMILIA
+        sub = (sub or "").strip() or SIN_SUBFAMILIA
+        grupos.setdefault(fam, {}).setdefault(sub, []).append(x)
     orden_fam = sorted(grupos, key=lambda k: (k == SIN_FAMILIA, k.upper()))
 
-    n = enc + 1
-    sumables = list(range(c_bod, c_conteo + 1)) + [c_dif]
-    primera_prod = n
-    for fam in orden_fam:
-        prods = sorted(grupos[fam], key=lambda x: (x["numero_parte"] or "", x["codigo"]))
-        c = ws.cell(row=n, column=1, value=f"FAMILIA: {fam.upper()}")
-        c.font = Font(bold=True, size=11)
+    def titulo(n, texto, tamano, relleno):
+        c = ws.cell(row=n, column=1, value=texto)
+        c.font = Font(bold=True, size=tamano)
         ws.merge_cells(start_row=n, start_column=1, end_row=n, end_column=c_dif)
         for col in range(1, c_dif + 1):
-            ws.cell(row=n, column=col).border = Border(top=grueso, bottom=grueso, left=grueso if col == 1 else None,
-                                                       right=grueso if col == c_dif else None)
+            celda = ws.cell(row=n, column=col)
+            celda.border = Border(top=grueso, bottom=grueso, left=grueso if col == 1 else None,
+                                  right=grueso if col == c_dif else None)
+            if relleno:
+                celda.fill = PatternFill("solid", fgColor=relleno)
         ws.row_dimensions[n].height = 18
-        n += 1
-        ini = n
+
+    def subtotal(n, texto, articulos, ini, fin, tamano, relleno=None):
+        # SUBTOTAL ignora los subtotales anidados, así familia y total general no cuentan dos veces
+        ws.cell(row=n, column=1, value=texto)
+        ws.cell(row=n, column=6, value=f"{articulos:,} artículo{'s' if articulos != 1 else ''}")
+        for col in sumables:
+            ws.cell(row=n, column=col, value=f"=SUBTOTAL(9,{L(col)}{ini}:{L(col)}{fin})").number_format = NUM
+        for col in range(1, c_dif + 1):
+            c = ws.cell(row=n, column=col)
+            c.font = Font(bold=True, size=tamano)
+            c.border = Border(left=fino, right=fino, top=grueso, bottom=Side(style="double", color="000000"))
+            if relleno:
+                c.fill = PatternFill("solid", fgColor=relleno)
+            if col >= 6:
+                c.alignment = centro
+
+    def filas_productos(ws, n, prods):
         for x in prods:
             codigo = str(x["codigo"]).strip()
             por_bod = {}
@@ -360,18 +378,30 @@ def excel_conteo():
                     c.number_format = NUM
                     c.alignment = centro
             n += 1
-        fin = n - 1
-        # Subtotal de la familia (SUBTOTAL para que el total general no lo cuente dos veces)
-        ws.cell(row=n, column=1, value=f"Subtotal {fam}")
-        ws.cell(row=n, column=6, value=f"{len(prods)} artículo{'s' if len(prods) != 1 else ''}")
-        for col in sumables:
-            ws.cell(row=n, column=col, value=f"=SUBTOTAL(9,{L(col)}{ini}:{L(col)}{fin})").number_format = NUM
-        for col in range(1, c_dif + 1):
-            c = ws.cell(row=n, column=col)
-            c.font = Font(bold=True, size=8)
-            c.border = Border(left=fino, right=fino, top=grueso, bottom=Side(style="double", color="000000"))
-            if col >= 6:
-                c.alignment = centro
+        return n
+
+    n = enc + 1
+    sumables = list(range(c_bod, c_conteo + 1)) + [c_dif]
+    primera_prod = n
+    indice = []                                   # (familia, subfamilia | None, artículos, existencia, fila)
+    for fam in orden_fam:
+        subs = grupos[fam]
+        fila_fam = n
+        titulo(n, f"FAMILIA: {fam.upper()}", 11, None)
+        n += 1
+        ini_fam = n
+        pos_fam = len(indice)
+        for sub in sorted(subs, key=lambda k: (k == SIN_SUBFAMILIA, k.upper())):
+            prods = sorted(subs[sub], key=lambda x: (x["numero_parte"] or "", x["codigo"]))
+            indice.append((fam, sub, len(prods), sum(x["existencia"] for x in prods), n))
+            titulo(n, f"Subfamilia: {sub}", 9, "EDEDED")
+            n += 1
+            n = filas_productos(ws, n, prods)
+            subtotal(n, f"Subtotal {sub}", len(prods), n - len(prods), n - 1, 8)
+            n += 1
+        articulos = sum(len(p) for p in subs.values())
+        indice.insert(pos_fam, (fam, None, articulos, sum(x["existencia"] for p in subs.values() for x in p), fila_fam))
+        subtotal(n, f"Subtotal familia {fam}", articulos, ini_fam, n - 1, 9, "D9D9D9")
         ws.row_breaks.append(Break(id=n))          # cada familia empieza en hoja nueva al imprimir
         n += 1
     if filas:
@@ -388,6 +418,8 @@ def excel_conteo():
                 c.alignment = centro
     else:
         ws.cell(row=n, column=1, value="No hay productos con esos filtros.")
+
+    hoja_indice(wb, ws, f, indice, len(filas), sum(x["existencia"] for x in filas))
 
     # Impresión: horizontal, a lo ancho de una hoja, encabezado repetido y número de página
     ws.freeze_panes = ws.cell(row=enc + 1, column=1)
@@ -409,3 +441,50 @@ def excel_conteo():
     nombre = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in nombre)
     return send_file(salida, as_attachment=True, download_name=f"{nombre}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+def hoja_indice(wb, ws, f, indice, articulos, existencia):
+    """Primera hoja: familia, subfamilia, artículos y existencias, con vínculo a la sección del conteo."""
+    hi = wb.create_sheet("Índice", 0)
+    wb.active = 0
+    hi["A1"] = "Grupo Comersa · Índice del inventario por familia y subfamilia"
+    hi["A1"].font = Font(bold=True, size=13, color=VERDE)
+    hi["A2"] = f"{descripcion_filtros(f)} · Existencias del sistema al {datetime.now():%d/%m/%Y %H:%M}. Clic en la familia o subfamilia para ir a su sección."
+    hi["A2"].font = Font(italic=True, size=9, color="52514E")
+    fino = Side(style="thin", color="BFBFBF")
+    borde = Border(left=fino, right=fino, top=fino, bottom=fino)
+    encabezados(hi, 4, [("Familia", 34), ("Subfamilia", 40), ("Nº de ítems", 12), ("Total existencias", 16)])
+    hoja = ws.title.replace("'", "''")
+    n = 5
+    for fam, sub, items, exist, fila in indice:
+        es_fam = sub is None
+        valores = (fam, None if es_fam else sub, items, exist)
+        for col, valor in enumerate(valores, start=1):
+            c = hi.cell(row=n, column=col, value=valor)
+            if c.data_type == "f":
+                c.data_type = "s"
+            c.border = borde
+            c.font = Font(bold=es_fam, size=10 if es_fam else 9)
+            if es_fam:
+                c.fill = PatternFill("solid", fgColor="E6F1EF")
+            if col >= 3:
+                c.number_format = "#,##0" if col == 3 else "#,##0.##"
+        vinculo = hi.cell(row=n, column=1 if es_fam else 2)
+        vinculo.hyperlink = Hyperlink(ref=vinculo.coordinate, location=f"'{hoja}'!A{fila}")
+        vinculo.font = Font(bold=es_fam, size=10 if es_fam else 9, color="0563C1", underline="single")
+        if not es_fam:
+            hi.cell(row=n, column=1).font = Font(size=9, color="808080")
+        n += 1
+    hi.cell(row=n, column=1, value="TOTAL GENERAL")
+    hi.cell(row=n, column=3, value=articulos).number_format = "#,##0"
+    hi.cell(row=n, column=4, value=existencia).number_format = "#,##0.##"
+    for col in range(1, 5):
+        c = hi.cell(row=n, column=col)
+        c.font = Font(bold=True)
+        c.border = Border(top=Side(style="medium"), bottom=Side(style="double"))
+    hi.freeze_panes = "A5"
+    hi.print_title_rows = "4:4"
+    hi.page_setup.fitToWidth, hi.page_setup.fitToHeight = 1, 0
+    hi.sheet_properties.pageSetUpPr.fitToPage = True
+    hi.oddFooter.center.text = "Página &P de &N"
+    hi.oddFooter.center.size = 8

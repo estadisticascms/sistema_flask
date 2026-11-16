@@ -190,6 +190,68 @@ def reporte_productos_agotarse():
     )
 
 
+def hoja_resumen(wb, nombre, titulo, nota, etiqueta, clave, filas):
+    """Hoja con una fila por grupo (marca o línea): cuántos se agotan, ventas perdidas y lo sugerido a comprar."""
+    grupos = {}
+    for x in filas:
+        g = grupos.setdefault(clave(x), {"nombre": clave(x), "productos": 0, "agotados": 0, "menos_mes": 0, "promedio": 0.0,
+                                         "disponible": 0.0, "nhe": 0.0, "perdidas": 0.0, "sug_sin": 0, "sugerido": 0, "costo": 0.0,
+                                         "con_eq": 0})
+        g["productos"] += 1
+        g["agotados"] += x["disponible"] <= 0
+        g["menos_mes"] += 0 < x["disponible"] and x["cobertura"] < 1
+        g["promedio"] += x["promedio"]
+        g["disponible"] += max(x["disponible"], 0)
+        g["nhe"] += x["nhe"]
+        g["perdidas"] += x["perdidas"] or 0
+        g["sug_sin"] += x["sugerido_sin_perdidas"]
+        g["sugerido"] += x["sugerido"]
+        g["costo"] += x["sugerido"] * x["costo"]
+        g["con_eq"] += x["eq_disponible"] > 0
+    lista = sorted(grupos.values(), key=lambda g: (-g["costo"], -g["productos"]))
+    total_costo = sum(g["costo"] for g in lista)
+
+    ws = wb.create_sheet(nombre)
+    ws["A1"] = f"Productos próximos a agotarse · {titulo}"
+    ws["A1"].font = Font(bold=True, size=14, color=VERDE)
+    ws["A2"] = nota
+    ws["A2"].font = Font(size=9, color="52514E")
+    columnas = [(etiqueta, 30), ("Productos por agotarse", 11), ("Agotados (disponible 0)", 11), ("Menos de 1 mes", 10),
+                ("Venta promedio mensual (unid.)", 12), ("Disponible (unid.)", 11), ("En NHE (unid.)", 10),
+                ("Cobertura (meses)", 10), ("Ventas perdidas (unid.)", 11), ("Sugerido sin ventas perdidas", 12),
+                ("Sugerido (unid.)", 11), ("Costo sugerido C$", 15), ("% del costo sugerido", 10), ("Con equivalente disponible", 12)]
+    fmts = [None, "#,##0", "#,##0", "#,##0", "#,##0.0", "#,##0", "#,##0", "0.0", "#,##0", "#,##0", "#,##0", "#,##0.00", "0.0%", "#,##0"]
+    ft = 4
+    for i, (titulo_col, ancho) in enumerate(columnas, start=1):
+        c = ws.cell(row=ft, column=i, value=titulo_col)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=NARANJA if titulo_col in ("Sugerido (unid.)", "Costo sugerido C$", "Ventas perdidas (unid.)") else VERDE)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(i)].width = ancho
+    ws.row_dimensions[ft].height = 42
+    for n, g in enumerate(lista, start=ft + 1):
+        valores = [g["nombre"], g["productos"], g["agotados"], g["menos_mes"], round(g["promedio"], 2), g["disponible"], g["nhe"],
+                   f"=IFERROR(F{n}/E{n},0)", g["perdidas"] or None, g["sug_sin"], g["sugerido"], round(g["costo"], 2),
+                   g["costo"] / total_costo if total_costo else None, g["con_eq"] or None]
+        for i, (v, fmt) in enumerate(zip(valores, fmts), start=1):
+            c = ws.cell(row=n, column=i, value=v)
+            if fmt:
+                c.number_format = fmt
+    if lista:
+        tot = ft + len(lista) + 1
+        ws.cell(row=tot, column=1, value="TOTAL").font = Font(bold=True)
+        for i in (2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 14):
+            l = get_column_letter(i)
+            c = ws.cell(row=tot, column=i, value=f"=SUBTOTAL(9,{l}{ft + 1}:{l}{tot - 1})")
+            c.font, c.number_format = Font(bold=True), fmts[i - 1]
+        for i, v in ((8, f"=IFERROR(F{tot}/E{tot},0)"), (13, 1 if total_costo else None)):
+            c = ws.cell(row=tot, column=i, value=v)
+            c.font, c.number_format = Font(bold=True), fmts[i - 1]
+    ws.freeze_panes = "B5"
+    ws.auto_filter.ref = f"A{ft}:{get_column_letter(len(columnas))}{ft + max(len(lista), 1)}"
+    return ws
+
+
 @productos_agotarse_bp.route("/productos_agotarse/excel")
 @requiere_acceso("productos_agotarse")
 def descargar_excel():
@@ -254,6 +316,10 @@ def descargar_excel():
             c.number_format = fmt
     ws.freeze_panes = ws.cell(row=ft + 1, column=4)
     ws.auto_filter.ref = f"A{ft}:{get_column_letter(len(columnas))}{ft + max(len(filas), 1)}"
+
+    hoja_resumen(wb, "Por marca", "Resumen por marca", ws["A2"].value, "Marca", lambda x: x["marca"] or "Sin marca", filas)
+    hoja_resumen(wb, "Por línea", "Resumen por línea (familia de Clasificación y fichas)", ws["A2"].value, "Línea",
+                 lambda x: x["familia"] or "Sin clasificar", filas)
 
     salida = io.BytesIO()
     wb.save(salida)
