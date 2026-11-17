@@ -386,15 +386,12 @@ def excel_conteo():
     indice = []                                   # (familia, subfamilia | None, artículos, existencia, fila)
     for fam in orden_fam:
         subs = grupos[fam]
-        fila_fam = n
-        titulo(n, f"FAMILIA: {fam.upper()}", 11, None)
-        n += 1
-        ini_fam = n
+        fila_fam = ini_fam = n                    # sin fila de familia: cada subfamilia lleva "FAMILIA | Subfamilia"
         pos_fam = len(indice)
         for sub in sorted(subs, key=lambda k: (k == SIN_SUBFAMILIA, k.upper())):
             prods = sorted(subs[sub], key=lambda x: (x["numero_parte"] or "", x["codigo"]))
             indice.append((fam, sub, len(prods), sum(x["existencia"] for x in prods), n))
-            titulo(n, f"Subfamilia: {sub}", 9, "EDEDED")
+            titulo(n, f"{fam.upper()} | {sub}", 11, "EDEDED")
             n += 1
             n = filas_productos(ws, n, prods)
             subtotal(n, f"Subtotal {sub}", len(prods), n - len(prods), n - 1, 8)
