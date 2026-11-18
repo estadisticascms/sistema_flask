@@ -18,6 +18,7 @@ import io
 import json
 import math
 import os
+import re
 import uuid
 from datetime import date, datetime, timedelta
 
@@ -31,7 +32,8 @@ from utils.db import get_connection
 from router.accesos import requiere_acceso
 from router.cargar_catalogo import sin_tildes
 from router.cargar_ventas import ErrorArchivo, a_fecha as fecha_texto, a_texto, leer_filas, limpiar_temporales, ruta_temporal
-from router.cantidades_minimas import ajustar_a_minimo, minimos_por_codigo
+from router.cantidades_minimas import ajustar_a_minimo, minimos_por_codigo, partes_proveedor, registrados
+from router.cantidades_minimas import catalogo as catalogo_partes, mismo_proveedor as proveedor_contiene
 
 pedidos_importacion_bp = Blueprint("pedidos_importacion", __name__)
 VISTA = "pedidos_importacion"
@@ -113,8 +115,11 @@ def a_numero(valor):
         return None
     if isinstance(valor, (int, float)) and not isinstance(valor, bool):
         return float(valor)
+    texto = a_texto(valor).replace("$", "").replace("C", "").replace("U", "").replace(" ", "").strip()
+    if re.fullmatch(r"-?\d+,\d{1,2}", texto):          # «2,70»: coma decimal
+        texto = texto.replace(",", ".")
     try:
-        return float(a_texto(valor).replace(",", "").replace("$", "").replace("C", "").replace("U", "").strip())
+        return float(texto.replace(",", ""))           # «1,250.50»: coma de miles
     except ValueError:
         return "error"
 
@@ -479,6 +484,185 @@ def producto():
     codigo = (request.args.get("codigo") or "").strip().upper()
     nombre = productos_catalogo({codigo}).get(codigo) if codigo else None
     return jsonify({"codigo": codigo, "descripcion": (nombre or "").strip(), "existe": nombre is not None})
+
+
+# -----------------------------
+# Productos del pedido desde Excel (lo que se manda a cotizar) y descarga para enviar al proveedor
+# -----------------------------
+COLUMNAS_PRODUCTOS = {
+    "codigo": {"CODIGO", "CODIGODEPRODUCTO", "CODIGOPRODUCTO", "COD", "CODPRODUCTO"},
+    "parte": {"NUMERODEPARTE", "NUMEROPARTE", "NPARTE", "NOPARTE", "NUMPARTE", "PARTE", "CODIGODEPARTE"},
+    "marca": {"MARCA"},
+    "parte_prov": {"NUMEROPARTEPROVEEDOR", "NUMERODEPARTEPROVEEDOR", "NPARTEPROVEEDOR", "NOPARTEPROVEEDOR", "PARTEPROVEEDOR",
+                   "CODIGOPROVEEDOR", "CODIGODELPROVEEDOR", "CODIGOALTERNO", "CODIGOALTERNATIVO"},
+    "descripcion": {"DESCRIPCION", "PRODUCTO", "NOMBRE", "DESCRIPCIONDELPRODUCTO"},
+    "cantidad_pedida": {"CANTIDADPEDIDA", "CANTIDAD", "CANT", "CANTIDADACOTIZAR", "CANTIDADSOLICITADA", "CANTPEDIDA", "PEDIDO", "QTY"},
+    "cantidad_recibida": {"CANTIDADRECIBIDA", "CANTRECIBIDA", "RECIBIDA", "RECIBIDO"},
+    "costo_unitario": {"COSTOUNITARIO", "COSTO", "COSTOUNIT", "PRECIO", "PRECIOUNITARIO", "FOB", "PRECIOFOB", "UNITPRICE"},
+}
+ENC_PRODUCTOS = ["Código", "Número de parte", "Marca", "Nº parte proveedor", "Descripción", "Cantidad pedida", "Cantidad recibida", "Costo unitario"]
+
+
+def leer_productos_excel(archivo, proveedor=""):
+    """Lista de productos (la que se manda a cotizar) -> (líneas, avisos). El producto se busca por código; si no, por número de
+    parte (con marca o el proveedor del pedido si se repite) o por el Nº parte del proveedor registrado en Cantidades mínimas.
+    Lo que no se encuentra se deja con su descripción, sin código, para revisarlo."""
+    filas = leer_filas(archivo)
+    mapa, inicio = None, None
+    for i, fila in enumerate(filas[:20]):
+        nombres = [nombre_columna(v) for v in fila]
+        m = {campo: next((j for j, n in enumerate(nombres) if n in op), None) for campo, op in COLUMNAS_PRODUCTOS.items()}
+        if any(m[c] is not None for c in ("codigo", "parte", "parte_prov", "descripcion")) and sum(v is not None for v in m.values()) >= 2:
+            mapa, inicio = m, i + 1
+            break
+    if mapa is None:
+        raise ErrorArchivo("no se encontraron las columnas: Código (o Número de parte, o Descripción) y Cantidad")
+    por_codigo, por_parte = catalogo_partes()
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        por_pp = {}
+        for cod, (_, pp) in registrados(cursor).items():
+            if pp:
+                por_pp.setdefault(clave(pp), []).append(cod)
+    finally:
+        cursor.close()
+        conn.close()
+    prov = clave(proveedor)
+    lineas, avisos, sin_codigo = [], [], []
+    for n, fila in enumerate(filas[inicio:], start=inicio + 1):
+        valor = lambda campo: fila[mapa[campo]] if mapa[campo] is not None and mapa[campo] < len(fila) else None
+        codigo, parte, marca = clave(valor("codigo")), clave(valor("parte")), clave(valor("marca"))
+        pp, desc = clave(valor("parte_prov")), " ".join(a_texto(valor("descripcion")).split())[:300]
+        if not (codigo or parte or pp or desc) or (not (codigo or parte or pp) and clave(desc) in ("TOTAL", "TOTALES", "TOTAL GENERAL")):
+            continue
+        nums = {c: a_numero(valor(c)) for c in ("cantidad_pedida", "cantidad_recibida", "costo_unitario")}
+        malos = [c.replace("_", " ") for c, v in nums.items() if v == "error" or (isinstance(v, float) and v < 0)]
+        if malos:
+            avisos.append(f"Fila {n}: {', '.join(malos)} no es un número válido; quedó vacío.")
+        nums = {c: (v if isinstance(v, float) and v >= 0 else None) for c, v in nums.items()}
+        cod = None
+        if codigo and codigo in por_codigo:
+            cod = por_codigo[codigo][0]
+        elif parte:
+            cand = [c for c in por_parte.get(parte, []) if not marca or c[1] == marca]
+            if len(cand) > 1 and prov:
+                cand = [c for c in cand if proveedor_contiene(prov, c[2])] or cand
+            if len(cand) == 1:
+                cod = cand[0][0]
+            elif len(cand) > 1:
+                avisos.append(f"Fila {n}: el número de parte {a_texto(valor('parte'))} está en {len(cand)} productos "
+                              f"({', '.join(c[0] for c in cand[:4])}); escriba el código.")
+        if not cod and pp and len(por_pp.get(pp, [])) == 1:
+            cod = por_pp[pp][0]
+        if not cod and codigo:
+            avisos.append(f"Fila {n}: el código {a_texto(valor('codigo'))} no está en el catálogo.")
+        if not cod:
+            sin_codigo.append(n)
+        nombre = (por_codigo[clave(cod)][3] or "").strip() if cod else ""
+        lineas.append({"codigo": cod, "descripcion": desc or nombre or a_texto(valor("parte")) or a_texto(valor("parte_prov")),
+                       **{c: nums[c] for c in nums}})
+    if sin_codigo:
+        avisos.append(f"{len(sin_codigo)} línea(s) quedaron sin código (filas {', '.join(map(str, sin_codigo[:12]))}"
+                      f"{'…' if len(sin_codigo) > 12 else ''}): se guardan con la descripción; complete el código si lo tiene.")
+    return lineas, avisos
+
+
+@pedidos_importacion_bp.route("/pedidos_importacion/leer_productos", methods=["POST"])
+@requiere_acceso(VISTA)
+def leer_productos():
+    """Lee el Excel y devuelve las líneas para ponerlas en el formulario (no guarda nada)."""
+    archivo = request.files.get("archivo")
+    if not archivo or not archivo.filename.lower().endswith((".xlsx", ".xls")):
+        return jsonify({"error": "Seleccione un archivo de Excel (.xlsx o .xls)."}), 400
+    try:
+        lineas, avisos = leer_productos_excel(archivo, request.form.get("proveedor", ""))
+    except ErrorArchivo as e:
+        return jsonify({"error": f"{archivo.filename}: {e}."}), 400
+    except Exception as e:
+        return jsonify({"error": f"{archivo.filename}: error al leer – {e}"}), 400
+    return jsonify({"lineas": lineas, "avisos": avisos})
+
+
+@pedidos_importacion_bp.route("/pedidos_importacion/plantilla_productos")
+@requiere_acceso(VISTA)
+def plantilla_productos():
+    return excel_productos(None, [])
+
+
+@pedidos_importacion_bp.route("/pedidos_importacion/<int:id_>/productos_excel")
+@requiere_acceso(VISTA)
+def productos_excel(id_):
+    p = leer_pedido(id_)
+    if not p:
+        flash("El pedido no existe.", "warning")
+        return redirect(url_for("pedidos_importacion.lista"))
+    return excel_productos(p, p["lineas"])
+
+
+def excel_productos(p, lineas):
+    """Lista de productos del pedido (para mandar a cotizar) o plantilla vacía, con las mismas columnas que se pueden subir."""
+    codigos = sorted({l["codigo"] for l in lineas if l["codigo"]})
+    info, alternos = {}, {}
+    if codigos:
+        conn = get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"SELECT `Codigo Producto`, `Numero Parte`, Marca FROM catalogo_productos "
+                           f"WHERE `Codigo Producto` IN ({', '.join(['%s'] * len(codigos))})", codigos)
+            info = {c: (pa, m) for c, pa, m in cursor.fetchall()}
+            alternos = partes_proveedor(cursor, codigos)
+        finally:
+            cursor.close()
+            conn.close()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Productos"
+    fila_enc = 1
+    if p:
+        ws["A1"] = f"Pedido {p['orden_compra']}" + (f" · {p['proveedor']}" if p["proveedor"] else "") + (f" · Cotización {p['cotizacion']}" if p["cotizacion"] else "")
+        ws["A1"].font = Font(bold=True, size=13, color=VERDE)
+        ws["A2"] = f"Generado {datetime.now():%d/%m/%Y %H:%M}"
+        ws["A2"].font = Font(size=9, color="52514E")
+        fila_enc = 4
+    for i, (nombre, ancho) in enumerate(zip(ENC_PRODUCTOS, (13, 18, 14, 18, 42, 11, 11, 12)), start=1):
+        c = ws.cell(row=fila_enc, column=i, value=nombre)
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor=NARANJA if nombre == "Cantidad pedida" else VERDE)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(i)].width = ancho
+    for n, l in enumerate(lineas, start=fila_enc + 1):
+        parte, marca = info.get(l["codigo"], (None, None))
+        for i, v in enumerate([l["codigo"], parte, marca, alternos.get(l["codigo"]), l["descripcion"], l["cantidad_pedida"],
+                               l["cantidad_recibida"], l["costo_unitario"]], start=1):
+            c = ws.cell(row=n, column=i, value=v)
+            if i <= 4:
+                c.number_format = "@"
+    if lineas:
+        tot = fila_enc + len(lineas) + 1
+        ws.cell(row=tot, column=5, value="Total").font = Font(bold=True)
+        ws.cell(row=tot, column=6, value=f"=SUM(F{fila_enc + 1}:F{tot - 1})").font = Font(bold=True)
+    else:
+        for n in range(fila_enc + 1, fila_enc + 501):
+            for i in range(1, 5):
+                ws.cell(row=n, column=i).number_format = "@"
+        ayuda = wb.create_sheet("Instrucciones")
+        ayuda.column_dimensions["A"].width = 110
+        for n, texto in enumerate([
+            "Productos del pedido (lo que se manda a cotizar)", "",
+            "Una fila por producto. Basta con una de estas columnas para identificarlo: Código, Número de parte (con Marca si se repite)",
+            "   o Nº parte proveedor (si está registrado en Cantidades mínimas). Si no se encuentra, la línea queda con su descripción.",
+            "Cantidad pedida, Cantidad recibida y Costo unitario son opcionales y se pueden corregir después en el pedido.",
+            "En el pedido use «Subir productos desde Excel»: las líneas se cargan en pantalla y se guardan al pulsar «Guardar pedido».",
+        ], start=1):
+            ayuda.cell(row=n, column=1, value=texto).font = Font(bold=True, size=13, color=VERDE) if n == 1 else Font(size=10)
+    ws.freeze_panes = ws.cell(row=fila_enc + 1, column=1)
+    salida = io.BytesIO()
+    wb.save(salida)
+    salida.seek(0)
+    nombre = "productos_" + "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in p["orden_compra"]) if p else "plantilla_productos_pedido"
+    return send_file(salida, as_attachment=True, download_name=f"{nombre}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 # -----------------------------

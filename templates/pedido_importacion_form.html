@@ -81,8 +81,19 @@
     <div class="card card-body shadow-sm mb-3">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="mb-0">Productos del pedido</h6>
-        <button type="button" class="btn btn-sm btn-outline-primary" id="agregar"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar línea</button>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <label class="btn btn-sm btn-outline-success mb-0" for="archivo-productos" title="La lista que se manda a cotizar: código o número de parte, descripción, cantidad y costo">
+            <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Subir productos desde Excel</label>
+          <input type="file" id="archivo-productos" accept=".xlsx,.xls" class="d-none">
+          <div class="form-check form-check-inline small mb-0" title="Desmarcado: se agregan debajo de las líneas que ya hay">
+            <input class="form-check-input" type="checkbox" id="reemplazar" checked><label class="form-check-label" for="reemplazar">reemplazar las líneas</label></div>
+          <a class="btn btn-sm btn-link px-1" href="{{ url_for('pedidos_importacion.plantilla_productos') }}">Plantilla</a>
+          {% if p.id and lineas %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('pedidos_importacion.productos_excel', id_=p.id) }}" title="Para mandar a cotizar o al proveedor">
+            <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar en Excel</a>{% endif %}
+          <button type="button" class="btn btn-sm btn-outline-primary" id="agregar"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar línea</button>
+        </div>
       </div>
+      <div id="aviso-productos" class="small"></div>
       <div class="table-responsive"><table class="table table-sm align-middle mb-1" id="lineas">
         <thead class="table-light"><tr><th style="width: 140px">Código</th><th>Descripción</th><th style="width: 120px" class="num">Cantidad pedida</th>
           <th style="width: 120px" class="num">Cantidad recibida</th><th style="width: 130px" class="num">Costo unitario</th><th style="width: 120px" class="num">Total</th><th></th></tr></thead>
@@ -101,7 +112,8 @@
         </tbody>
         <tfoot><tr class="fw-semibold"><td colspan="2" class="text-end">Total</td><td class="num" id="tot-pedida"></td><td></td><td></td><td class="num" id="tot-monto"></td><td></td></tr></tfoot>
       </table></div>
-      <div class="form-text">Al escribir el código se completa la descripción del catálogo. Las líneas vacías no se guardan.</div>
+      <div class="form-text">Al escribir el código se completa la descripción del catálogo. Las líneas vacías no se guardan.
+        Lo que se sube desde Excel queda en pantalla para revisarlo y editarlo: se guarda al pulsar «Guardar pedido».</div>
     </div>
 
     <div class="card card-body shadow-sm mb-3">
@@ -183,11 +195,49 @@
     });
   }
   cuerpo.querySelectorAll('tr').forEach(preparar);
-  document.getElementById('agregar').addEventListener('click', () => {
+  function nuevaFila() {
     const tr = cuerpo.rows[cuerpo.rows.length - 1].cloneNode(true);
     tr.querySelectorAll('input').forEach(i => { i.value = ''; i.classList.remove('is-invalid'); });
     tr.querySelector('.total-linea').textContent = '';
-    cuerpo.appendChild(tr); preparar(tr); tr.querySelector('.codigo').focus();
+    cuerpo.appendChild(tr); preparar(tr);
+    return tr;
+  }
+  document.getElementById('agregar').addEventListener('click', () => nuevaFila().querySelector('.codigo').focus());
+
+  // Subir la lista de productos (lo que se manda a cotizar): se pone en pantalla, se guarda con el pedido
+  const archivo = document.getElementById('archivo-productos'), aviso = document.getElementById('aviso-productos');
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  archivo.addEventListener('change', async () => {
+    if (!archivo.files.length) return;
+    const datos = new FormData();
+    datos.append('archivo', archivo.files[0]);
+    datos.append('proveedor', document.getElementById('proveedor').value);
+    aviso.innerHTML = '<div class="alert alert-info py-1 mb-2">Leyendo el archivo…</div>';
+    try {
+      const resp = await fetch("{{ url_for('pedidos_importacion.leer_productos') }}", { method: 'POST', body: datos });
+      const r = await resp.json();
+      if (!resp.ok || r.error) { aviso.innerHTML = `<div class="alert alert-danger py-1 mb-2">${esc(r.error || 'No se pudo leer el archivo.')}</div>`; return; }
+      if (document.getElementById('reemplazar').checked) {
+        while (cuerpo.rows.length > 1) cuerpo.rows[cuerpo.rows.length - 1].remove();
+        cuerpo.rows[0].querySelectorAll('input').forEach(i => { i.value = ''; i.classList.remove('is-invalid'); });
+      }
+      const fmtNum = v => v === null || v === undefined ? '' : String(v);
+      r.lineas.forEach(l => {
+        let tr = cuerpo.rows[cuerpo.rows.length - 1];
+        if ([...tr.querySelectorAll('input')].some(i => i.value)) tr = nuevaFila();
+        tr.querySelector('[name=l_codigo]').value = l.codigo || '';
+        tr.querySelector('[name=l_codigo]').classList.toggle('is-invalid', !l.codigo);
+        tr.querySelector('[name=l_descripcion]').value = l.descripcion || '';
+        tr.querySelector('[name=l_pedida]').value = fmtNum(l.cantidad_pedida);
+        tr.querySelector('[name=l_recibida]').value = fmtNum(l.cantidad_recibida);
+        tr.querySelector('[name=l_costo]').value = fmtNum(l.costo_unitario);
+      });
+      totales();
+      aviso.innerHTML = `<div class="alert alert-${r.avisos.length ? 'warning' : 'success'} py-1 mb-2">Se cargaron ${r.lineas.length} línea(s) de ${esc(archivo.files[0].name)}.
+        Revise y pulse «Guardar pedido».${r.avisos.length ? '<ul class="mb-0">' + r.avisos.map(a => `<li>${esc(a)}</li>`).join('') + '</ul>' : ''}</div>`;
+    } catch (e) {
+      aviso.innerHTML = '<div class="alert alert-danger py-1 mb-2">No se pudo leer el archivo.</div>';
+    } finally { archivo.value = ''; }
   });
   totales();
 })();
