@@ -48,6 +48,21 @@
   .recibi td { border: 1px solid #000; height: 11mm; }
   .recibi .etq { background: #ddd; width: 22mm; text-align: center; }
   .pie { position: absolute; bottom: 8mm; left: 12mm; font-size: 9pt; }
+  /* Más de 3 cuentas: detalle y firmas más compactos para que quepa en una sola carta (el cheque no se mueve) */
+  .compacto .partida { font-size: 7.5pt; line-height: 1.1; }
+  .compacto .partida th, .compacto .partida td { padding: .4mm 1.5mm; }
+  .compacto .tasa { font-size: 8pt; }
+  .compacto .tasa td { padding: .5mm 2mm; }
+  .compacto .firmas { margin-top: 4mm; font-size: 8pt; }
+  .compacto .firmas td { height: 11mm; }
+  .compacto .recibi { font-size: 8pt; margin-top: 2mm !important; }
+  .compacto .recibi td { height: 9mm; }
+  /* Más de 6 cuentas: un paso más */
+  .muy-compacto .partida { font-size: 6.5pt; }
+  .muy-compacto .partida th, .muy-compacto .partida td { padding: .2mm 1mm; }
+  .muy-compacto .firmas { margin-top: 2mm; }
+  .muy-compacto .firmas td { height: 9mm; }
+  .muy-compacto .recibi td { height: 8mm; }
   /* Historial de cambios (solo en pantalla) */
   .aviso-reimp { max-width: 8.5in; margin: 1rem auto 0; background: #fff1e8; border: 2px solid #FE6412; color: #9a3412; border-radius: 8px;
                  padding: .6rem 1rem; font-family: 'Segoe UI', Arial, sans-serif; font-weight: 600; }
@@ -98,7 +113,8 @@
 <div class="aviso-reimp" role="alert"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
   Este cheque se modificó después de la última impresión: lo impreso ya no coincide. Vuelva a imprimirlo.</div>
 {% endif %}
-<div class="hoja">
+{% set n_ctas = c.partidas|length %}
+<div class="hoja{% if n_ctas > 3 %} compacto{% endif %}{% if n_ctas > 6 %} muy-compacto{% endif %}">
   {% if c.estado == 'Anulado' %}<div class="anulado">ANULADO</div>{% endif %}
   <div class="encabezado">
     <div class="empresa">{{ empresa.nombre }}</div>
