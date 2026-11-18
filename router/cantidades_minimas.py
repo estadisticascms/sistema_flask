@@ -1,7 +1,9 @@
 """Cantidad mínima de compra por producto (tabla cantidad_minima_compra, docs/sql/cantidad_minima_compra.sql).
 
-- Se sube en Excel: cada fila trae el código del producto, o el número de parte con su marca (el número de parte se repite
-  entre marcas), y la cantidad mínima. Cantidad 0 o vacía con «Quitar» = se borra el mínimo de ese producto.
+- Se sube en Excel: cada fila trae el código del producto, o el número de parte con su marca y/o proveedor (el número de
+  parte se repite entre marcas), la cantidad mínima y, opcional, el número de parte del proveedor (ej. 11AVX260 = 15260).
+- Cantidad 0 o vacía = se quita el mínimo; Nº parte proveedor vacío = se conserva el que ya tenía. Si al producto no le queda
+  ni mínimo ni Nº parte proveedor, se borra la fila.
 - Validar → revisar → confirmar (archivo temporal como las demás cargas).
 - El sugerido de compras lo usa para el «Sugerido ajustado» (ajustar_a_minimo)."""
 import io
@@ -26,12 +28,15 @@ cantidades_minimas_bp = Blueprint("cantidades_minimas", __name__)
 PREFIJO_TEMP = "carga_cant_minima_"
 VERDE, NARANJA = "027266", "FE6412"
 MAX_FILAS = 20000
-ENCABEZADOS = ["Codigo", "Numero de parte", "Marca", "Cantidad minima"]
+ENCABEZADOS = ["Codigo", "Numero de parte", "Marca", "Proveedor", "Numero parte proveedor", "Cantidad minima"]
 COLUMNAS = {
     "codigo": {"CODIGO", "CODIGOPRODUCTO", "COD", "CODPRODUCTO"},
-    "parte": {"NUMERODEPARTE", "NUMEROPARTE", "NPARTE", "NOPARTE", "NUMPARTE", "PARTE"},
+    "parte": {"NUMERODEPARTE", "NUMEROPARTE", "NPARTE", "NOPARTE", "NUMPARTE", "PARTE", "CODIGODEPARTE", "CODIGOPARTE"},
     "marca": {"MARCA"},
-    "minimo": {"CANTIDADMINIMA", "CANTMINIMA", "MINIMO", "CANTIDADMINIMADECOMPRA", "MINIMODECOMPRA", "CANTIDAD", "MOQ"},
+    "proveedor": {"PROVEEDOR", "PROVEEDORULTIMACOMPRA"},
+    "parte_prov": {"NUMEROPARTEPROVEEDOR", "NUMERODEPARTEPROVEEDOR", "NPARTEPROVEEDOR", "PARTEPROVEEDOR", "CODIGOPROVEEDOR",
+                   "CODIGODELPROVEEDOR", "CODIGOALTERNO", "CODIGOALTERNATIVO", "CODIGOALTERNATIVOPROVEEDOR"},
+    "minimo": {"CANTIDADMINIMA", "CANTMINIMA", "MINIMO", "CANTIDADMINIMADECOMPRA", "MINIMODECOMPRA", "CANTIDAD", "MOQ", "MOLDQTY"},
 }
 
 
@@ -45,9 +50,31 @@ def ajustar_a_minimo(sugerido, minimo):
 def minimos_por_codigo(cursor, codigos=None):
     if codigos is not None and not codigos:
         return {}
-    cursor.execute("SELECT codigo, minimo FROM cantidad_minima_compra")
+    cursor.execute("SELECT codigo, minimo FROM cantidad_minima_compra WHERE minimo IS NOT NULL")
     todos = {c: float(m) for c, m in cursor.fetchall()}
     return todos if codigos is None else {c: todos[c] for c in codigos if c in todos}
+
+
+def partes_proveedor(cursor, codigos=None):
+    """{código: número de parte del proveedor}."""
+    if codigos is not None and not codigos:
+        return {}
+    cursor.execute("SELECT codigo, parte_proveedor FROM cantidad_minima_compra WHERE parte_proveedor IS NOT NULL AND parte_proveedor <> ''")
+    todos = dict(cursor.fetchall())
+    return todos if codigos is None else {c: todos[c] for c in codigos if c in todos}
+
+
+def registrados(cursor):
+    """{código: (mínimo o None, nº parte proveedor o None)} de lo guardado."""
+    cursor.execute("SELECT codigo, minimo, parte_proveedor FROM cantidad_minima_compra")
+    return {c: (float(m) if m is not None else None, pp or None) for c, m, pp in cursor.fetchall()}
+
+
+def combinar(actual, nuevo):
+    """Lo que queda guardado: mínimo None en el archivo = conservar, 0 = quitar; Nº parte proveedor None = conservar."""
+    m_act, pp_act = actual or (None, None)
+    m_nuevo, pp_nuevo = nuevo
+    return (m_act if m_nuevo is None else (m_nuevo or None), pp_act if pp_nuevo is None else pp_nuevo)
 
 
 def clave(texto):
@@ -71,82 +98,116 @@ def a_cantidad(valor):
 
 
 def catalogo():
-    """Código -> (nº parte, marca, descripción); y (nº parte, marca) -> [códigos]; nº parte -> [códigos]."""
+    """Código -> (código, nº parte, marca, descripción); nº parte -> [(código, marca, proveedor)]."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT `Codigo Producto`, `Numero Parte`, Marca, Nombre FROM catalogo_productos WHERE `Codigo Producto` IS NOT NULL")
+        cursor.execute("SELECT `Codigo Producto`, `Numero Parte`, Marca, Nombre, `Proveedor Ultima Compra` FROM catalogo_productos "
+                       "WHERE `Codigo Producto` IS NOT NULL")
         filas = cursor.fetchall()
     finally:
         cursor.close()
         conn.close()
-    por_codigo, por_parte_marca, por_parte = {}, {}, {}
-    for cod, parte, marca, nombre in filas:
+    por_codigo, por_parte = {}, {}
+    for cod, parte, marca, nombre, proveedor in filas:
         por_codigo[clave(cod)] = (cod, parte, marca, nombre)
         if clave(parte):
-            por_parte_marca.setdefault((clave(parte), clave(marca)), []).append(cod)
-            por_parte.setdefault(clave(parte), []).append(cod)
-    return por_codigo, por_parte_marca, por_parte
+            por_parte.setdefault(clave(parte), []).append((cod, clave(marca), clave(proveedor)))
+    return por_codigo, por_parte
+
+
+def mismo_proveedor(del_archivo, del_catalogo):
+    """«SKF» coincide con «SKF DE CENTROAMERICA, S.A.»: basta que el nombre del archivo esté contenido en el del catálogo."""
+    return bool(del_catalogo) and del_archivo in del_catalogo
 
 
 def leer_archivo(archivo):
-    """-> (registros {codigo: minimo o 0 para quitar}, detalle de filas, errores, advertencias)."""
+    """-> (registros {codigo: (minimo, parte_proveedor)}, detalle de filas, errores, advertencias).
+    minimo: None = la columna no viene (se conserva), 0 = quitar. parte_proveedor: None = vacío o sin columna (se conserva)."""
     filas = leer_filas(archivo)
     posiciones, inicio = {}, None
     for i, fila in enumerate(filas[:20]):
         nombres = [nombre_columna(v) for v in fila]
         mapa = {campo: next((j for j, n in enumerate(nombres) if n in opciones), None) for campo, opciones in COLUMNAS.items()}
-        if mapa["minimo"] is not None and (mapa["codigo"] is not None or mapa["parte"] is not None):
+        if ((mapa["minimo"] is not None or mapa["parte_prov"] is not None)
+                and (mapa["codigo"] is not None or mapa["parte"] is not None or mapa["parte_prov"] is not None)):
             posiciones, inicio = mapa, i + 1
             break
     if inicio is None:
-        raise ErrorArchivo("no se encontraron las columnas: Codigo (o Numero de parte y Marca) y Cantidad minima")
+        raise ErrorArchivo("no se encontraron las columnas: Codigo (o Numero de parte con Marca o Proveedor) y "
+                           "Cantidad minima y/o Numero parte proveedor")
 
-    por_codigo, por_parte_marca, por_parte = catalogo()
+    por_codigo, por_parte = catalogo()
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        por_parte_prov = {}
+        for cod, (_, pp) in registrados(cursor).items():
+            if pp:
+                por_parte_prov.setdefault(clave(pp), []).append(cod)
+    finally:
+        cursor.close()
+        conn.close()
+
     registros, detalle, errores = {}, [], []
     repetidos = 0
     for n, fila in enumerate(filas[inicio:], start=inicio + 1):
         valor = lambda campo: fila[posiciones[campo]] if posiciones[campo] is not None and posiciones[campo] < len(fila) else None
-        codigo, parte, marca = clave(valor("codigo")), clave(valor("parte")), clave(valor("marca"))
-        cantidad = a_cantidad(valor("minimo"))
-        if not (codigo or parte):
+        codigo, parte, marca, proveedor = clave(valor("codigo")), clave(valor("parte")), clave(valor("marca")), clave(valor("proveedor"))
+        parte_prov = " ".join(a_texto(valor("parte_prov")).split())[:60] or None
+        cantidad = a_cantidad(valor("minimo")) if posiciones["minimo"] is not None else None
+        if not (codigo or parte or parte_prov):
             if cantidad not in (None, 0):
                 errores.append(f"Fila {n}: tiene cantidad pero no trae código ni número de parte.")
             continue
-        quien = codigo or f"{a_texto(valor('parte'))} {a_texto(valor('marca'))}".strip()
+        quien = codigo or " ".join(x for x in (a_texto(valor("parte")), a_texto(valor("marca")), a_texto(valor("proveedor"))) if x) or parte_prov
         if cantidad == "error" or (cantidad is not None and cantidad < 0):
             errores.append(f"Fila {n} ({quien}): la cantidad mínima «{a_texto(valor('minimo'))}» no es un número válido.")
             continue
-        # Producto: por código; si no, por número de parte + marca (o solo número de parte si es único)
+        # Producto: por código; si no, por número de parte + marca y/o proveedor (o solo nº parte si es único);
+        # si tampoco trae nuestro nº parte, por el Nº parte proveedor ya registrado
         if codigo:
             if codigo not in por_codigo:
                 errores.append(f"Fila {n}: el código {a_texto(valor('codigo'))} no existe en el catálogo.")
                 continue
             cod = por_codigo[codigo][0]
-        else:
-            candidatos = por_parte_marca.get((parte, marca), []) if marca else por_parte.get(parte, [])
+        elif parte:
+            candidatos = [c for c in por_parte.get(parte, [])
+                          if (not marca or c[1] == marca) and (not proveedor or mismo_proveedor(proveedor, c[2]))]
+            filtro = " y ".join(x for x in ((f"marca {a_texto(valor('marca'))}" if marca else ""),
+                                            (f"proveedor {a_texto(valor('proveedor'))}" if proveedor else "")) if x)
             if not candidatos:
                 errores.append(f"Fila {n}: no se encontró el número de parte {a_texto(valor('parte'))}"
-                               f"{' de la marca ' + a_texto(valor('marca')) if marca else ''} en el catálogo.")
+                               f"{' con ' + filtro if filtro else ''} en el catálogo.")
                 continue
             if len(candidatos) > 1:
-                errores.append(f"Fila {n}: el número de parte {a_texto(valor('parte'))}{' (' + a_texto(valor('marca')) + ')' if marca else ''} "
-                               f"corresponde a {len(candidatos)} códigos ({', '.join(candidatos[:5])}); "
-                               f"{'póngalo por código' if marca else 'agregue la marca o póngalo por código'}.")
+                errores.append(f"Fila {n}: el número de parte {a_texto(valor('parte'))}{' (' + filtro + ')' if filtro else ''} "
+                               f"corresponde a {len(candidatos)} códigos ({', '.join(c[0] for c in candidatos[:5])}); "
+                               f"{'póngalo por código' if marca and proveedor else 'agregue la marca o el proveedor, o póngalo por código'}.")
+                continue
+            cod = candidatos[0][0]
+        else:
+            candidatos = por_parte_prov.get(clave(parte_prov), [])
+            if len(candidatos) != 1:
+                errores.append(f"Fila {n}: el Nº parte proveedor {parte_prov} "
+                               f"{'no está registrado' if not candidatos else 'está en ' + str(len(candidatos)) + ' productos'}; "
+                               f"agregue nuestro número de parte con la marca o el proveedor.")
                 continue
             cod = candidatos[0]
-        minimo = round(cantidad, 2) if cantidad else 0.0       # 0 o vacío = quitar el mínimo
+        minimo = None if posiciones["minimo"] is None else (round(cantidad, 2) if cantidad else 0.0)
         if cod in registros:
             repetidos += 1
-        registros[cod] = minimo
+        registros[cod] = (minimo, parte_prov)
         _, p, m, nombre = por_codigo[clave(cod)]
-        detalle.append({"fila": n, "codigo": cod, "parte": p, "marca": m, "nombre": nombre, "minimo": minimo})
+        detalle.append({"fila": n, "codigo": cod, "parte": p, "marca": m, "nombre": nombre, "minimo": minimo, "parte_proveedor": parte_prov})
     advertencias = []
     if repetidos:
-        advertencias.append(f"{repetidos} producto(s) vienen más de una vez: queda la última cantidad del archivo.")
+        advertencias.append(f"{repetidos} producto(s) vienen más de una vez: queda la última fila del archivo.")
     no_enteros = [d for d in detalle if d["minimo"] and not float(d["minimo"]).is_integer()]
     if no_enteros:
         advertencias.append(f"{len(no_enteros)} producto(s) con cantidad mínima con decimales (ej. {no_enteros[0]['codigo']}: {no_enteros[0]['minimo']}).")
+    if posiciones["minimo"] is None:
+        advertencias.append("El archivo no trae Cantidad minima: solo se actualiza el Nº parte proveedor y los mínimos quedan como estaban.")
     return registros, detalle, errores, advertencias
 
 
@@ -159,10 +220,10 @@ def lista_actual(q=""):
     try:
         where, params = "", []
         for palabra in q.split():
-            where += (" AND " if where else " WHERE ") + "(m.codigo LIKE %s OR p.`Numero Parte` LIKE %s OR p.Marca LIKE %s OR p.Nombre LIKE %s)"
-            params += [f"%{palabra}%"] * 4
+            where += (" AND " if where else " WHERE ") + "(m.codigo LIKE %s OR p.`Numero Parte` LIKE %s OR p.Marca LIKE %s OR p.Nombre LIKE %s OR m.parte_proveedor LIKE %s)"
+            params += [f"%{palabra}%"] * 5
         cursor.execute(f"""
-            SELECT m.codigo, p.`Numero Parte` AS parte, p.Marca AS marca, p.Nombre AS nombre, m.minimo, m.actualizado, m.actualizado_por, m.archivo
+            SELECT m.codigo, p.`Numero Parte` AS parte, p.Marca AS marca, p.Nombre AS nombre, TRIM(p.`Proveedor Ultima Compra`) AS proveedor, m.minimo, m.parte_proveedor, m.actualizado, m.actualizado_por, m.archivo
             FROM cantidad_minima_compra m LEFT JOIN catalogo_productos p ON p.`Codigo Producto` = m.codigo {where}
             ORDER BY p.Marca, p.Nombre, m.codigo
         """, params)
@@ -219,17 +280,20 @@ def pantalla():
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        actuales = minimos_por_codigo(cursor)
+        actuales = registrados(cursor)
     finally:
         cursor.close()
         conn.close()
     for d in detalle:
-        d["anterior"] = actuales.get(d["codigo"])
-    nuevos = sum(1 for c, m in registros.items() if m and c not in actuales)
-    cambian = sum(1 for c, m in registros.items() if m and c in actuales and abs(actuales[c] - m) > 1e-9)
-    iguales = sum(1 for c, m in registros.items() if m and c in actuales and abs(actuales[c] - m) <= 1e-9)
-    quitar = sum(1 for c, m in registros.items() if not m and c in actuales)
-    sin_efecto = sum(1 for c, m in registros.items() if not m and c not in actuales)
+        d["anterior"], d["pp_anterior"] = actuales.get(d["codigo"], (None, None))
+        d["final_minimo"], d["final_pp"] = combinar(actuales.get(d["codigo"]), registros[d["codigo"]])
+    finales = {c: combinar(actuales.get(c), r) for c, r in registros.items()}
+    queda = lambda v: v != (None, None)
+    nuevos = sum(1 for c, v in finales.items() if queda(v) and c not in actuales)
+    cambian = sum(1 for c, v in finales.items() if queda(v) and c in actuales and v != actuales[c])
+    iguales = sum(1 for c, v in finales.items() if queda(v) and c in actuales and v == actuales[c])
+    quitar = sum(1 for c, v in finales.items() if not queda(v) and c in actuales)
+    sin_efecto = sum(1 for c, v in finales.items() if not queda(v) and c not in actuales)
 
     limpiar_temporales()
     token = uuid.uuid4().hex
@@ -254,15 +318,18 @@ def confirmar():
         return redirect(url_for("cantidades_minimas.pantalla"))
     with open(ruta, encoding="utf-8") as f:
         datos = json.load(f)
-    guardar = [(c, m, datos["archivo"], session.get("usuario")) for c, m in datos["registros"].items() if m]
-    quitar = [c for c, m in datos["registros"].items() if not m]
     conn = get_connection()
     cursor = conn.cursor()
     try:
         conn.start_transaction()
+        actuales = registrados(cursor)
+        finales = {c: combinar(actuales.get(c), tuple(r)) for c, r in datos["registros"].items()}
+        guardar = [(c, m, pp, datos["archivo"], session.get("usuario")) for c, (m, pp) in finales.items() if (m, pp) != (None, None)]
+        quitar = [c for c, v in finales.items() if v == (None, None) and c in actuales]
         for i in range(0, len(guardar), 1000):
-            cursor.executemany("INSERT INTO cantidad_minima_compra (codigo, minimo, archivo, actualizado_por) VALUES (%s, %s, %s, %s) "
-                               "ON DUPLICATE KEY UPDATE minimo = VALUES(minimo), archivo = VALUES(archivo), actualizado_por = VALUES(actualizado_por)",
+            cursor.executemany("INSERT INTO cantidad_minima_compra (codigo, minimo, parte_proveedor, archivo, actualizado_por) "
+                               "VALUES (%s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE minimo = VALUES(minimo), "
+                               "parte_proveedor = VALUES(parte_proveedor), archivo = VALUES(archivo), actualizado_por = VALUES(actualizado_por)",
                                guardar[i:i + 1000])
         for i in range(0, len(quitar), 1000):
             lote = quitar[i:i + 1000]
@@ -277,7 +344,7 @@ def confirmar():
         conn.close()
     os.remove(ruta)
     session.pop("carga_cant_minima_token", None)
-    flash(f"✅ Cantidades mínimas guardadas: {len(guardar):,} producto(s)" + (f"; se quitaron {len(quitar):,}." if quitar else "."), "success")
+    flash(f"✅ Guardados {len(guardar):,} producto(s)" + (f"; se quitaron {len(quitar):,}." if quitar else "."), "success")
     return redirect(url_for("cantidades_minimas.pantalla"))
 
 
@@ -289,7 +356,7 @@ def plantilla():
     wb = Workbook()
     ws = wb.active
     ws.title = "Cantidades minimas"
-    for i, (nombre, ancho) in enumerate(zip(ENCABEZADOS + (["Descripción"] if con_actuales else []), (14, 24, 18, 16, 45)), start=1):
+    for i, (nombre, ancho) in enumerate(zip(ENCABEZADOS + (["Descripción"] if con_actuales else []), (14, 22, 16, 26, 24, 16, 45)), start=1):
         c = ws.cell(row=1, column=i, value=nombre)
         c.font = Font(bold=True, color="FFFFFF")
         c.fill = PatternFill("solid", fgColor=NARANJA if nombre == "Cantidad minima" else VERDE)
@@ -297,10 +364,11 @@ def plantilla():
         ws.column_dimensions[get_column_letter(i)].width = ancho
     filas = lista_actual()[0] if con_actuales else []
     for n, f in enumerate(filas, start=2):
-        for i, v in enumerate([f["codigo"], f["parte"], f["marca"], float(f["minimo"]), f["nombre"]], start=1):
+        for i, v in enumerate([f["codigo"], f["parte"], f["marca"], f["proveedor"], f["parte_proveedor"],
+                               float(f["minimo"]) if f["minimo"] is not None else None, f["nombre"]], start=1):
             ws.cell(row=n, column=i, value=v)
     for fila in range(2, max(len(filas) + 2, 502)):
-        for col in (1, 2, 3):
+        for col in (1, 2, 3, 4, 5):
             ws.cell(row=fila, column=col).number_format = "@"   # texto: Excel no quita ceros ni cambia números de parte
     ws.freeze_panes = "A2"
     ayuda = wb.create_sheet("Instrucciones")
@@ -308,8 +376,11 @@ def plantilla():
     for n, (texto, negrita) in enumerate([
         ("Cantidades mínimas de compra", True), ("", False),
         ("Una fila por producto, desde la fila 2 de la hoja «Cantidades minimas».", False),
-        ("Codigo: el código del producto (lo más seguro). Si no lo tiene, ponga el Numero de parte y la Marca:", False),
-        ("   el número de parte se repite entre marcas; sin marca solo se acepta si corresponde a un único producto.", False),
+        ("Codigo: el código del producto (lo más seguro). Si no lo tiene, ponga nuestro Numero de parte con la Marca y/o el Proveedor:", False),
+        ("   el número de parte se repite entre marcas; sin marca ni proveedor solo se acepta si corresponde a un único producto.", False),
+        ("   Proveedor: el de la última compra en el catálogo; basta una parte del nombre (ej. «SKF»).", False),
+        ("Numero parte proveedor (opcional): el código con el que el proveedor conoce el producto (ej. 11AVX260 para nuestro 15260).", False),
+        ("   Sale en el Excel del sugerido de compras. Vacío = se conserva el que ya tenía.", False),
         ("Cantidad minima: lo mínimo que se puede comprar (empaque, caja, lote). Con 0 o vacía se quita el mínimo del producto.", False),
         ("En el sugerido de compras, el «Sugerido ajustado» sube el sugerido al siguiente múltiplo del mínimo", False),
         ("   (mínimo 10: sugerido 3 → 10, 13 → 20, 25 → 30). El pedido y el total FOB parten del sugerido ajustado.", False),

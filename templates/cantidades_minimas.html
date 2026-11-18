@@ -27,11 +27,14 @@
     {% if errores %}<div class="alert alert-danger small py-2 mb-2"><strong>{{ errores|length }} fila(s) no se cargan:</strong>
       <ul class="mb-0">{% for e in errores[:30] %}<li>{{ e }}</li>{% endfor %}{% if errores|length > 30 %}<li>… y {{ errores|length - 30 }} más</li>{% endif %}</ul></div>{% endif %}
     <div class="table-responsive mb-2" style="max-height: 380px"><table class="table table-sm small align-middle mb-0">
-      <thead class="sticky-top bg-white"><tr><th>Fila</th><th>Código</th><th>Nº parte</th><th>Marca</th><th>Descripción</th><th class="text-end">Antes</th><th class="text-end">Cantidad mínima</th></tr></thead>
-      <tbody>{% for d in detalle %}<tr class="{{ 'table-warning' if d.anterior is not none and d.minimo and d.anterior != d.minimo }}{{ ' table-danger' if not d.minimo and d.anterior is not none }}">
+      <thead class="sticky-top bg-white"><tr><th>Fila</th><th>Código</th><th>Nº parte</th><th>Marca</th><th>Descripción</th><th>Nº parte proveedor</th><th class="text-end">Mínimo antes</th><th class="text-end">Cantidad mínima</th></tr></thead>
+      <tbody>{% for d in detalle %}
+        {% set borra = d.final_minimo is none and d.final_pp is none %}
+        <tr class="{{ 'table-danger' if borra and (d.anterior is not none or d.pp_anterior) }}{{ ' table-warning' if not borra and (d.anterior != d.final_minimo or d.pp_anterior != d.final_pp) and (d.anterior is not none or d.pp_anterior) }}">
         <td class="text-muted">{{ d.fila }}</td><td>{{ d.codigo }}</td><td>{{ d.parte or '' }}</td><td>{{ d.marca or '' }}</td><td>{{ d.nombre or '' }}</td>
+        <td>{{ d.final_pp or '' }}{% if d.pp_anterior and d.pp_anterior != d.final_pp %} <span class="text-muted text-decoration-line-through">{{ d.pp_anterior }}</span>{% endif %}</td>
         <td class="text-end text-muted">{{ cant(d.anterior) }}</td>
-        <td class="text-end fw-bold">{{ cant(d.minimo) if d.minimo else 'se quita' }}</td></tr>{% endfor %}</tbody>
+        <td class="text-end fw-bold">{{ cant(d.final_minimo) if d.final_minimo else ('se quita' if d.anterior is not none else '—') }}</td></tr>{% endfor %}</tbody>
     </table></div>
     <form method="post" action="{{ url_for('cantidades_minimas.confirmar') }}" class="d-flex gap-2"
           onsubmit="const b = this.querySelector('button'); b.disabled = true; b.innerText = 'Guardando…';">
@@ -48,8 +51,9 @@
       <div class="col-md">
         <label class="form-label fw-semibold" for="archivo">Excel con las cantidades mínimas</label>
         <input type="file" id="archivo" name="archivo" accept=".xlsx,.xls" class="form-control" required>
-        <div class="form-text">Columnas: <strong>Codigo</strong>, o <strong>Numero de parte</strong> + <strong>Marca</strong>, y <strong>Cantidad minima</strong>.
-          Con cantidad 0 o vacía se quita el mínimo. Los productos que no vengan en el archivo no cambian.</div>
+        <div class="form-text">Columnas: <strong>Codigo</strong>, o nuestro <strong>Numero de parte</strong> + <strong>Marca</strong> y/o <strong>Proveedor</strong>;
+          <strong>Cantidad minima</strong> y, opcional, <strong>Numero parte proveedor</strong> (el código del proveedor, ej. 11AVX260).
+          Con cantidad 0 o vacía se quita el mínimo; Nº parte proveedor vacío se conserva. Los productos que no vengan en el archivo no cambian.</div>
       </div>
       <div class="col-md-auto"><button type="submit" class="btn btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Revisar archivo</button></div>
     </div>
@@ -62,20 +66,21 @@
 
   {# ---------- Lista actual ---------- #}
   <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
-    <h6 class="mb-0">Cantidades mínimas registradas <span class="text-muted fw-normal small">· {{ "{:,}".format(total) }} productos</span></h6>
+    <h6 class="mb-0">Cantidades mínimas y Nº parte proveedor registrados <span class="text-muted fw-normal small">· {{ "{:,}".format(total) }} productos</span></h6>
     <form method="get" class="d-flex gap-2">
-      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" style="width: 260px" placeholder="Código, nº parte, marca o descripción" aria-label="Buscar">
+      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" style="width: 260px" placeholder="Código, nº parte, nº proveedor, marca o descripción" aria-label="Buscar">
       <button class="btn btn-outline-secondary btn-sm"><i class="bi bi-search" aria-hidden="true"></i><span class="visually-hidden">Buscar</span></button>
     </form>
   </div>
   {% if filas %}
   <div class="table-responsive border rounded-3 bg-white" style="max-height: 520px"><table class="table table-sm table-hover small align-middle mb-0">
-    <thead class="sticky-top bg-light"><tr><th>Código</th><th>Nº parte</th><th>Marca</th><th>Descripción</th><th class="text-end">Cantidad mínima</th><th>Actualizado</th><th></th></tr></thead>
+    <thead class="sticky-top bg-light"><tr><th>Código</th><th>Nº parte</th><th>Marca</th><th>Descripción</th><th>Nº parte proveedor</th><th class="text-end">Cantidad mínima</th><th>Actualizado</th><th></th></tr></thead>
     <tbody>{% for f in filas %}<tr>
       <td>{{ f.codigo }}</td><td>{{ f.parte or '' }}</td><td>{{ f.marca or '' }}</td><td>{{ f.nombre or '' }}{% if not f.nombre %}<span class="text-danger">no está en el catálogo</span>{% endif %}</td>
+      <td>{{ f.parte_proveedor or '' }}</td>
       <td class="text-end fw-bold">{{ cant(f.minimo) }}</td>
       <td class="text-muted">{{ f.actualizado.strftime('%d/%m/%Y') if f.actualizado }}{% if f.actualizado_por %} · {{ f.actualizado_por }}{% endif %}</td>
-      <td class="text-end"><form method="post" class="d-inline" onsubmit="return confirm({{ ('¿Quitar la cantidad mínima de ' ~ f.codigo ~ '?')|tojson }});">
+      <td class="text-end"><form method="post" class="d-inline" onsubmit="return confirm({{ ('¿Quitar la cantidad mínima y el Nº parte proveedor de ' ~ f.codigo ~ '?')|tojson }});">
         <input type="hidden" name="accion" value="quitar"><input type="hidden" name="codigo" value="{{ f.codigo }}">
         <button class="btn btn-link btn-sm text-danger p-0" title="Quitar"><i class="bi bi-x-lg" aria-hidden="true"></i><span class="visually-hidden">Quitar {{ f.codigo }}</span></button></form></td>
     </tr>{% endfor %}</tbody>

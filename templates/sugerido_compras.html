@@ -241,7 +241,7 @@
           <tr data-codigo="{{ f.codigo }}" data-sugerido="{{ f.sugerido_ajustado }}" data-costo="{{ f.fob or 0 }}">
             <td class="prod">
               <div class="desc"><span class="abc {{ f.abc }}" title="{{ 'Clase ' ~ f.abc ~ ': ' ~ clases_abc[f.abc] ~ (' · acumulado ' ~ '%.1f'|format(f.abc_acum) ~ '%' if f.abc_acum else '') if f.abc != 'N' else 'Sin venta en el período' }}">{{ f.abc if f.abc != 'N' else '–' }}</span>{{ f.nombre }}</div>
-              <div class="meta">{{ f.codigo }}{% if f.numero_parte %} · Nº {{ f.numero_parte }}{% endif %}{% if p.agrupar == 'proveedor' and f.marca %} · {{ f.marca }}{% endif %}{% if f.segmento %} · {{ f.segmento }}{% endif %}{% if f.familia %} · {{ f.familia }}{% if f.subfamilia %} / {{ f.subfamilia }}{% endif %}{% endif %}</div>
+              <div class="meta">{{ f.codigo }}{% if f.numero_parte %} · Nº {{ f.numero_parte }}{% endif %}{% if f.parte_proveedor %} · <span title="Número de parte del proveedor">prov. {{ f.parte_proveedor }}</span>{% endif %}{% if p.agrupar == 'proveedor' and f.marca %} · {{ f.marca }}{% endif %}{% if f.segmento %} · {{ f.segmento }}{% endif %}{% if f.familia %} · {{ f.familia }}{% if f.subfamilia %} / {{ f.subfamilia }}{% endif %}{% endif %}</div>
               {% if f.proveedor or f.fob %}<div class="meta compra"><i class="bi bi-truck" aria-hidden="true"></i>
                 {% if f.proveedor and p.agrupar != 'proveedor' %}{{ f.proveedor }} · {% endif %}{% if f.fob %}FOB <strong>{{ "{:,.2f}".format(f.fob) }}</strong>{% endif %}
                 {% if f.fecha_compra %} · compra {{ f.fecha_compra.strftime('%d/%m/%y') }}{% endif %}{% if f.fecha_recepcion %} · recibido {{ f.fecha_recepcion.strftime('%d/%m/%y') }}{% endif %}</div>{% endif %}

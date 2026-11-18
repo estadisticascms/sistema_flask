@@ -21,7 +21,7 @@ from openpyxl.utils import get_column_letter
 from utils.db import get_connection
 from router.accesos import requiere_acceso
 from router.ventas_perdidas import perdidas_por_codigo, detalle_por_codigo
-from router.cantidades_minimas import ajustar_a_minimo, minimos_por_codigo
+from router.cantidades_minimas import ajustar_a_minimo, minimos_por_codigo, partes_proveedor
 
 sugerido_bp = Blueprint("sugerido_compras", __name__)
 
@@ -226,8 +226,10 @@ def calcular(p):
                           "ingresos": [], "dias_compra": None, "ultima_venta": None})
         # Cantidad mínima de compra: sugerido ajustado al siguiente múltiplo del mínimo
         minimos = minimos_por_codigo(cursor, [f["codigo"] for f in filas])
+        alternos = partes_proveedor(cursor, [f["codigo"] for f in filas])
         for f in filas:
             f["minimo"] = minimos.get(f["codigo"])
+            f["parte_proveedor"] = alternos.get(f["codigo"])
             f["sugerido_ajustado"] = ajustar_a_minimo(f["sugerido"], f["minimo"])
         if p["abc"]:
             filas = [f for f in filas if f["abc"] == p["abc"]]
@@ -422,7 +424,7 @@ def generar_excel(filas, p, periodo):
     ws["A2"].font = ws["A3"].font = Font(size=9, color="52514E")
 
     columnas = [
-        ("Código", 11), ("ABC", 6), ("Nº parte", 18), ("Descripción", 38), ("Marca", 14), ("Segmento", 14), ("Familia", 20),
+        ("Código", 11), ("ABC", 6), ("Nº parte", 18), ("Nº parte proveedor", 18), ("Descripción", 38), ("Marca", 14), ("Segmento", 14), ("Familia", 20),
         ("Subfamilia", 22), ("Existencia total", 11), ("En NHE", 9), ("Disponible", 11), ("Vendido período", 11),
         ("Ventas perdidas (unid.)", 11), ("Prom. mensual", 11), ("Meses del promedio", 10),
         ("Producto nuevo desde", 12), ("Cobertura (meses)", 11), ("Ingreso 1 fecha", 12),
@@ -459,7 +461,7 @@ def generar_excel(filas, p, periodo):
     for n, f in enumerate(filas, start=fila_tit + 1):
         ing = f["ingresos"] + [{"fecha": None, "cantidad": None}] * (3 - len(f["ingresos"]))
         valores = {
-            "Código": f["codigo"], "ABC": f["abc"] if f["abc"] != "N" else "Sin venta", "Nº parte": f["numero_parte"], "Descripción": f["nombre"], "Marca": f["marca"],
+            "Código": f["codigo"], "ABC": f["abc"] if f["abc"] != "N" else "Sin venta", "Nº parte": f["numero_parte"], "Nº parte proveedor": f.get("parte_proveedor"), "Descripción": f["nombre"], "Marca": f["marca"],
             "Segmento": f["segmento"], "Familia": f["familia"], "Subfamilia": f["subfamilia"],
             "Existencia total": f["existencia"], "En NHE": f["nhe"], "Disponible": f["disponible"],
             "Vendido período": f["vendido"], "Ventas perdidas (unid.)": f["perdidas"] or None,
