@@ -1,0 +1,86 @@
+{% extends "layout.html" %}
+{% block title %}Pedidos de importación{% endblock %}
+{% macro dia(v) %}{% if v is not none %}{{ v }}{% else %}<span class="vacio">—</span>{% endif %}{% endmacro %}
+{% block content %}
+<div class="container-fluid mt-3 mb-4" style="max-width: 1400px">
+  {% set activo = 'lista' %}{% include "_pedidos_imp_nav.html" %}
+
+  <div class="row g-2 mb-3">
+    {% for etiqueta, valor, icono, color, filtro in [
+        ('Pedidos abiertos', resumen.abiertos, 'bi-box-seam', '#027266', 'abiertos'),
+        ('Pedido / en producción', resumen.produccion, 'bi-gear', '#027266', 'En producción'),
+        ('En tránsito o aduana', resumen.camino, 'bi-truck', '#FE6412', 'En tránsito'),
+        ('Atrasados (pasó la llegada estimada)', resumen.atrasados, 'bi-exclamation-triangle', '#b42318', None)] %}
+    <div class="col-6 col-lg-3">
+      <div class="card card-body py-2 shadow-sm h-100" style="border-left: 4px solid {{ color }}">
+        <div class="small text-muted"><i class="bi {{ icono }}" aria-hidden="true"></i> {{ etiqueta }}</div>
+        <div class="fs-4 fw-bold" style="color: {{ color }}">{{ valor }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <form method="get" class="card card-body shadow-sm mb-3 py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="form-label small mb-0" for="estado">Estado</label>
+        <select id="estado" name="estado" class="form-select form-select-sm">
+          <option value="abiertos" {{ 'selected' if f.estado == 'abiertos' }}>Abiertos (no recibidos)</option>
+          <option value="" {{ 'selected' if f.estado == '' }}>Todos</option>
+          {% for e in estados %}<option {{ 'selected' if f.estado == e }}>{{ e }}</option>{% endfor %}
+        </select></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="proveedor">Proveedor</label>
+        <select id="proveedor" name="proveedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for p in proveedores %}<option {{ 'selected' if f.proveedor == p }}>{{ p }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small mb-0" for="transporte">Transporte</label>
+        <select id="transporte" name="transporte" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for t in transportes %}<option {{ 'selected' if f.transporte == t }}>{{ t }}</option>{% endfor %}</select></div>
+      <div class="col-md"><label class="form-label small mb-0" for="q">Buscar</label>
+        <input id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Orden, factura, cotización, descripción o código de producto"></div>
+      <div class="col-md-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Filtrar</button></div>
+    </div>
+  </form>
+
+  {% if pedidos %}
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm table-hover small align-middle mb-0">
+      <thead class="table-light"><tr>
+        <th>Orden de compra</th><th>Proveedor</th><th>Transporte</th><th>Estado</th><th>Fecha pedido</th><th>Llegada estimada</th>
+        <th class="num" title="Días desde que empezó la etapa actual">Días en etapa</th>
+        <th class="num" title="Hoy − llegada estimada (abiertos) o Llegada real − estimada">Atraso</th>
+        <th class="num" title="Recepción bodega − Fecha pedido">Días total</th><th class="num">Líneas</th><th class="num">Monto</th>
+      </tr></thead>
+      <tbody>
+      {% for p in pedidos %}
+        <tr style="cursor: pointer" onclick="location.href='{{ url_for('pedidos_importacion.formulario', id_=p.id) }}'">
+          <td><a href="{{ url_for('pedidos_importacion.formulario', id_=p.id) }}" class="fw-semibold text-decoration-none">{{ p.orden_compra }}</a>
+            {% if p.descripcion %}<div class="text-muted text-truncate" style="max-width: 260px">{{ p.descripcion }}</div>{% endif %}</td>
+          <td>{{ p.proveedor or '' }}{% if p.pais %}<div class="text-muted">{{ p.pais }}</div>{% endif %}</td>
+          <td>{{ p.transporte or '' }}</td>
+          <td><span class="badge text-bg-{{ color[p.estado] }}">{{ p.estado }}</span></td>
+          <td>{{ ffecha(p.f_pedido) }}</td>
+          <td>{{ ffecha(p.f_llegada_estimada) }}{% if p.f_llegada_real %}<div class="text-muted">llegó {{ ffecha(p.f_llegada_real) }}</div>{% endif %}</td>
+          <td class="num">{% if p.dias_etapa is not none %}{{ p.dias_etapa }}<div class="text-muted">desde {{ ffecha(p.etapa_desde) }}</div>{% else %}<span class="vacio">—</span>{% endif %}</td>
+          <td class="num">{% if p.atraso_hoy %}<span class="badge text-bg-danger">{{ p.atraso_hoy }} días</span>
+            {% elif p.t.atraso is not none %}<span class="{{ 'text-danger fw-semibold' if p.t.atraso > 0 else 'text-success' }}">{{ p.t.atraso }}</span>
+            {% else %}<span class="vacio">—</span>{% endif %}</td>
+          <td class="num fw-semibold">{{ dia(p.t.total) }}</td>
+          <td class="num">{{ p.lineas }}</td>
+          <td class="num">{{ "{:,.2f}".format(p.monto) if p.monto else '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="small text-muted mt-1">{{ pedidos|length }} pedido(s). Clic en una fila para ver o editar.</div>
+  {% else %}
+  <div class="card card-body text-center text-muted py-5">
+    <i class="bi bi-inbox fs-1" aria-hidden="true"></i>
+    <p class="mb-2">No hay pedidos {{ 'abiertos' if f.estado == 'abiertos' else 'con esos filtros' }}.</p>
+    <div class="d-flex justify-content-center gap-2">
+      <a href="{{ url_for('pedidos_importacion.formulario') }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg" aria-hidden="true"></i> Registrar un pedido</a>
+      <a href="{{ url_for('pedidos_importacion.importar') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Importar desde Excel</a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

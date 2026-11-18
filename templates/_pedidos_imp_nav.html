@@ -1,0 +1,19 @@
+{# Pestañas comunes del módulo de pedidos de importación. Variable: activo #}
+<style>
+  .imp-nav .nav-link { color: #027266; }
+  .imp-nav .nav-link.active { background: #027266; color: #fff; }
+  .imp-nav .nav-link.naranja { color: #FE6412; }
+  .imp-nav .nav-link.naranja.active { background: #FE6412; color: #fff; }
+  .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .vacio { color: #b5b3ad; }
+</style>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <h5 class="mb-0"><i class="bi bi-globe-americas" aria-hidden="true"></i> Pedidos de importación</h5>
+  <ul class="nav nav-pills imp-nav small gap-1">
+    <li class="nav-item"><a class="nav-link {{ 'active' if activo == 'lista' }}" href="{{ url_for('pedidos_importacion.lista') }}"><i class="bi bi-list-ul" aria-hidden="true"></i> Pedidos</a></li>
+    <li class="nav-item"><a class="nav-link naranja {{ 'active' if activo == 'nuevo' }}" href="{{ url_for('pedidos_importacion.formulario') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nuevo pedido</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if activo == 'reportes' }}" href="{{ url_for('pedidos_importacion.reportes') }}"><i class="bi bi-stopwatch" aria-hidden="true"></i> Tiempos y reportes</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if activo == 'sugerido' }}" href="{{ url_for('pedidos_importacion.sugerido') }}"><i class="bi bi-calendar-check" aria-hidden="true"></i> Pedido sugerido</a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if activo == 'importar' }}" href="{{ url_for('pedidos_importacion.importar') }}"><i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Importar Excel</a></li>
+  </ul>
+</div>

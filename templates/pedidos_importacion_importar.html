@@ -1,0 +1,63 @@
+{% extends "layout.html" %}
+{% block title %}Importar pedidos de importación{% endblock %}
+{% block content %}
+<div class="container-fluid mt-3 mb-4" style="max-width: 1300px">
+  {% set activo = 'importar' %}{% include "_pedidos_imp_nav.html" %}
+  {% for e in errores_archivo or [] %}<div class="alert alert-danger py-2">{{ e }}</div>{% endfor %}
+
+  {% if validado %}
+  <div class="card card-body shadow-sm mb-3 border-success">
+    <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+      <div class="fw-semibold">{{ archivo }} · {{ filas|length }} pedido(s) en el archivo</div>
+      <div class="d-flex flex-wrap gap-2">
+        <span class="badge text-bg-success fs-6 fw-normal">{{ nuevos }} nuevos</span>
+        <span class="badge text-bg-warning fs-6 fw-normal">{{ actualizados }} ya existen (se actualizan)</span>
+        {% if lineas %}<span class="badge text-bg-light border fs-6 fw-normal">{{ lineas }} líneas de productos</span>{% endif %}
+      </div>
+    </div>
+    {% for a in avisos %}<div class="alert alert-warning small py-2 mb-2">{{ a }}</div>{% endfor %}
+    {% if errores %}<div class="alert alert-danger small py-2 mb-2"><strong>{{ errores|length }} fila(s) no se cargan:</strong>
+      <ul class="mb-0">{% for e in errores[:40] %}<li>{{ e }}</li>{% endfor %}{% if errores|length > 40 %}<li>… y {{ errores|length - 40 }} más</li>{% endif %}</ul></div>{% endif %}
+    <div class="table-responsive mb-2" style="max-height: 420px"><table class="table table-sm small align-middle mb-0">
+      <thead class="sticky-top bg-white"><tr><th></th><th>Orden</th><th>Proveedor</th><th>Transporte</th><th>Estado</th><th>Fecha pedido</th><th>Embarque</th>
+        <th>Llegada real</th><th>Recepción</th><th class="num">Líneas</th><th>Revise</th></tr></thead>
+      <tbody>{% for f in filas %}<tr>
+        <td>{% if f.nuevo %}<span class="badge text-bg-success">nuevo</span>{% elif f.cambios %}<span class="badge text-bg-warning">{{ f.cambios }} cambio(s)</span>{% else %}<span class="badge text-bg-light border">igual</span>{% endif %}</td>
+        <td class="fw-semibold">{{ f.oc }}</td><td>{{ f.p.proveedor or '' }}</td><td>{{ f.p.transporte or '' }}</td>
+        <td><span class="badge text-bg-{{ color[f.p.estado] }}">{{ f.p.estado }}</span></td>
+        <td>{{ ffecha(f.p.f_pedido) }}</td><td>{{ ffecha(f.p.f_embarque) }}</td><td>{{ ffecha(f.p.f_llegada_real) }}</td><td>{{ ffecha(f.p.f_recepcion) }}</td>
+        <td class="num">{{ f.lineas or '' }}</td>
+        <td class="text-warning-emphasis" style="max-width: 320px">{{ f.avisos|join(' ') }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if detalle_sin_pedido %}<div class="small text-muted mb-2">También se cargan líneas de pedidos que ya existen: {{ detalle_sin_pedido|join(', ') }}.</div>{% endif %}
+    <form method="post" action="{{ url_for('pedidos_importacion.confirmar_importacion') }}" class="d-flex gap-2"
+          onsubmit="const b = this.querySelector('button'); b.disabled = true; b.innerText = 'Guardando…';">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button class="btn btn-success" {{ 'disabled' if not filas and not lineas }}><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar pedidos</button>
+      <a href="{{ url_for('pedidos_importacion.importar') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </form>
+  </div>
+  {% else %}
+  <form method="post" enctype="multipart/form-data" class="card card-body shadow-sm mb-3"
+        onsubmit="const b = this.querySelector('button[type=submit]'); b.disabled = true; b.innerText = 'Revisando…';">
+    <div class="row g-2 align-items-end">
+      <div class="col-md">
+        <label class="form-label fw-semibold" for="archivo">Excel con sus pedidos</label>
+        <input type="file" id="archivo" name="archivo" accept=".xlsx,.xls" class="form-control" required>
+      </div>
+      <div class="col-md-auto"><button type="submit" class="btn btn-primary"><i class="bi bi-search" aria-hidden="true"></i> Revisar archivo</button></div>
+    </div>
+    <div class="mt-2"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('pedidos_importacion.plantilla') }}"><i class="bi bi-download" aria-hidden="true"></i> Descargar plantilla</a></div>
+  </form>
+  <div class="card card-body small text-muted">
+    <ul class="mb-0">
+      <li>Columnas de la hoja de pedidos (como en el registro): <strong>N° orden de compra</strong> (obligatoria), Proveedor, País del proveedor, N° cotización, N° factura, Fecha factura, Descripción, Transporte, Estado, Solicitud cotización, Cotización recibida, Fecha pedido, Fecha embarque, Llegada estimada, Llegada real, Liberación aduana, Recepción bodega y Observaciones.</li>
+      <li>Fechas en formato <strong>dd/mm/aaaa</strong>. Todas son opcionales.</li>
+      <li>Si la orden de compra ya existe, se actualiza; una celda vacía no borra lo que ya tenía.</li>
+      <li>Hoja opcional <strong>«Detalle»</strong> con los productos de cada orden: N° orden de compra, Código de producto, Descripción, Cantidad pedida, Cantidad recibida y Costo unitario.</li>
+      <li>Antes de guardar se muestra todo para revisar; nada se graba hasta que pulse «Guardar pedidos».</li>
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

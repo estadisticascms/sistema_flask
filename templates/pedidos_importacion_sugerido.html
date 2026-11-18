@@ -1,0 +1,129 @@
+{% extends "layout.html" %}
+{% block title %}Pedido sugerido por tiempo de entrega{% endblock %}
+{% macro n(v, d=0) %}{% if v is not none %}{{ ("{:,.%df}" % d).format(v) }}{% else %}<span class="vacio">—</span>{% endif %}{% endmacro %}
+{% block content %}
+<style>
+  .linea-tiempo { display: flex; flex-wrap: wrap; gap: .4rem; align-items: stretch; }
+  .linea-tiempo .t { background: #f1f8f7; border: 1px solid #cfe5e2; border-radius: .5rem; padding: .35rem .6rem; text-align: center; min-width: 105px; }
+  .linea-tiempo .t b { display: block; font-size: 1.15rem; color: #027266; }
+  .linea-tiempo .t.total { background: #fff1e8; border-color: #FE6412; } .linea-tiempo .t.total b { color: #FE6412; }
+  .seg { width: 70px; }
+</style>
+<div class="container-fluid mt-3 mb-4" style="max-width: 1450px">
+  {% set activo = 'sugerido' %}{% include "_pedidos_imp_nav.html" %}
+
+  <form method="get" class="card card-body shadow-sm mb-3 py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3"><label class="form-label small mb-0" for="proveedor">Proveedor *</label>
+        <select id="proveedor" name="proveedor" class="form-select form-select-sm" required><option value="">Escoja el proveedor…</option>
+          {% for p in proveedores %}<option value="{{ p }}" {{ 'selected' if prm.proveedor == p }}>{{ p }}{% if conteo.get(p) %} ({{ conteo[p] }} productos){% endif %}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small mb-0" for="transporte">Transporte del próximo pedido</label>
+        <select id="transporte" name="transporte" class="form-select form-select-sm"><option value="">Cualquiera</option>
+          {% for t in transportes %}<option {{ 'selected' if prm.transporte == t }}>{{ t }}</option>{% endfor %}</select></div>
+      <div class="col-md-1"><label class="form-label small mb-0" for="meses">Consumo de</label>
+        <select id="meses" name="meses" class="form-select form-select-sm">{% for m in meses_opc %}<option value="{{ m }}" {{ 'selected' if prm.meses == m }}>{{ m }} meses</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small mb-0" for="dias_cubrir">Días a cubrir con el pedido</label>
+        <select id="dias_cubrir" name="dias_cubrir" class="form-select form-select-sm">{% for d in dias_opc %}<option value="{{ d }}" {{ 'selected' if prm.dias_cubrir == d }}>{{ d }} días</option>{% endfor %}</select></div>
+      <div class="col-md-1"><label class="form-label small mb-0" for="seguridad">Seguridad (días)</label>
+        <input type="number" min="0" max="365" id="seguridad" name="seguridad" value="{{ prm.seguridad }}" class="form-control form-control-sm"></div>
+      <div class="col-md-1"><label class="form-label small mb-0" for="entrega_manual" title="Déjelo vacío para usar el promedio del historial">Entrega a mano</label>
+        <input type="number" min="1" max="730" id="entrega_manual" name="entrega_manual" value="{{ prm.entrega_manual or '' }}" class="form-control form-control-sm" placeholder="días"></div>
+      <div class="col-md-auto"><div class="form-check small"><input class="form-check-input" type="checkbox" name="sin_venta" value="1" id="sin_venta" {{ 'checked' if prm.sin_venta }}>
+        <label class="form-check-label" for="sin_venta">Incluir sin venta</label></div>
+        <button class="btn btn-sm btn-primary w-100"><i class="bi bi-calculator" aria-hidden="true"></i> Calcular</button></div>
+    </div>
+    <div class="form-text">Seguridad: días de venta que se quieren tener de colchón al llegar el pedido (cada producto puede tener los suyos en la tabla).
+      «Entrega a mano»: úselo si el proveedor todavía no tiene pedidos recibidos o quiere probar otro tiempo.</div>
+  </form>
+
+  {% if not r %}
+  <div class="card card-body text-muted small">
+    <p class="mb-1"><strong>¿Cómo funciona?</strong> Escoja un proveedor. El sistema toma de sus pedidos registrados cuánto tarda en promedio desde que se hace el pedido hasta que entra a bodega (tiempo de entrega), y con la venta de cada producto calcula:</p>
+    <ul class="mb-0">
+      <li><strong>Cuándo pedir:</strong> el día en que el stock (más lo que ya viene en camino) alcanza para cubrir solo el tiempo de entrega más los días de seguridad.</li>
+      <li><strong>Cuándo cotizar:</strong> esa fecha menos lo que normalmente tarda entre pedir la cotización y hacer el pedido.</li>
+      <li><strong>Cuánto pedir:</strong> la venta del tiempo de entrega + seguridad + días a cubrir, menos el stock y lo que viene en camino, subido a la cantidad mínima de compra.</li>
+    </ul>
+  </div>
+  {% else %}
+  {% set h = r.hist %}
+  <div class="row g-3 mb-3">
+    <div class="col-lg-7"><div class="card card-body shadow-sm h-100">
+      <h6 class="mb-2">Tiempos del proveedor <span class="small text-muted fw-normal">· {{ h.pedidos }} pedido(s) en el historial{% if prm.transporte and not h.usa_todos %} por {{ prm.transporte }}{% endif %}{% if h.usa_todos %} (no hay de {{ prm.transporte }} recibidos: se usan todos){% endif %}</span></h6>
+      <div class="linea-tiempo mb-2">
+        {% for k, etiqueta in [('resp_cot', 'Respuesta cotización'), ('decidir', 'Para decidir'), ('proveedor', 'Proveedor (fabricar)'), ('transito', 'Tránsito'), ('aduana', 'Aduana'), ('total', 'Total pedido → bodega')] %}
+        <div class="t {{ 'total' if k == 'total' }}" title="{{ h[k][1] }} pedido(s)"><small class="text-muted">{{ etiqueta }}</small><b>{{ "%.0f"|format(h[k][0]) if h[k][0] is not none else '—' }}</b><small class="text-muted">días</small></div>
+        {% endfor %}
+      </div>
+      <div class="small">
+        {% if r.entrega %}Tiempo de entrega usado: <strong style="color:#FE6412">{{ r.entrega }} días</strong>
+          {% if prm.entrega_manual %}(escrito a mano{% if r.entrega_hist %}; el historial dice {{ r.entrega_hist }}{% endif %}){% else %}(promedio de {{ h.total[1] }} pedido(s) recibido(s)){% endif %}.
+        {% else %}<span class="text-danger"><i class="bi bi-exclamation-circle" aria-hidden="true"></i> Este proveedor todavía no tiene pedidos recibidos con fecha de pedido y de recepción: escriba la «Entrega a mano» para calcular fechas y cantidades.</span>{% endif %}
+        {% if h.previo[0] is not none %}<br>De pedir la cotización a hacer el pedido pasan en promedio <strong>{{ "%.0f"|format(h.previo[0]) }} días</strong>.{% endif %}
+        {% if h.abiertos %}<br>Pedidos abiertos: {% for p in h.abiertos %}<a href="{{ url_for('pedidos_importacion.formulario', id_=p.id) }}">{{ p.orden_compra }}</a> ({{ p.estado }}{% if p.f_llegada_estimada %}, llega {{ ffecha(p.f_llegada_estimada) }}{% endif %}){{ ', ' if not loop.last }}{% endfor %}.{% endif %}
+      </div>
+    </div></div>
+    <div class="col-lg-5"><div class="card card-body shadow-sm h-100" style="border-left: 4px solid #FE6412">
+      <h6 class="mb-2">¿Cuándo hacer el próximo pedido?</h6>
+      {% if r.proxima %}
+        {% if r.proxima <= r.hoy %}<div class="fs-4 fw-bold text-danger">Pedir ya</div>
+          <div class="small">{{ r.pedir_ya }} producto(s) ya pasaron su fecha para pedir: lo que hay no alcanza para esperar el tiempo de entrega.</div>
+        {% else %}<div class="fs-4 fw-bold" style="color:#FE6412">{{ ffecha(r.proxima) }}</div>
+          <div class="small">En {{ (r.proxima - r.hoy).days }} días el primer producto llega a su punto de reorden.</div>{% endif %}
+        {% if r.proxima_cotizar %}<div class="small mt-1">Pedir la cotización a más tardar el <strong>{{ ffecha(r.proxima_cotizar) if r.proxima_cotizar > r.hoy else 'hoy' }}</strong>.</div>{% endif %}
+        <div class="small mt-2 text-muted">{{ r.pronto }} producto(s) más llegan a su fecha en los próximos 30 días · {{ r.con_sugerido }} con cantidad sugerida ·
+          valor {{ "C$ {:,.2f}".format(r.total_sugerido) }}{% if r.total_fob %} · FOB {{ "US$ {:,.2f}".format(r.total_fob) }}{% endif %}</div>
+      {% elif r.filas %}<div class="text-muted small">Falta el tiempo de entrega para calcular fechas.</div>
+      {% else %}<div class="text-muted small">No hay productos con venta de este proveedor.</div>{% endif %}
+      {% if r.periodo %}<div class="small text-muted mt-auto pt-2">Consumo de {{ ffecha(r.periodo[0]) }} a {{ ffecha(r.periodo[1]) }} (últimas ventas cargadas).</div>{% endif %}
+    </div></div>
+  </div>
+
+  {% if r.filas %}
+  <form method="post" action="{{ url_for('pedidos_importacion.guardar_seguridad') }}">
+    <input type="hidden" name="volver" value="{{ request.full_path }}">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <div class="small">{% for k, (nombre, c) in urgencias.items() %}<span class="badge text-bg-{{ c }} border me-1">{{ nombre }}</span>{% endfor %}</div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-save" aria-hidden="true"></i> Guardar días de seguridad</button>
+        <a class="btn btn-sm btn-success" href="{{ url_for('pedidos_importacion.sugerido_excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
+      </div>
+    </div>
+    <div class="table-responsive border rounded-3 bg-white" style="max-height: 640px">
+      <table class="table table-sm table-hover small align-middle mb-0">
+        <thead class="table-light sticky-top"><tr>
+          <th>Producto</th><th class="num" title="Venta promedio por mes">Consumo mensual</th><th class="num">Stock disponible</th>
+          <th class="num" title="Pedido − recibido en pedidos abiertos">En camino</th><th class="num" title="(Stock + en camino) ÷ consumo diario">Días de cobertura</th>
+          <th class="num" title="Vacío = usa el valor general">Seguridad (días)</th><th class="num" title="Consumo diario × (entrega + seguridad)">Punto de reorden</th>
+          <th>Fecha para pedir</th><th>Fecha para cotizar</th><th class="num">Cant. mínima</th><th class="num" style="color:#FE6412">Cantidad sugerida</th><th class="num">Valor C$</th>
+        </tr></thead>
+        <tbody>
+        {% for f in r.filas[:1500] %}
+          {% set u = urgencias[f.urgencia] %}
+          <tr>
+            <td><span class="fw-semibold">{{ f.codigo }}</span>{% if f.parte %} · {{ f.parte }}{% endif %} <span class="text-muted">{{ f.marca or '' }}</span>
+              <div class="text-muted text-truncate" style="max-width: 300px">{{ f.nombre }}</div></td>
+            <td class="num">{{ n(f.mensual, 1) }}</td>
+            <td class="num {{ 'text-danger' if f.stock <= 0 }}">{{ n(f.stock) }}</td>
+            <td class="num" title="{{ f.detalle_camino }}">{{ n(f.camino) if f.camino else '' }}</td>
+            <td class="num">{{ n(f.cobertura) }}</td>
+            <td class="num"><input type="number" min="0" max="365" name="seg_{{ f.codigo }}" value="{{ f.seguridad if f.seguridad_propia else '' }}"
+                 placeholder="{{ prm.seguridad }}" class="form-control form-control-sm text-end seg d-inline-block" aria-label="Días de seguridad de {{ f.codigo }}"></td>
+            <td class="num">{{ n(f.reorden) }}</td>
+            <td><span class="badge text-bg-{{ u[1] }} border">{% if f.urgencia == 'ya' %}Pedir ya{% elif f.fecha_pedir %}{{ ffecha(f.fecha_pedir) }}{% else %}{{ u[0] }}{% endif %}</span>
+              {% if f.dias_para_pedir is not none %}<div class="text-muted" style="font-size: .7rem">{% if f.dias_para_pedir < 0 %}hace {{ -f.dias_para_pedir }} días{% elif f.dias_para_pedir > 0 %}en {{ f.dias_para_pedir }} días{% else %}hoy{% endif %}</div>{% endif %}</td>
+            <td>{{ ffecha(f.fecha_cotizar) if f.fecha_cotizar and f.fecha_cotizar > r.hoy else ('ya' if f.fecha_cotizar else '') }}</td>
+            <td class="num">{{ n(f.minimo) if f.minimo else '' }}</td>
+            <td class="num fw-bold" style="color:#FE6412">{{ n(f.sugerido) if f.sugerido else '' }}</td>
+            <td class="num">{{ n(f.valor, 2) if f.valor else '' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if r.filas|length > 1500 %}<div class="small text-muted mt-1">Se muestran 1,500 de {{ r.filas|length }}; el Excel los trae todos.</div>{% endif %}
+  </form>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

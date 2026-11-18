@@ -1,0 +1,80 @@
+{% extends "layout.html" %}
+{% block title %}Tiempos de importación{% endblock %}
+{% macro prom(par) %}{% if par[0] is not none %}<span title="Promedio de {{ par[1] }} pedido(s)">{{ "%.1f"|format(par[0]) }}</span><span class="text-muted" style="font-size: .7rem"> ({{ par[1] }})</span>{% else %}<span class="vacio">—</span>{% endif %}{% endmacro %}
+{% macro tabla_promedios(grupos, titulo, general) %}
+<div class="table-responsive border rounded-3 bg-white mb-1">
+  <table class="table table-sm table-hover small align-middle mb-0">
+    <thead class="table-light"><tr><th>{{ titulo }}</th><th class="num">Pedidos</th><th class="num">Recibidos</th>
+      {% for k, nombre, d, h, expl in tiempos_def %}<th class="num" title="{{ expl }}" style="{{ 'color:#FE6412' if k == 'total' }}">{{ nombre|replace('Días ', '')|capitalize }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for g in grupos %}<tr><td class="fw-semibold">{{ g.grupo }}</td><td class="num">{{ g.pedidos }}</td><td class="num">{{ g.recibidos }}</td>
+        {% for k, _n, _d, _h, _e in tiempos_def %}<td class="num {{ 'fw-bold' if k == 'total' }}">{{ prom(g.tiempos[k]) }}</td>{% endfor %}</tr>{% endfor %}
+      {% if general and grupos|length > 1 %}<tr class="table-light fw-bold"><td>Todos</td><td class="num">{{ general.pedidos }}</td><td class="num">{{ general.recibidos }}</td>
+        {% for k, _n, _d, _h, _e in tiempos_def %}<td class="num">{{ prom(general.tiempos[k]) }}</td>{% endfor %}</tr>{% endif %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+{% block content %}
+<div class="container-fluid mt-3 mb-4" style="max-width: 1400px">
+  {% set activo = 'reportes' %}{% include "_pedidos_imp_nav.html" %}
+
+  <form method="get" class="card card-body shadow-sm mb-3 py-2">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="form-label small mb-0" for="desde">Fecha pedido desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() if f.desde else '' }}" class="form-control form-control-sm"></div>
+      <div class="col-md-2"><label class="form-label small mb-0" for="hasta">hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() if f.hasta else '' }}" class="form-control form-control-sm"></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="proveedor">Proveedor</label>
+        <select id="proveedor" name="proveedor" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for p in proveedores %}<option {{ 'selected' if f.proveedor == p }}>{{ p }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small mb-0" for="transporte">Transporte</label>
+        <select id="transporte" name="transporte" class="form-select form-select-sm"><option value="">Todos</option>
+          {% for t in transportes %}<option {{ 'selected' if f.transporte == t }}>{{ t }}</option>{% endfor %}</select></div>
+      <div class="col-md-auto"><button class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Ver</button></div>
+      <div class="col-md-auto ms-auto"><a class="btn btn-sm btn-success" href="{{ url_for('pedidos_importacion.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Exportar resumen a Excel</a></div>
+    </div>
+    <div class="form-text">Las fechas filtran por «Fecha pedido». Los pedidos cancelados no entran en los promedios. El número entre paréntesis es de cuántos pedidos sale el promedio.</div>
+  </form>
+
+  {% if not d.pedidos %}
+  <div class="card card-body text-center text-muted py-5">Todavía no hay pedidos {{ 'con esos filtros' if params else 'registrados' }}.
+    <div class="mt-2"><a href="{{ url_for('pedidos_importacion.importar') }}" class="btn btn-sm btn-outline-secondary">Importar desde Excel</a></div></div>
+  {% else %}
+  <h6 class="mt-2"><i class="bi bi-person-badge" aria-hidden="true"></i> Promedio de días por proveedor</h6>
+  {{ tabla_promedios(d.por_proveedor, 'Proveedor', d.general) }}
+  <h6 class="mt-4"><i class="bi bi-truck" aria-hidden="true"></i> Promedio de días por transporte</h6>
+  {{ tabla_promedios(d.por_transporte, 'Transporte', d.general) }}
+
+  <div class="row g-3 mt-2">
+    <div class="col-lg-7">
+      <h6><i class="bi bi-hourglass-split" aria-hidden="true"></i> Pedidos abiertos <span class="text-muted fw-normal small">· {{ d.abiertos|length }}, los que llevan más tiempo en su etapa primero</span></h6>
+      {% if d.abiertos %}
+      <div class="table-responsive border rounded-3 bg-white"><table class="table table-sm table-hover small align-middle mb-0">
+        <thead class="table-light"><tr><th>Orden</th><th>Proveedor</th><th>Estado</th><th>En la etapa desde</th><th class="num">Días en etapa</th><th>Llegada estimada</th></tr></thead>
+        <tbody>{% for p in d.abiertos %}<tr>
+          <td><a href="{{ url_for('pedidos_importacion.formulario', id_=p.id) }}">{{ p.orden_compra }}</a></td><td>{{ p.proveedor or '' }}</td>
+          <td><span class="badge text-bg-{{ color[p.estado] }}">{{ p.estado }}</span></td><td>{{ ffecha(p.etapa_desde) }}</td>
+          <td class="num fw-bold">{{ p.dias_etapa if p.dias_etapa is not none else '—' }}</td>
+          <td>{{ ffecha(p.f_llegada_estimada) }}{% if p.atraso_hoy %} <span class="badge text-bg-danger">+{{ p.atraso_hoy }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}<p class="text-muted small">No hay pedidos abiertos.</p>{% endif %}
+    </div>
+    <div class="col-lg-5">
+      <h6 class="text-danger"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Pedidos atrasados</h6>
+      {% if d.atrasados or d.llegaron_tarde %}
+      <div class="table-responsive border rounded-3 bg-white"><table class="table table-sm small align-middle mb-0">
+        <thead class="table-light"><tr><th>Orden</th><th>Proveedor</th><th>Estimada</th><th>Real</th><th class="num">Días de atraso</th></tr></thead>
+        <tbody>
+          {% for p in d.atrasados %}<tr class="table-danger"><td><a href="{{ url_for('pedidos_importacion.formulario', id_=p.id) }}">{{ p.orden_compra }}</a></td>
+            <td>{{ p.proveedor or '' }}</td><td>{{ ffecha(p.f_llegada_estimada) }}</td><td><em>aún no llega</em></td><td class="num fw-bold">{{ p.atraso_hoy }}</td></tr>{% endfor %}
+          {% for p in d.llegaron_tarde %}<tr><td><a href="{{ url_for('pedidos_importacion.formulario', id_=p.id) }}">{{ p.orden_compra }}</a></td>
+            <td>{{ p.proveedor or '' }}</td><td>{{ ffecha(p.f_llegada_estimada) }}</td><td>{{ ffecha(p.f_llegada_real) }}</td><td class="num">{{ p.t.atraso }}</td></tr>{% endfor %}
+        </tbody></table></div>
+      <div class="form-text">En rojo: abiertos que ya pasaron la llegada estimada. Debajo: los que llegaron tarde.</div>
+      {% else %}<p class="text-muted small">Ningún pedido atrasado.</p>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

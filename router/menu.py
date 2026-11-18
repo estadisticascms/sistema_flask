@@ -65,6 +65,9 @@ SECCIONES = [
         "grupos": [
             {"titulo": "Pedidos e ingresos", "items": [
                 ("Sugerido de compras", "/sugerido_compras", "bi-cart-plus-fill", "Pedido por marca o proveedor, editable y en Excel", "pedido fob proveedor"),
+                ("Pedidos de importación", "/pedidos_importacion", "bi-globe-americas", "Registrar pedidos, fechas de cada etapa y tiempos", "importacion orden compra proveedor embarque transito aduana cotizacion factura llegada"),
+                ("Tiempos de importación", "/pedidos_importacion/reportes", "bi-stopwatch", "Promedio por proveedor y transporte, abiertos y atrasados; Excel", "importacion tiempos atraso transito aduana proveedor"),
+                ("Pedido sugerido por tiempo de entrega", "/pedidos_importacion/sugerido", "bi-calendar-check", "Cuándo cotizar, cuándo pedir y cuánto, según el historial del proveedor", "importacion reorden lead time seguridad cuando pedir"),
                 ("Cantidades mínimas de compra", "/cantidades_minimas", "bi-boxes", "Mínimo por producto; el sugerido se ajusta a múltiplos", "minimo moq empaque caja lote subir excel"),
                 ("Próximos a agotarse", "/productos_agotarse", "bi-hourglass-split", "Cobertura de existencias", "agotado reorden"),
                 ("Revisión de factura de ingreso", "/revision_ingreso", "bi-clipboard-check", "Códigos, SAC, duplicados, nuevos y FOB", "arancel importacion proveedor"),

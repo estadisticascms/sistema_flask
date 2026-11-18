@@ -55,6 +55,7 @@ from router.cierre_inventario import cierre_inventario_bp
 from router.anular_facturas import anular_facturas_bp
 from router.anulaciones_vendedor import anulaciones_vendedor_bp
 from router.cantidades_minimas import cantidades_minimas_bp
+from router.pedidos_importacion import pedidos_importacion_bp
 from router.analisis_proveedor import analisis_proveedor_bp
 from router.validacion_facturas import validacion_facturas_bp
 from router.menu import contexto_menu
@@ -139,6 +140,7 @@ app.register_blueprint(cierre_inventario_bp)
 app.register_blueprint(anular_facturas_bp)
 app.register_blueprint(anulaciones_vendedor_bp)
 app.register_blueprint(cantidades_minimas_bp)
+app.register_blueprint(pedidos_importacion_bp)
 app.register_blueprint(analisis_proveedor_bp)
 app.register_blueprint(validacion_facturas_bp)
 app.context_processor(contexto_menu)  # menú único para inicio y barra superior
