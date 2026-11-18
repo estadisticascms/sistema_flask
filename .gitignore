@@ -2,3 +2,6 @@ venv/
 __pycache__/
 *.pyc
 .env
+
+# Archivos temporales de cargas y revisiones (la app crea la carpeta al arrancar)
+uploads/
