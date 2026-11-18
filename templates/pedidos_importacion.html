@@ -47,7 +47,7 @@
         <th>Orden de compra</th><th>Proveedor</th><th>Transporte</th><th>Estado</th><th>Fecha pedido</th><th>Llegada estimada</th>
         <th class="num" title="Días desde que empezó la etapa actual">Días en etapa</th>
         <th class="num" title="Hoy − llegada estimada (abiertos) o Llegada real − estimada">Atraso</th>
-        <th class="num" title="Recepción bodega − Fecha pedido">Días total</th><th class="num">Líneas</th><th class="num">Monto</th>
+        <th class="num" title="Recepción bodega − Fecha pedido">Días total</th><th class="num">Líneas</th><th class="num">Total FOB US$</th>
       </tr></thead>
       <tbody>
       {% for p in pedidos %}
@@ -64,7 +64,7 @@
             {% elif p.t.atraso is not none %}<span class="{{ 'text-danger fw-semibold' if p.t.atraso > 0 else 'text-success' }}">{{ p.t.atraso }}</span>
             {% else %}<span class="vacio">—</span>{% endif %}</td>
           <td class="num fw-semibold">{{ dia(p.t.total) }}</td>
-          <td class="num">{{ p.lineas }}</td>
+          <td class="num">{{ p.lineas }}{% if p.nuevos %}<div><span class="badge text-bg-warning" title="Productos que aún no existen en el catálogo">{{ p.nuevos }} nuevo{{ 's' if p.nuevos > 1 }}</span></div>{% endif %}</td>
           <td class="num">{{ "{:,.2f}".format(p.monto) if p.monto else '' }}</td>
         </tr>
       {% endfor %}

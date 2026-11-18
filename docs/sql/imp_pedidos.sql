@@ -35,11 +35,13 @@ CREATE TABLE IF NOT EXISTS imp_pedidos (
 CREATE TABLE IF NOT EXISTS imp_pedido_detalle (
   id                  INT AUTO_INCREMENT PRIMARY KEY,
   pedido_id           INT           NOT NULL,
-  codigo              VARCHAR(20)   NULL,                    -- `Codigo Producto` del catálogo
+  codigo              VARCHAR(20)   NULL,                    -- `Codigo Producto` del catálogo; NULL = producto nuevo (aún no existe)
+  numero_parte        VARCHAR(60)   NULL,                    -- con la marca, sirve para amarrar el producto nuevo cuando se crea
+  marca               VARCHAR(60)   NULL,
   descripcion         VARCHAR(300)  NULL,
   cantidad_pedida     DECIMAL(12,2) NOT NULL DEFAULT 0,
   cantidad_recibida   DECIMAL(12,2) NULL,
-  costo_unitario      DECIMAL(14,4) NULL,
+  precio_fob          DECIMAL(14,4) NULL,                    -- precio FOB US$ cotizado por el proveedor
   KEY idx_pedido (pedido_id),
   KEY idx_codigo (codigo),
   CONSTRAINT fk_imp_detalle_pedido FOREIGN KEY (pedido_id) REFERENCES imp_pedidos (id) ON DELETE CASCADE
@@ -52,3 +54,7 @@ CREATE TABLE IF NOT EXISTS imp_stock_seguridad (
   actualizado_por     VARCHAR(50)   NULL,
   actualizado         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Cambio del 18/11/2026 (ejecutado): precio FOB en lugar de costo unitario y datos del producto nuevo
+-- ALTER TABLE imp_pedido_detalle CHANGE COLUMN costo_unitario precio_fob DECIMAL(14,4) NULL,
+--   ADD COLUMN numero_parte VARCHAR(60) NULL AFTER codigo, ADD COLUMN marca VARCHAR(60) NULL AFTER numero_parte;

@@ -6,6 +6,10 @@ tablas que ya tiene el sistema: catalogo_productos, existencias_bodega, ventas_p
 
 Tiempos (días): resta de dos fechas del pedido; si falta alguna, queda vacío (no 0).
 
+Líneas del pedido: precio FOB US$ (lo que cotiza el proveedor; el costo todavía no se conoce). Un producto nuevo, que aún no
+existe en el catálogo, se guarda sin código con su número de parte y marca; cuando se crea en el sistema y se carga el catálogo,
+el pedido lo amarra solo (amarrar_pendientes) por número de parte + marca (o número de parte con el proveedor del pedido).
+
 Sugerido por tiempo de entrega (por proveedor):
 - Tiempo de entrega = promedio de «Días total» (fecha pedido → recepción en bodega) de los pedidos recibidos del proveedor
   (del transporte elegido; si no hay, de todos sus pedidos). Sin historial se usa el valor que escriba el usuario.
@@ -233,7 +237,7 @@ def leer_pedidos(f=None, ids=None):
     try:
         cursor.execute(f"""
             SELECT p.*, COUNT(d.id) AS lineas, SUM(d.cantidad_pedida) AS unidades, SUM(d.cantidad_recibida) AS recibidas,
-                   SUM(d.cantidad_pedida * COALESCE(d.costo_unitario, 0)) AS monto
+                   SUM(d.cantidad_pedida * COALESCE(d.precio_fob, 0)) AS monto, SUM(d.id IS NOT NULL AND d.codigo IS NULL) AS nuevos
             FROM imp_pedidos p LEFT JOIN imp_pedido_detalle d ON d.pedido_id = p.id
             {('WHERE ' + ' AND '.join(where)) if where else ''}
             GROUP BY p.id
@@ -247,6 +251,7 @@ def leer_pedidos(f=None, ids=None):
     for p in pedidos:
         for k in ("unidades", "recibidas", "monto"):
             p[k] = float(p[k]) if p[k] is not None else None
+        p["nuevos"] = int(p["nuevos"] or 0)
         enriquecer(p, hoy)
     return pedidos
 
@@ -259,9 +264,9 @@ def leer_pedido(id_):
         p = cursor.fetchone()
         if not p:
             return None
-        cursor.execute("SELECT codigo, descripcion, cantidad_pedida, cantidad_recibida, costo_unitario FROM imp_pedido_detalle "
+        cursor.execute("SELECT codigo, numero_parte, marca, descripcion, cantidad_pedida, cantidad_recibida, precio_fob FROM imp_pedido_detalle "
                        "WHERE pedido_id = %s ORDER BY id", (id_,))
-        p["lineas"] = [{k: (float(v) if k.startswith(("cantidad", "costo")) and v is not None else v) for k, v in l.items()}
+        p["lineas"] = [{k: (float(v) if k.startswith(("cantidad", "precio")) and v is not None else v) for k, v in l.items()}
                        for l in cursor.fetchall()]
     finally:
         cursor.close()
@@ -319,6 +324,7 @@ def fecha_param(valor):
 @requiere_acceso(VISTA)
 def lista():
     f = filtros_lista(request.args)
+    amarrar_pendientes()
     pedidos = leer_pedidos(f)
     abiertos = leer_pedidos({"estado": "abiertos"}) if f["estado"] != "abiertos" or f["proveedor"] or f["transporte"] or f["q"] else pedidos
     resumen = {"abiertos": len(abiertos), "atrasados": sum(1 for p in abiertos if p["atraso_hoy"]),
@@ -349,17 +355,20 @@ def leer_formulario(form):
         errores.append("Escriba el N° de orden de compra.")
 
     lineas = []
-    columnas = [form.getlist(c) for c in ("l_codigo", "l_descripcion", "l_pedida", "l_recibida", "l_costo")]
-    for n, (cod, desc, ped, rec, costo) in enumerate(zip(*columnas), start=1):
+    columnas = [form.getlist(c) for c in ("l_codigo", "l_parte", "l_marca", "l_descripcion", "l_pedida", "l_recibida", "l_fob")]
+    for n, (cod, parte, marca, desc, ped, rec, fob) in enumerate(zip(*columnas), start=1):
         cod, desc = " ".join(cod.split()).upper()[:20], " ".join(desc.split())[:300]
-        ped, rec, costo = a_numero(ped), a_numero(rec), a_numero(costo)
-        if not (cod or desc or ped or rec or costo):
+        cod = "" if cod in ("NUEVO", "NUEVA") else cod
+        parte, marca = " ".join(parte.split())[:60], " ".join(marca.split()).upper()[:60]
+        ped, rec, fob = a_numero(ped), a_numero(rec), a_numero(fob)
+        if not (cod or parte or desc or ped or rec or fob):
             continue
-        for valor, nombre in ((ped, "cantidad pedida"), (rec, "cantidad recibida"), (costo, "costo unitario")):
+        for valor, nombre in ((ped, "cantidad pedida"), (rec, "cantidad recibida"), (fob, "precio FOB")):
             if valor == "error" or (valor is not None and valor < 0):
-                errores.append(f"Línea {n} ({cod or desc}): la {nombre} no es un número válido.")
-        lineas.append({"codigo": cod or None, "descripcion": desc or None, "cantidad_pedida": ped if isinstance(ped, float) else 0,
-                       "cantidad_recibida": rec if isinstance(rec, float) else None, "costo_unitario": costo if isinstance(costo, float) else None})
+                errores.append(f"Línea {n} ({cod or parte or desc}): {nombre} no es un número válido.")
+        lineas.append({"codigo": cod or None, "numero_parte": parte or None, "marca": marca or None, "descripcion": desc or None,
+                       "cantidad_pedida": ped if isinstance(ped, float) else 0, "cantidad_recibida": rec if isinstance(rec, float) else None,
+                       "precio_fob": fob if isinstance(fob, float) else None})
     avisos += revisar(datos, lineas)
     return datos, lineas, errores, avisos
 
@@ -379,15 +388,62 @@ def revisar(datos, lineas):
     codigos = {l["codigo"] for l in lineas if l["codigo"]}
     faltan = sorted(codigos - set(productos_catalogo(codigos)))
     if faltan:
-        avisos.append(f"Códigos que no están en el catálogo: {', '.join(faltan[:10])}{'…' if len(faltan) > 10 else ''}.")
+        avisos.append(f"Códigos que no están en el catálogo: {', '.join(faltan[:10])}{'…' if len(faltan) > 10 else ''}. "
+                      f"Si es un producto nuevo, deje el código vacío y escriba su número de parte y marca.")
+    nuevos = [l for l in lineas if not l["codigo"]]
+    sin_parte = [l for l in nuevos if not l.get("numero_parte")]
+    if sin_parte:
+        avisos.append(f"{len(sin_parte)} producto(s) nuevo(s) sin número de parte: escríbalo (con la marca) para que el pedido "
+                      f"lo amarre solo cuando el producto se cree en el sistema.")
     return avisos
 
 
-def completar_descripciones(lineas):
-    nombres = productos_catalogo({l["codigo"] for l in lineas if l["codigo"] and not l["descripcion"]})
+def buscar_codigo(por_parte, parte, marca, proveedor):
+    """Código del catálogo por número de parte (+ marca; si se repite, el del proveedor) -> (código o None, candidatos)."""
+    cand = [c for c in por_parte.get(clave(parte), []) if not clave(marca) or c[1] == clave(marca)]
+    if len(cand) > 1 and clave(proveedor):
+        cand = [c for c in cand if proveedor_contiene(clave(proveedor), c[2])] or cand
+    return (cand[0][0] if len(cand) == 1 else None), cand
+
+
+def completar_lineas(lineas, proveedor="", catalogo=None):
+    """Con código: llena descripción, nº parte y marca del catálogo. Sin código (producto nuevo): si su nº parte ya existe en el
+    catálogo, toma el código. Devuelve cuántas líneas se amarraron."""
+    por_codigo, por_parte = catalogo or catalogo_partes()
+    amarradas = 0
     for l in lineas:
-        if l["codigo"] and not l["descripcion"]:
-            l["descripcion"] = (nombres.get(l["codigo"]) or "").strip()[:300] or None
+        if not l["codigo"] and l.get("numero_parte"):
+            cod, _ = buscar_codigo(por_parte, l["numero_parte"], l.get("marca"), proveedor)
+            if cod:
+                l["codigo"], amarradas = cod, amarradas + 1
+        x = por_codigo.get(clave(l["codigo"])) if l["codigo"] else None
+        if x:
+            _, parte, marca, nombre = x
+            l["descripcion"] = l["descripcion"] or (nombre or "").strip()[:300] or None
+            l["numero_parte"] = l.get("numero_parte") or ((parte or "").strip()[:60] or None)
+            l["marca"] = l.get("marca") or ((marca or "").strip()[:60] or None)
+    return amarradas
+
+
+def amarrar_pendientes():
+    """Productos nuevos de los pedidos que ya se crearon en el catálogo: les pone el código. -> cuántos se amarraron."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT d.id, d.numero_parte, d.marca, p.proveedor FROM imp_pedido_detalle d JOIN imp_pedidos p ON p.id = d.pedido_id "
+                       "WHERE d.codigo IS NULL AND d.numero_parte IS NOT NULL AND d.numero_parte <> ''")
+        pendientes = cursor.fetchall()
+        if not pendientes:
+            return 0
+        _, por_parte = catalogo_partes()
+        cambios = [(cod, id_) for id_, parte, marca, prov in pendientes for cod in [buscar_codigo(por_parte, parte, marca, prov)[0]] if cod]
+        if cambios:
+            cursor.executemany("UPDATE imp_pedido_detalle SET codigo = %s WHERE id = %s", cambios)
+            conn.commit()
+        return len(cambios)
+    finally:
+        cursor.close()
+        conn.close()
 
 
 CAMPOS_GUARDAR = [c for c, _, _ in CAMPOS_TEXTO] + ["observaciones", "estado", "transporte", "fecha_factura"] + [c for c, _ in FECHAS]
@@ -405,11 +461,15 @@ def guardar(cursor, id_, datos, lineas, usuario, reemplazar_lineas=True):
     if reemplazar_lineas:
         cursor.execute("DELETE FROM imp_pedido_detalle WHERE pedido_id = %s", (id_,))
         if lineas:
-            cursor.executemany("INSERT INTO imp_pedido_detalle (pedido_id, codigo, descripcion, cantidad_pedida, cantidad_recibida, costo_unitario) "
-                               "VALUES (%s, %s, %s, %s, %s, %s)",
-                               [(id_, l["codigo"], l["descripcion"], l["cantidad_pedida"], l["cantidad_recibida"], l["costo_unitario"])
-                                for l in lineas])
+            insertar_lineas(cursor, id_, lineas)
     return id_
+
+
+def insertar_lineas(cursor, id_, lineas):
+    cursor.executemany("INSERT INTO imp_pedido_detalle (pedido_id, codigo, numero_parte, marca, descripcion, cantidad_pedida, cantidad_recibida, "
+                       "precio_fob) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                       [(id_, l["codigo"], l.get("numero_parte"), l.get("marca"), l["descripcion"], l["cantidad_pedida"], l["cantidad_recibida"],
+                         l["precio_fob"]) for l in lineas])
 
 
 @pedidos_importacion_bp.route("/pedidos_importacion/nuevo", methods=["GET", "POST"])
@@ -421,6 +481,7 @@ def formulario(id_=None):
                 "ffecha": ffecha, "color": COLOR_ESTADO}
     if request.method == "GET":
         if id_:
+            amarrar_pendientes()
             p = leer_pedido(id_)
             if not p:
                 flash("El pedido no existe.", "warning")
@@ -443,7 +504,9 @@ def formulario(id_=None):
         datos["id"] = id_
         enriquecer(datos, date.today())
         return render_template("pedido_importacion_form.html", p=datos, lineas=lineas, errores=errores, avisos=avisos, **contexto)
-    completar_descripciones(lineas)
+    amarradas = completar_lineas(lineas, datos["proveedor"])
+    if amarradas:
+        avisos.append(f"{amarradas} producto(s) nuevo(s) ya existen en el catálogo y se les puso el código.")
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -483,7 +546,9 @@ def producto():
     """Descripción del producto para llenar la línea al escribir el código."""
     codigo = (request.args.get("codigo") or "").strip().upper()
     nombre = productos_catalogo({codigo}).get(codigo) if codigo else None
-    return jsonify({"codigo": codigo, "descripcion": (nombre or "").strip(), "existe": nombre is not None})
+    x = catalogo_partes()[0].get(clave(codigo)) if nombre is not None else None
+    return jsonify({"codigo": codigo, "descripcion": (nombre or "").strip(), "existe": nombre is not None,
+                    "numero_parte": (x[1] or "").strip() if x else "", "marca": (x[2] or "").strip() if x else ""})
 
 
 # -----------------------------
@@ -498,9 +563,9 @@ COLUMNAS_PRODUCTOS = {
     "descripcion": {"DESCRIPCION", "PRODUCTO", "NOMBRE", "DESCRIPCIONDELPRODUCTO"},
     "cantidad_pedida": {"CANTIDADPEDIDA", "CANTIDAD", "CANT", "CANTIDADACOTIZAR", "CANTIDADSOLICITADA", "CANTPEDIDA", "PEDIDO", "QTY"},
     "cantidad_recibida": {"CANTIDADRECIBIDA", "CANTRECIBIDA", "RECIBIDA", "RECIBIDO"},
-    "costo_unitario": {"COSTOUNITARIO", "COSTO", "COSTOUNIT", "PRECIO", "PRECIOUNITARIO", "FOB", "PRECIOFOB", "UNITPRICE"},
+    "precio_fob": {"PRECIOFOB", "PRECIOFOBUS", "FOB", "FOBUS", "PRECIO", "PRECIOUNITARIO", "UNITPRICE", "COSTO", "COSTOUNITARIO", "PRECIOUS"},
 }
-ENC_PRODUCTOS = ["Código", "Número de parte", "Marca", "Nº parte proveedor", "Descripción", "Cantidad pedida", "Cantidad recibida", "Costo unitario"]
+ENC_PRODUCTOS = ["Código", "Número de parte", "Marca", "Nº parte proveedor", "Descripción", "Cantidad pedida", "Cantidad recibida", "Precio FOB US$"]
 
 
 def leer_productos_excel(archivo, proveedor=""):
@@ -533,10 +598,11 @@ def leer_productos_excel(archivo, proveedor=""):
     for n, fila in enumerate(filas[inicio:], start=inicio + 1):
         valor = lambda campo: fila[mapa[campo]] if mapa[campo] is not None and mapa[campo] < len(fila) else None
         codigo, parte, marca = clave(valor("codigo")), clave(valor("parte")), clave(valor("marca"))
+        codigo = "" if codigo in ("NUEVO", "NUEVA") else codigo
         pp, desc = clave(valor("parte_prov")), " ".join(a_texto(valor("descripcion")).split())[:300]
         if not (codigo or parte or pp or desc) or (not (codigo or parte or pp) and clave(desc) in ("TOTAL", "TOTALES", "TOTAL GENERAL")):
             continue
-        nums = {c: a_numero(valor(c)) for c in ("cantidad_pedida", "cantidad_recibida", "costo_unitario")}
+        nums = {c: a_numero(valor(c)) for c in ("cantidad_pedida", "cantidad_recibida", "precio_fob")}
         malos = [c.replace("_", " ") for c, v in nums.items() if v == "error" or (isinstance(v, float) and v < 0)]
         if malos:
             avisos.append(f"Fila {n}: {', '.join(malos)} no es un número válido; quedó vacío.")
@@ -545,12 +611,8 @@ def leer_productos_excel(archivo, proveedor=""):
         if codigo and codigo in por_codigo:
             cod = por_codigo[codigo][0]
         elif parte:
-            cand = [c for c in por_parte.get(parte, []) if not marca or c[1] == marca]
-            if len(cand) > 1 and prov:
-                cand = [c for c in cand if proveedor_contiene(prov, c[2])] or cand
-            if len(cand) == 1:
-                cod = cand[0][0]
-            elif len(cand) > 1:
+            cod, cand = buscar_codigo(por_parte, parte, marca, prov)
+            if len(cand) > 1:
                 avisos.append(f"Fila {n}: el número de parte {a_texto(valor('parte'))} está en {len(cand)} productos "
                               f"({', '.join(c[0] for c in cand[:4])}); escriba el código.")
         if not cod and pp and len(por_pp.get(pp, [])) == 1:
@@ -559,12 +621,16 @@ def leer_productos_excel(archivo, proveedor=""):
             avisos.append(f"Fila {n}: el código {a_texto(valor('codigo'))} no está en el catálogo.")
         if not cod:
             sin_codigo.append(n)
-        nombre = (por_codigo[clave(cod)][3] or "").strip() if cod else ""
-        lineas.append({"codigo": cod, "descripcion": desc or nombre or a_texto(valor("parte")) or a_texto(valor("parte_prov")),
+        x = por_codigo.get(clave(cod)) if cod else None
+        lineas.append({"codigo": cod,
+                       "numero_parte": ((x[1] or "").strip() if x else "") or " ".join(a_texto(valor("parte")).split())[:60] or None,
+                       "marca": ((x[2] or "").strip() if x else "") or " ".join(a_texto(valor("marca")).split()).upper()[:60] or None,
+                       "descripcion": desc or ((x[3] or "").strip() if x else "") or a_texto(valor("parte_prov")) or None,
                        **{c: nums[c] for c in nums}})
     if sin_codigo:
-        avisos.append(f"{len(sin_codigo)} línea(s) quedaron sin código (filas {', '.join(map(str, sin_codigo[:12]))}"
-                      f"{'…' if len(sin_codigo) > 12 else ''}): se guardan con la descripción; complete el código si lo tiene.")
+        avisos.append(f"{len(sin_codigo)} producto(s) nuevo(s) o sin identificar (filas {', '.join(map(str, sin_codigo[:12]))}"
+                      f"{'…' if len(sin_codigo) > 12 else ''}): quedan sin código con su número de parte y marca; se amarran solos "
+                      f"cuando el producto se cree en el sistema.")
     return lineas, avisos
 
 
@@ -633,8 +699,8 @@ def excel_productos(p, lineas):
         ws.column_dimensions[get_column_letter(i)].width = ancho
     for n, l in enumerate(lineas, start=fila_enc + 1):
         parte, marca = info.get(l["codigo"], (None, None))
-        for i, v in enumerate([l["codigo"], parte, marca, alternos.get(l["codigo"]), l["descripcion"], l["cantidad_pedida"],
-                               l["cantidad_recibida"], l["costo_unitario"]], start=1):
+        for i, v in enumerate([l["codigo"] or "NUEVO", parte or l.get("numero_parte"), marca or l.get("marca"), alternos.get(l["codigo"]),
+                               l["descripcion"], l["cantidad_pedida"], l["cantidad_recibida"], l["precio_fob"]], start=1):
             c = ws.cell(row=n, column=i, value=v)
             if i <= 4:
                 c.number_format = "@"
@@ -642,6 +708,14 @@ def excel_productos(p, lineas):
         tot = fila_enc + len(lineas) + 1
         ws.cell(row=tot, column=5, value="Total").font = Font(bold=True)
         ws.cell(row=tot, column=6, value=f"=SUM(F{fila_enc + 1}:F{tot - 1})").font = Font(bold=True)
+        ws.cell(row=tot, column=9, value=f"=SUMPRODUCT(F{fila_enc + 1}:F{tot - 1},H{fila_enc + 1}:H{tot - 1})").font = Font(bold=True)
+        ws.cell(row=fila_enc, column=9, value="Total FOB US$").font = Font(bold=True, color="FFFFFF")
+        ws.cell(row=fila_enc, column=9).fill = PatternFill("solid", fgColor=VERDE)
+        ws.column_dimensions["I"].width = 13
+        for n in range(fila_enc + 1, tot):
+            ws.cell(row=n, column=9, value=f'=IF(H{n}="","",F{n}*H{n})').number_format = "#,##0.00"
+            ws.cell(row=n, column=8).number_format = "#,##0.00##"
+        ws.cell(row=tot, column=9).number_format = "#,##0.00"
     else:
         for n in range(fila_enc + 1, fila_enc + 501):
             for i in range(1, 5):
@@ -652,7 +726,8 @@ def excel_productos(p, lineas):
             "Productos del pedido (lo que se manda a cotizar)", "",
             "Una fila por producto. Basta con una de estas columnas para identificarlo: Código, Número de parte (con Marca si se repite)",
             "   o Nº parte proveedor (si está registrado en Cantidades mínimas). Si no se encuentra, la línea queda con su descripción.",
-            "Cantidad pedida, Cantidad recibida y Costo unitario son opcionales y se pueden corregir después en el pedido.",
+            "Producto nuevo (no existe en el catálogo): deje el Código vacío y escriba Número de parte, Marca y Descripción.",
+            "Cantidad pedida, Cantidad recibida y Precio FOB US$ son opcionales y se pueden corregir después en el pedido.",
             "En el pedido use «Subir productos desde Excel»: las líneas se cargan en pantalla y se guardan al pulsar «Guardar pedido».",
         ], start=1):
             ayuda.cell(row=n, column=1, value=texto).font = Font(bold=True, size=13, color=VERDE) if n == 1 else Font(size=10)
@@ -737,10 +812,10 @@ def excel():
          [("N° orden de compra", 16), ("Proveedor", 28), ("País", 12), ("N° cotización", 13), ("N° factura", 13), ("Fecha factura", 11),
           ("Descripción", 34), ("Transporte", 11), ("Estado", 12)] + [(n, 11) for _, n in FECHAS] + nombres_t
          + [("Días en etapa actual", 10), ("Días atrasado hoy", 10), ("Líneas", 8), ("Unidades pedidas", 11), ("Unidades recibidas", 11),
-            ("Monto (cant. × costo)", 14), ("Observaciones", 40)],
+            ("Total FOB US$", 14), ("Productos nuevos", 9), ("Observaciones", 40)],
          [[p["orden_compra"], p["proveedor"], p["pais"], p["cotizacion"], p["factura"], p["fecha_factura"], p["descripcion"], p["transporte"],
            p["estado"]] + [p[c] for c, _ in FECHAS] + [p["t"][k] for k, *_ in TIEMPOS]
-          + [p["dias_etapa"], p["atraso_hoy"], p["lineas"], p["unidades"], p["recibidas"], p["monto"], p["observaciones"]] for p in d["pedidos"]],
+          + [p["dias_etapa"], p["atraso_hoy"], p["lineas"], p["unidades"], p["recibidas"], p["monto"], p["nuevos"] or None, p["observaciones"]] for p in d["pedidos"]],
          formatos={9 + len(FECHAS) + len(TIEMPOS) + 4: "#,##0.##", 9 + len(FECHAS) + len(TIEMPOS) + 5: "#,##0.##",
                    9 + len(FECHAS) + len(TIEMPOS) + 6: "#,##0.00"}, primera=True)
     enc_prom = [("Proveedor", 30), ("Pedidos", 9), ("Recibidos", 9)] + nombres_t
@@ -802,11 +877,14 @@ COLUMNAS_DETALLE = {
     "descripcion": {"DESCRIPCION"},
     "cantidad_pedida": {"CANTIDADPEDIDA", "CANTIDAD", "CANTPEDIDA"},
     "cantidad_recibida": {"CANTIDADRECIBIDA", "CANTRECIBIDA", "RECIBIDA"},
-    "costo_unitario": {"COSTOUNITARIO", "COSTO", "COSTOUNIT"},
+    "precio_fob": {"PRECIOFOB", "PRECIOFOBUS", "FOB", "FOBUS", "PRECIO", "PRECIOUNITARIO", "COSTOUNITARIO", "COSTO"},
+    "numero_parte": {"NUMERODEPARTE", "NUMEROPARTE", "NPARTE", "NOPARTE", "PARTE"},
+    "marca": {"MARCA"},
 }
 ENC_PLANTILLA = ["N° orden de compra", "Proveedor", "País del proveedor", "N° cotización", "N° factura", "Fecha factura", "Descripción",
                  "Transporte", "Estado"] + [n for _, n in FECHAS] + ["Observaciones"]
-ENC_DETALLE = ["N° orden de compra", "Código de producto", "Descripción", "Cantidad pedida", "Cantidad recibida", "Costo unitario"]
+ENC_DETALLE = ["N° orden de compra", "Código de producto", "Número de parte", "Marca", "Descripción", "Cantidad pedida", "Cantidad recibida",
+               "Precio FOB US$"]
 
 
 def nombre_columna(valor):
@@ -887,15 +965,18 @@ def leer_importacion(archivo):
                 oc = " ".join(a_texto(valor("orden_compra")).split())[:40]
                 cod = " ".join(a_texto(valor("codigo")).split()).upper()[:20]
                 desc = " ".join(a_texto(valor("descripcion")).split())[:300]
-                if not oc or not (cod or desc):
+                cod = "" if cod in ("NUEVO", "NUEVA") else cod
+                parte = " ".join(a_texto(valor("numero_parte")).split())[:60]
+                marca = " ".join(a_texto(valor("marca")).split()).upper()[:60]
+                if not oc or not (cod or parte or desc):
                     continue
-                nums = {c: a_numero(valor(c)) for c in ("cantidad_pedida", "cantidad_recibida", "costo_unitario")}
+                nums = {c: a_numero(valor(c)) for c in ("cantidad_pedida", "cantidad_recibida", "precio_fob")}
                 if any(v == "error" or (v is not None and v < 0) for v in nums.values()):
-                    errores.append(f"Detalle fila {n} ({oc} {cod}): cantidad o costo no válido.")
+                    errores.append(f"Detalle fila {n} ({oc} {cod or parte}): cantidad o precio FOB no válido.")
                     continue
-                detalle.setdefault(oc, []).append({"codigo": cod or None, "descripcion": desc or None,
-                                                   "cantidad_pedida": nums["cantidad_pedida"] or 0,
-                                                   "cantidad_recibida": nums["cantidad_recibida"], "costo_unitario": nums["costo_unitario"]})
+                detalle.setdefault(oc, []).append({"codigo": cod or None, "numero_parte": parte or None, "marca": marca or None,
+                                                   "descripcion": desc or None, "cantidad_pedida": nums["cantidad_pedida"] or 0,
+                                                   "cantidad_recibida": nums["cantidad_recibida"], "precio_fob": nums["precio_fob"]})
             sin_pedido = sorted(set(detalle) - set(pedidos))
             if sin_pedido:
                 avisos.append(f"El detalle trae órdenes que no están en la hoja de pedidos ({', '.join(sin_pedido[:8])}): "
@@ -982,15 +1063,13 @@ def confirmar_importacion():
             nuevos += actual is None
             actualizados += actual is not None
         lineas = 0
+        cat = catalogo_partes() if datos["detalle"] else None
         for oc, lista in datos["detalle"].items():
             if oc not in ids:
                 continue
-            completar_descripciones(lista)
+            completar_lineas(lista, (datos["pedidos"].get(oc) or {}).get("proveedor") or (existentes.get(oc) or {}).get("proveedor") or "", cat)
             cursor.execute("DELETE FROM imp_pedido_detalle WHERE pedido_id = %s", (ids[oc],))
-            cursor.executemany("INSERT INTO imp_pedido_detalle (pedido_id, codigo, descripcion, cantidad_pedida, cantidad_recibida, costo_unitario) "
-                               "VALUES (%s, %s, %s, %s, %s, %s)",
-                               [(ids[oc], l["codigo"], l["descripcion"], l["cantidad_pedida"], l["cantidad_recibida"], l["costo_unitario"])
-                                for l in lista])
+            insertar_lineas(cursor, ids[oc], lista)
             lineas += len(lista)
         conn.commit()
     except Exception as e:
@@ -1045,6 +1124,7 @@ def plantilla():
         ("   Si el estado viene vacío en un pedido nuevo, se pone según la última fecha llenada.", False),
         ("Hoja «Detalle» (opcional): una fila por producto, con el N° de orden de compra del pedido al que pertenece.", False),
         ("   Si una orden trae detalle, sus líneas reemplazan las que tenía el pedido. La descripción se completa del catálogo si viene vacía.", False),
+        ("   Producto nuevo (no existe en el catálogo): Código vacío, con Número de parte y Marca; se amarra solo cuando se cree.", False),
     ], start=1):
         ayuda.cell(row=n, column=1, value=texto).font = Font(bold=True, size=13, color=VERDE) if negrita else Font(size=10)
     salida = io.BytesIO()
@@ -1093,6 +1173,7 @@ def tiempo_entrega(proveedor, transporte):
 
 def calcular_sugerido(prm):
     hoy = date.today()
+    amarrar_pendientes()
     hist, entrega_hist = tiempo_entrega(prm["proveedor"], prm["transporte"])
     entrega = prm["entrega_manual"] or entrega_hist
     conn = get_connection()

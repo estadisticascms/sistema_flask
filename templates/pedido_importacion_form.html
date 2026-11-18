@@ -82,7 +82,7 @@
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="mb-0">Productos del pedido</h6>
         <div class="d-flex flex-wrap gap-2 align-items-center">
-          <label class="btn btn-sm btn-outline-success mb-0" for="archivo-productos" title="La lista que se manda a cotizar: código o número de parte, descripción, cantidad y costo">
+          <label class="btn btn-sm btn-outline-success mb-0" for="archivo-productos" title="La lista que se manda a cotizar: código o número de parte, descripción, cantidad y precio FOB">
             <i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Subir productos desde Excel</label>
           <input type="file" id="archivo-productos" accept=".xlsx,.xls" class="d-none">
           <div class="form-check form-check-inline small mb-0" title="Desmarcado: se agregan debajo de las líneas que ya hay">
@@ -95,24 +95,31 @@
       </div>
       <div id="aviso-productos" class="small"></div>
       <div class="table-responsive"><table class="table table-sm align-middle mb-1" id="lineas">
-        <thead class="table-light"><tr><th style="width: 140px">Código</th><th>Descripción</th><th style="width: 120px" class="num">Cantidad pedida</th>
-          <th style="width: 120px" class="num">Cantidad recibida</th><th style="width: 130px" class="num">Costo unitario</th><th style="width: 120px" class="num">Total</th><th></th></tr></thead>
+        <thead class="table-light"><tr><th style="width: 130px">Código</th><th style="width: 130px">Nº parte</th><th style="width: 110px">Marca</th><th>Descripción</th>
+          <th style="width: 100px" class="num">Cantidad pedida</th><th style="width: 100px" class="num">Cantidad recibida</th>
+          <th style="width: 115px" class="num">Precio FOB US$</th><th style="width: 110px" class="num">Total FOB</th><th></th></tr></thead>
         <tbody>
           {% for l in (lineas or []) + [{}] %}
           <tr>
-            <td><input name="l_codigo" value="{{ l.codigo or '' }}" class="form-control form-control-sm codigo" maxlength="20" aria-label="Código"></td>
+            <td><input name="l_codigo" value="{{ l.codigo or '' }}" class="form-control form-control-sm codigo" maxlength="20" aria-label="Código"
+                 placeholder="{{ 'NUEVO' if l.numero_parte and not l.codigo else '' }}">
+              <span class="badge text-bg-warning nuevo {{ '' if l.numero_parte is defined and not l.codigo and (l.numero_parte or l.descripcion) else 'd-none' }}" title="Producto nuevo: aún no existe en el catálogo">Nuevo</span></td>
+            <td><input name="l_parte" value="{{ l.numero_parte or '' }}" class="form-control form-control-sm parte" maxlength="60" aria-label="Número de parte"></td>
+            <td><input name="l_marca" value="{{ l.marca or '' }}" class="form-control form-control-sm marca" maxlength="60" aria-label="Marca"></td>
             <td><input name="l_descripcion" value="{{ l.descripcion or '' }}" class="form-control form-control-sm desc" maxlength="300" aria-label="Descripción"></td>
             <td><input name="l_pedida" value="{{ num(l.cantidad_pedida) }}" class="form-control form-control-sm text-end calc" inputmode="decimal" aria-label="Cantidad pedida"></td>
             <td><input name="l_recibida" value="{{ num(l.cantidad_recibida) }}" class="form-control form-control-sm text-end" inputmode="decimal" aria-label="Cantidad recibida"></td>
-            <td><input name="l_costo" value="{{ num(l.costo_unitario) }}" class="form-control form-control-sm text-end calc" inputmode="decimal" aria-label="Costo unitario"></td>
+            <td><input name="l_fob" value="{{ num(l.precio_fob) }}" class="form-control form-control-sm text-end calc" inputmode="decimal" aria-label="Precio FOB US$"></td>
             <td class="num total-linea"></td>
             <td><button type="button" class="btn btn-sm btn-link text-danger quitar" title="Quitar línea"><i class="bi bi-x-lg" aria-hidden="true"></i><span class="visually-hidden">Quitar línea</span></button></td>
           </tr>
           {% endfor %}
         </tbody>
-        <tfoot><tr class="fw-semibold"><td colspan="2" class="text-end">Total</td><td class="num" id="tot-pedida"></td><td></td><td></td><td class="num" id="tot-monto"></td><td></td></tr></tfoot>
+        <tfoot><tr class="fw-semibold"><td colspan="4" class="text-end">Total</td><td class="num" id="tot-pedida"></td><td></td><td></td><td class="num" id="tot-monto"></td><td></td></tr></tfoot>
       </table></div>
-      <div class="form-text">Al escribir el código se completa la descripción del catálogo. Las líneas vacías no se guardan.
+      <div class="form-text">Al escribir el código se completan descripción, número de parte y marca del catálogo. Las líneas vacías no se guardan.
+        <strong>Producto nuevo</strong> (no existe en el catálogo): deje el código vacío y escriba número de parte, marca y descripción; cuando el
+        producto se cree en el sistema, el pedido le pone el código solo.
         Lo que se sube desde Excel queda en pantalla para revisarlo y editarlo: se guarda al pulsar «Guardar pedido».</div>
     </div>
 
@@ -171,7 +178,7 @@
   function totales() {
     let ped = 0, monto = 0;
     cuerpo.querySelectorAll('tr').forEach(tr => {
-      const c = numero(tr.querySelector('[name=l_pedida]').value), u = numero(tr.querySelector('[name=l_costo]').value);
+      const c = numero(tr.querySelector('[name=l_pedida]').value), u = numero(tr.querySelector('[name=l_fob]').value);
       ped += c || 0;
       const t = c !== null && u !== null ? c * u : null;
       monto += t || 0;
@@ -183,22 +190,30 @@
   function preparar(tr) {
     tr.querySelectorAll('.calc').forEach(i => i.addEventListener('input', totales));
     tr.querySelector('.quitar').addEventListener('click', () => { if (cuerpo.rows.length > 1) tr.remove(); else tr.querySelectorAll('input').forEach(i => i.value = ''); totales(); });
-    const cod = tr.querySelector('.codigo'), desc = tr.querySelector('.desc');
+    const cod = tr.querySelector('.codigo'), desc = tr.querySelector('.desc'), parte = tr.querySelector('.parte'), marca = tr.querySelector('.marca');
+    const marcarNuevo = () => tr.querySelector('.nuevo').classList.toggle('d-none', !!cod.value.trim() || !(parte.value.trim() || desc.value.trim()));
+    [parte, desc].forEach(i => i.addEventListener('input', marcarNuevo));
     cod.addEventListener('change', async () => {
       cod.value = cod.value.trim().toUpperCase();
       cod.classList.remove('is-invalid');
+      marcarNuevo();
       if (!cod.value) return;
       try {
         const r = await (await fetch("{{ url_for('pedidos_importacion.producto') }}?codigo=" + encodeURIComponent(cod.value))).json();
-        if (r.existe) { if (!desc.value) desc.value = r.descripcion; } else { cod.classList.add('is-invalid'); cod.title = 'No está en el catálogo'; }
+        if (r.existe) {
+          if (!desc.value) desc.value = r.descripcion;
+          if (!parte.value) parte.value = r.numero_parte;
+          if (!marca.value) marca.value = r.marca;
+        } else { cod.classList.add('is-invalid'); cod.title = 'No está en el catálogo: si es nuevo, deje el código vacío y escriba número de parte y marca'; }
       } catch {}
     });
   }
   cuerpo.querySelectorAll('tr').forEach(preparar);
   function nuevaFila() {
     const tr = cuerpo.rows[cuerpo.rows.length - 1].cloneNode(true);
-    tr.querySelectorAll('input').forEach(i => { i.value = ''; i.classList.remove('is-invalid'); });
+    tr.querySelectorAll('input').forEach(i => { i.value = ''; i.classList.remove('is-invalid'); i.placeholder = ''; });
     tr.querySelector('.total-linea').textContent = '';
+    tr.querySelector('.nuevo').classList.add('d-none');
     cuerpo.appendChild(tr); preparar(tr);
     return tr;
   }
@@ -220,17 +235,20 @@
       if (document.getElementById('reemplazar').checked) {
         while (cuerpo.rows.length > 1) cuerpo.rows[cuerpo.rows.length - 1].remove();
         cuerpo.rows[0].querySelectorAll('input').forEach(i => { i.value = ''; i.classList.remove('is-invalid'); });
+        cuerpo.rows[0].querySelector('.nuevo').classList.add('d-none');
       }
       const fmtNum = v => v === null || v === undefined ? '' : String(v);
       r.lineas.forEach(l => {
         let tr = cuerpo.rows[cuerpo.rows.length - 1];
         if ([...tr.querySelectorAll('input')].some(i => i.value)) tr = nuevaFila();
         tr.querySelector('[name=l_codigo]').value = l.codigo || '';
-        tr.querySelector('[name=l_codigo]').classList.toggle('is-invalid', !l.codigo);
+        tr.querySelector('[name=l_parte]').value = l.numero_parte || '';
+        tr.querySelector('[name=l_marca]').value = l.marca || '';
         tr.querySelector('[name=l_descripcion]').value = l.descripcion || '';
         tr.querySelector('[name=l_pedida]').value = fmtNum(l.cantidad_pedida);
         tr.querySelector('[name=l_recibida]').value = fmtNum(l.cantidad_recibida);
-        tr.querySelector('[name=l_costo]').value = fmtNum(l.costo_unitario);
+        tr.querySelector('[name=l_fob]').value = fmtNum(l.precio_fob);
+        tr.querySelector('.nuevo').classList.toggle('d-none', !!l.codigo);
       });
       totales();
       aviso.innerHTML = `<div class="alert alert-${r.avisos.length ? 'warning' : 'success'} py-1 mb-2">Se cargaron ${r.lineas.length} línea(s) de ${esc(archivo.files[0].name)}.
