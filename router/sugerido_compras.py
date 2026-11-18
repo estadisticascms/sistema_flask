@@ -424,13 +424,13 @@ def generar_excel(filas, p, periodo):
     ws["A2"].font = ws["A3"].font = Font(size=9, color="52514E")
 
     columnas = [
-        ("Código", 11), ("ABC", 6), ("Nº parte", 18), ("Nº parte proveedor", 18), ("Descripción", 38), ("Marca", 14), ("Segmento", 14), ("Familia", 20),
+        ("Código", 11), ("ABC", 6), ("Nº parte", 18), ("Descripción", 38), ("Marca", 14), ("Segmento", 14), ("Familia", 20),
         ("Subfamilia", 22), ("Existencia total", 11), ("En NHE", 9), ("Disponible", 11), ("Vendido período", 11),
         ("Ventas perdidas (unid.)", 11), ("Prom. mensual", 11), ("Meses del promedio", 10),
         ("Producto nuevo desde", 12), ("Cobertura (meses)", 11), ("Ingreso 1 fecha", 12),
         ("Ingreso 1 cant.", 10), ("Ingreso 2 fecha", 12), ("Ingreso 2 cant.", 10), ("Ingreso 3 fecha", 12),
         ("Ingreso 3 cant.", 10), ("Última venta", 12), ("Sugerido sin ventas perdidas", 12), ("Sugerido sistema", 11),
-        ("Cant. mínima de compra", 10), ("Sugerido ajustado", 11), ("Pedido final", 11), ("Precio FOB US$", 12), ("Total FOB US$", 14), ("Grupo equiv.", 11), ("Equivalentes", 11),
+        ("Cant. mínima de compra", 10), ("Sugerido ajustado", 11), ("Pedido final", 11), ("Nº parte proveedor", 18), ("Precio FOB US$", 12), ("Total FOB US$", 14), ("Grupo equiv.", 11), ("Equivalentes", 11),
         ("Disponible en equivalentes", 13), ("Detalle equivalentes", 60), ("Clientes que lo pidieron", 11),
         ("Última venta perdida", 12), ("Proveedor última compra", 28), ("Fecha última compra", 12),
         ("Fecha última recepción", 12), ("Equiv. FOB más bajo", 12), ("Marca equiv.", 14), ("FOB equiv.", 10),
