@@ -4,7 +4,9 @@
 - Bodega = dónde está HOY el producto (existencia > 0 en esa bodega); las ventas cuentan de cualquier bodega.
 - Ventas: ventas_por_producto sin anuladas; venta = Sub-Total 2 (neto de descuento, sin IVA). Las devoluciones no se restan.
 - Facturas: facturas distintas (tipo + número) en que aparece el producto para ese cliente.
-- Meses: por mes del período, o por mes del año (Ene–Dic, sumando los años) para ver en qué meses compra más."""
+- Meses: por mes del período, o por mes del año (Ene–Dic, sumando los años) para ver en qué meses compra más.
+- Ingresos: entradas por orden de compra (transacciones_inventario ENTRADA / ORDEN COMPRA, como Seguimiento de ingresos).
+  Total del período seleccionado en unidades y costo C$; «último ingreso» es la fecha más reciente, aunque sea antes del período."""
 import io
 from datetime import date, datetime, timedelta
 
@@ -175,6 +177,25 @@ def calcular(f):
         else:
             cursor.execute(sql, params)
             ventas = cursor.fetchall()
+
+        # 4) Ingresos por orden de compra: total del período y fecha del último ingreso (de cualquier fecha)
+        sql_ing = ("SELECT codigo_producto, SUM(CASE WHEN fecha BETWEEN %s AND %s THEN cantidad ELSE 0 END), "
+                   "SUM(CASE WHEN fecha BETWEEN %s AND %s THEN total_mn ELSE 0 END), "
+                   "COUNT(DISTINCT CASE WHEN fecha BETWEEN %s AND %s THEN CONCAT(fecha, id_documento_origen) END), MAX(fecha) "
+                   "FROM transacciones_inventario WHERE tipo_transaccion = 'ENTRADA' AND tipo_documento_origen = 'ORDEN COMPRA' {IN} "
+                   "GROUP BY codigo_producto")
+        p_ing = [f["desde"], f["hasta"]] * 3
+        filas_ing = []
+        if filtrado and len(catalogo) <= LOTE_CODIGOS * 5:
+            codigos = sorted(catalogo)
+            for i in range(0, len(codigos), LOTE_CODIGOS):
+                lote = codigos[i:i + LOTE_CODIGOS]
+                cursor.execute(sql_ing.replace("{IN}", f"AND codigo_producto IN ({', '.join(['%s'] * len(lote))})"), p_ing + lote)
+                filas_ing += cursor.fetchall()
+        elif catalogo:
+            cursor.execute(sql_ing.replace("{IN}", ""), p_ing)
+            filas_ing = cursor.fetchall()
+        ingresos = {c: (float(u or 0), float(m or 0), int(d or 0), ult) for c, u, m, d, ult in filas_ing}
     finally:
         cursor.close()
         conn.close()
@@ -220,7 +241,9 @@ def calcular(f):
             c["ultima"] = date.fromisoformat(c["ultima"])
             c["primera"] = date.fromisoformat(c["primera"])
             c["pct"] = c["venta"] / p["venta"] * 100 if p["venta"] else 0
-        filas.append({**x, "existencia": existencia.get(cod, 0.0), "en_bodegas": en_bodegas.get(cod, 0.0) if f["bodegas"] else None,
+        ing_u, ing_m, ing_d, ult_ing = ingresos.get(cod, (0.0, 0.0, 0, None))
+        filas.append({**x, "ingresos": ing_u, "ingresos_costo": ing_m, "ingresos_docs": ing_d, "ultimo_ingreso": ult_ing,
+                      "existencia": existencia.get(cod, 0.0), "en_bodegas": en_bodegas.get(cod, 0.0) if f["bodegas"] else None,
                       "bodegas_txt": " · ".join(f"{b}: {c:,.0f}" for b, c in sorted(detalle_bod.get(cod, []), key=lambda d: -d[1])),
                       "unidades": p["unidades"], "venta": p["venta"], "n_facturas": len(p["facturas"]), "meses": p["meses"],
                       "mes_mayor": mes_mayor(p["meses"]), "clientes": clientes, "n_clientes": len(clientes)})
@@ -230,6 +253,7 @@ def calcular(f):
     filas.sort(key=orden)
     totales = {"productos": len(filas), "con_venta": sum(1 for r in filas if r["n_clientes"]), "venta": sum(r["venta"] for r in filas),
                "unidades": sum(r["unidades"] for r in filas), "existencia": sum(r["existencia"] for r in filas),
+               "ingresos": sum(r["ingresos"] for r in filas), "ingresos_costo": sum(r["ingresos_costo"] for r in filas),
                "facturas": len(set().union(*(productos[c]["facturas"] for c in productos if c in codigos))) if productos else 0,
                "clientes": len({cid for r in filas for cid in productos.get(r["codigo"], {"clientes": {}})["clientes"]})}
     return filas, totales
@@ -302,7 +326,8 @@ def excel():
     fmt_base = {6: "#,##0.##", 7: "#,##0.##"} if con_bod else {6: "#,##0.##"}
     formatos_cli = {**fmt_base, k0 + 3: "#,##0.##", k0 + 4: "#,##0.00", k0 + 6: "0.0%", k0 + 7: "dd/mm/yyyy", k0 + 8: "dd/mm/yyyy",
                     **{k0 + 10 + j: num_mes for j in range(len(meses))}}
-    formatos_prod = {**fmt_base, k0 + 2: "#,##0.##", k0 + 3: "#,##0.00", **{k0 + 7 + j: num_mes for j in range(len(meses))}}
+    formatos_prod = {**fmt_base, k0 + 2: "#,##0.##", k0 + 3: "#,##0.00", k0 + 7: "#,##0.##", k0 + 8: "#,##0.00", k0 + 9: "dd/mm/yyyy",
+                     **{k0 + 10 + j: num_mes for j in range(len(meses))}}
 
     # Hoja 1: un renglón por producto y cliente
     ws = wb.active
@@ -329,21 +354,60 @@ def excel():
     hp = wb.create_sheet("Por producto")
     titulo(hp, "Grupo Comersa · Ventas por producto")
     cols = base + [("Bodegas con existencia", 30), ("Unidades vendidas", 10), ("Venta C$", 14), ("Facturas", 9), ("Clientes", 9),
-                   ("Mes que más se vende", 11)] + [(e, 9) for _, e in meses]
+                   ("Mes que más se vende", 11), ("Ingresos del período (unid.)", 11), ("Costo de los ingresos C$", 14),
+                   ("Último ingreso", 11)] + [(e, 9) for _, e in meses]
     encabezar(hp, 4, cols)
     for n, r in enumerate(filas, start=5):
-        valores = datos_producto(r) + [r["bodegas_txt"], r["unidades"], round(r["venta"], 2), r["n_facturas"], r["n_clientes"], r["mes_mayor"]]
+        valores = datos_producto(r) + [r["bodegas_txt"], r["unidades"], round(r["venta"], 2), r["n_facturas"], r["n_clientes"], r["mes_mayor"],
+                                       r["ingresos"] or None, round(r["ingresos_costo"], 2) or None, r["ultimo_ingreso"]]
         valores += [round(r["meses"][m][i], 2) if m in r["meses"] else None for m, _ in meses]
         escribir(hp, n, valores, formatos_prod)
     tot = len(filas) + 5
     hp.cell(row=tot, column=1, value=f"Total · {t['productos']:,} productos").font = Font(bold=True)
-    for col in [6] + ([7] if con_bod else []) + [k0 + 2, k0 + 3]:
+    for col in [6] + ([7] if con_bod else []) + [k0 + 2, k0 + 3, k0 + 7, k0 + 8]:
         letra = get_column_letter(col)
         c = hp.cell(row=tot, column=col, value=f"=SUBTOTAL(9,{letra}5:{letra}{tot - 1})")
         c.font = Font(bold=True)
-        c.number_format = "#,##0.00" if col == k0 + 3 else "#,##0.##"
+        c.number_format = "#,##0.00" if col in (k0 + 3, k0 + 8) else "#,##0.##"
     hp.freeze_panes = "D5"
     hp.auto_filter.ref = f"A4:{get_column_letter(len(cols))}{max(tot - 1, 4)}"
+
+    # Hoja 3: resumen por número de parte y descripción
+    hr = wb.create_sheet("Resumen por Nº parte")
+    titulo(hr, "Grupo Comersa · Resumen por número de parte")
+    grupos = {}
+    for r in filas:
+        g = grupos.setdefault((r["parte"].upper() or "(SIN Nº PARTE)", r["nombre"].upper()),
+                              {"parte": r["parte"] or "(sin Nº parte)", "nombre": r["nombre"], "codigos": [], "marcas": set(), "ultimo": None,
+                               "ingresos": 0.0, "ingresos_costo": 0.0, "existencia": 0.0, "en_bodegas": 0.0, "unidades": 0.0, "venta": 0.0})
+        g["codigos"].append(r["codigo"])
+        g["marcas"].add(r["marca"])
+        if r["ultimo_ingreso"] and (not g["ultimo"] or r["ultimo_ingreso"] > g["ultimo"]):
+            g["ultimo"] = r["ultimo_ingreso"]
+        for k in ("ingresos", "ingresos_costo", "existencia", "unidades", "venta"):
+            g[k] += r[k]
+        g["en_bodegas"] += r["en_bodegas"] or 0
+    cols = [("Nº parte", 18), ("Descripción", 40), ("Códigos", 20), ("Marca", 14), ("Fecha último ingreso", 12),
+            ("Total ingresos del período (unid.)", 12), ("Costo de los ingresos C$", 14), ("Existencia actual", 11)]
+    cols += [("Existencia bodega seleccionada", 12)] if con_bod else []
+    cols += [("Unidades vendidas", 10), ("Venta C$", 14)]
+    encabezar(hr, 4, cols)
+    fmts = {5: "dd/mm/yyyy", 6: "#,##0.##", 7: "#,##0.00", 8: "#,##0.##"}
+    fmts.update({9: "#,##0.##", 10: "#,##0.##", 11: "#,##0.00"} if con_bod else {9: "#,##0.##", 10: "#,##0.00"})
+    orden_g = sorted(grupos.values(), key=lambda g: (g["parte"] == "(sin Nº parte)", g["parte"].upper(), g["nombre"].upper()))
+    for n, g in enumerate(orden_g, start=5):
+        escribir(hr, n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
+                         g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
+                 + ([g["en_bodegas"]] if con_bod else []) + [g["unidades"], round(g["venta"], 2)], fmts)
+    tot = len(orden_g) + 5
+    hr.cell(row=tot, column=1, value=f"Total · {len(orden_g):,} números de parte").font = Font(bold=True)
+    for col in range(6, len(cols) + 1):
+        letra = get_column_letter(col)
+        c = hr.cell(row=tot, column=col, value=f"=SUBTOTAL(9,{letra}5:{letra}{tot - 1})")
+        c.font = Font(bold=True)
+        c.number_format = fmts.get(col, "#,##0.##")
+    hr.freeze_panes = "C5"
+    hr.auto_filter.ref = f"A4:{get_column_letter(len(cols))}{max(tot - 1, 4)}"
 
     salida = io.BytesIO()
     wb.save(salida)

@@ -83,7 +83,8 @@
         <label class="form-check-label" for="sin_venta">Incluir productos sin venta</label></div>
         <button class="btn btn-primary btn-sm w-100"><i class="bi bi-funnel" aria-hidden="true"></i> Generar</button></div>
     </div>
-    <div class="form-text">Bodega = dónde está el producto hoy (con existencia); las ventas cuentan de cualquier bodega. Venta = sub-total neto sin IVA, sin facturas anuladas.
+    <div class="form-text">Ingresos = entradas por orden de compra en el período; «último» es el ingreso más reciente aunque sea anterior.
+      Bodega = dónde está el producto hoy (con existencia); las ventas cuentan de cualquier bodega. Venta = sub-total neto sin IVA, sin facturas anuladas.
       En los meses, el borde naranja marca el mes en que más compra.</div>
   </form>
 
@@ -95,8 +96,9 @@
   <div class="small text-muted mb-2">{{ filtros_txt }}</div>
   <div class="row g-2 mb-3">
     {% for etiqueta, valor in [('Productos', n(t.productos) ~ (' (' ~ n(t.con_venta) ~ ' con venta)' if t.con_venta != t.productos else '')),
-        ('Venta C$', n(t.venta, 2)), ('Unidades vendidas', n(t.unidades)), ('Facturas', n(t.facturas)), ('Clientes', n(t.clientes)), ('Existencia actual', n(t.existencia))] %}
-    <div class="col-6 col-md-4 col-xl-2"><div class="card card-body py-2 shadow-sm h-100"><div class="small text-muted">{{ etiqueta }}</div><div class="fs-5 fw-bold" style="color:#027266">{{ valor }}</div></div></div>
+        ('Venta C$', n(t.venta, 2)), ('Unidades vendidas', n(t.unidades)), ('Facturas', n(t.facturas)), ('Clientes', n(t.clientes)),
+        ('Ingresos del período (unid.)', n(t.ingresos) ~ (' · C$ ' ~ n(t.ingresos_costo, 2) if t.ingresos_costo else '')), ('Existencia actual', n(t.existencia))] %}
+    <div class="col-6 col-md-4 col-xl"><div class="card card-body py-2 shadow-sm h-100"><div class="small text-muted">{{ etiqueta }}</div><div class="fs-5 fw-bold" style="color:#027266">{{ valor }}</div></div></div>
     {% endfor %}
   </div>
   <div class="d-flex justify-content-end gap-2 mb-1 small">
@@ -115,7 +117,10 @@
         </div>
         <div class="dato text-end" title="{{ r.bodegas_txt or 'Sin existencia' }}"><small>Existencia actual</small><b class="{{ 'text-danger' if r.existencia <= 0 }}">{{ n(r.existencia) }}</b>
           {% if r.en_bodegas is not none %}<small>{{ n(r.en_bodegas) }} en las bodegas filtradas</small>{% endif %}</div>
-        <div class="dato text-end"><small>Unidades</small><b>{{ n(r.unidades) }}</b></div>
+        <div class="dato text-end" title="Entradas por orden de compra en el período{% if r.ingresos_docs %}: {{ r.ingresos_docs }} ingreso(s), C$ {{ n(r.ingresos_costo, 2) }}{% endif %}">
+          <small>Ingresos del período</small><b>{{ n(r.ingresos) if r.ingresos else '—' }}</b>
+          <small>{{ 'último ' ~ r.ultimo_ingreso.strftime('%d/%m/%Y') if r.ultimo_ingreso else 'sin ingresos' }}</small></div>
+        <div class="dato text-end"><small>Unidades vendidas</small><b>{{ n(r.unidades) }}</b></div>
         <div class="dato text-end"><small>Venta C$</small><b style="color:#FE6412">{{ n(r.venta, 2) }}</b></div>
         <div class="dato text-end"><small>Facturas</small><b>{{ n(r.n_facturas) }}</b></div>
         <div class="dato text-end"><small>Clientes</small><b>{{ n(r.n_clientes) }}</b></div>
