@@ -1207,8 +1207,11 @@ def calcular_sugerido(prm):
         if not codigos:
             return {"filas": [], "hist": hist, "entrega": entrega, "entrega_hist": entrega_hist, "hoy": hoy, "periodo": None}
         lista = ", ".join(["%s"] * len(codigos))
-        cursor.execute("SELECT MAX(Fecha) FROM ventas_por_producto")
+        cursor.execute("SELECT MAX(Fecha) FROM ventas_por_producto WHERE Fecha >= %s", ((hoy - timedelta(days=60)).isoformat(),))
         fin = cursor.fetchone()[0]
+        if not fin:
+            cursor.execute("SELECT MAX(Fecha) FROM ventas_por_producto")
+            fin = cursor.fetchone()[0]
         fin = date.fromisoformat(str(fin)[:10]) if fin else hoy
         inicio = fin - timedelta(days=round(prm["meses"] * DIAS_MES)) + timedelta(days=1)
         cursor.execute(f"SELECT Codigo, SUM(`Cantidad Vendida`) FROM ventas_por_producto WHERE Fecha BETWEEN %s AND %s AND Estatus <> 'Anulado' "

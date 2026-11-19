@@ -36,6 +36,7 @@ SECCIONES = [
                 ("Ventas y recibos de caja por día", "/reporte_ventas_dia", "bi-calendar3", "Ventas, IVA y recuperación del día", "diario recibos caja recuperacion cobro"),
                 ("Ventas mensuales", "/reporte_ventas_mes", "bi-calendar-month", "Comparativo de meses: vendedores, top 10 productos y marcas", "mes neta contado credito devoluciones ranking comparativo"),
                 ("Trabajos de taller", "/reporte_armados", "bi-tools", "Armado de mangueras, trabajos y armado de fricción: venta, margen y mano de obra", "armados mangueras friccion fricciones mixtas bienes taller hidraulica"),
+                ("Clientes por producto", "/ventas_producto_cliente", "bi-person-check", "Quién compró cada producto, en cuántas facturas y en qué meses; existencia actual", "clientes producto marca proveedor suplidor bodega facturas meses estacionalidad existencia"),
                 ("Ventas por bodega", "/ventas_bodega", "bi-shop", "Unidades vendidas por bodega", "sucursal"),
             ]},
             {"titulo": "Por zona y departamento", "items": [

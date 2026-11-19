@@ -1,0 +1,176 @@
+{% extends "layout.html" %}
+{% block title %}Clientes por producto{% endblock %}
+{% macro n(v, d=0) %}{{ ("{:,.%df}" % d).format(v) }}{% endmacro %}
+{% macro celdas_meses(datos) %}
+  {% set idx = 1 if f.medida == 'monto' else 0 %}
+  {% set vals = [] %}{% for m, _ in meses %}{% if m in datos %}{% set _ = vals.append(datos[m][idx]) %}{% endif %}{% endfor %}
+  {% set mx = vals|max if vals else 0 %}
+  {% for m, e in meses %}
+    {% set v = datos[m][idx] if m in datos else 0 %}
+    <td class="mes {{ 'pico' if v and v == mx }}" style="{% if v > 0 %}background: rgba(2,114,102,{{ intensidad(v, mx) }}); color: {{ '#fff' if intensidad(v, mx) > 0.45 else 'inherit' }}{% endif %}"
+        title="{{ e }}: {{ n(v, 2 if idx else 0) if v else 'sin compra' }}">{{ (n(v / 1000, 1) ~ 'k' if idx and v >= 10000 else n(v, 0)) if v else '' }}</td>
+  {% endfor %}
+{% endmacro %}
+{% block content %}
+<style>
+  .lista-filtro { max-height: 320px; overflow-y: auto; min-width: 280px; }
+  .lista-filtro .n { color: #8a8984; font-size: .75rem; }
+  .tabla-cli td, .tabla-cli th { font-size: .78rem; white-space: nowrap; }
+  .tabla-cli td.mes, .tabla-cli th.mes { text-align: center; min-width: 46px; padding-left: 2px; padding-right: 2px; font-variant-numeric: tabular-nums; }
+  .tabla-cli td.mes.pico { font-weight: 700; outline: 2px solid #FE6412; outline-offset: -2px; }
+  .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  details.producto { border: 1px solid #dee2e6; border-radius: .5rem; background: #fff; margin-bottom: .5rem; }
+  details.producto > summary { list-style: none; cursor: pointer; padding: .5rem .75rem; }
+  details.producto > summary::-webkit-details-marker { display: none; }
+  details.producto[open] > summary { border-bottom: 1px solid #dee2e6; background: #f6f5f1; border-radius: .5rem .5rem 0 0; }
+  details.producto > summary .flecha { transition: transform .15s; display: inline-block; }
+  details.producto[open] > summary .flecha { transform: rotate(90deg); }
+  .dato { line-height: 1.1; } .dato small { color: #6b6a66; font-size: .7rem; display: block; }
+</style>
+<div class="container-fluid mt-3 mb-4" style="max-width: 1500px">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <div>
+      <h5 class="mb-0"><i class="bi bi-person-check" aria-hidden="true"></i> Clientes por producto</h5>
+      <div class="text-muted small">Quién compró cada producto, cuánto, en cuántas facturas y en qué meses · existencia actual</div>
+    </div>
+    {% if generado and filas %}<a class="btn btn-success btn-sm" href="{{ url_for('ventas_producto_cliente.excel') }}?{{ params|urlencode }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Descargar Excel</a>{% endif %}
+  </div>
+
+  <form method="get" class="card card-body py-2 mb-3 shadow-sm">
+    <input type="hidden" name="generar" value="1">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label small mb-0" for="desde">Desde</label>
+        <input type="date" id="desde" name="desde" value="{{ f.desde.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-0" for="hasta">Hasta</label>
+        <input type="date" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}" class="form-control form-control-sm"></div>
+      {% for clave, titulo, singular, lista, elegidos, ayuda in [
+          ('bodega', 'Bodegas', 'bodega', bodegas, f.bodegas, 'donde está hoy'),
+          ('proveedor', 'Proveedores', 'proveedor', proveedores, f.proveedores, 'última compra'),
+          ('marca', 'Marcas', 'marca', marcas, f.marcas, 'una o varias')] %}
+      <div class="col-md-4 col-lg-2"><label class="form-label small mb-0" for="btn-{{ clave }}">{{ titulo }} <span class="text-muted">({{ ayuda }})</span></label>
+        <div class="dropdown multi" data-plural="{{ titulo|lower }}" data-todos="{{ 'Todas' if clave != 'proveedor' else 'Todos' }}">
+          <button type="button" id="btn-{{ clave }}" class="form-select form-select-sm text-start text-truncate" data-bs-toggle="dropdown"
+                  data-bs-auto-close="outside" aria-expanded="false">Todas</button>
+          <div class="dropdown-menu p-2 shadow-sm lista-filtro" aria-labelledby="btn-{{ clave }}">
+            <input type="search" class="form-control form-control-sm mb-1 buscar" placeholder="Buscar {{ singular }}…" autocomplete="off" aria-label="Buscar {{ singular }}">
+            {% for item in lista %}{% set nombre = item if item is string else item[0] %}
+            <div class="form-check opc" data-texto="{{ nombre|lower }}">
+              <input class="form-check-input chk" type="checkbox" name="{{ clave }}" value="{{ nombre }}" id="{{ clave }}-{{ loop.index }}" {{ 'checked' if nombre in elegidos }}>
+              <label class="form-check-label small" for="{{ clave }}-{{ loop.index }}">{{ nombre }}{% if item is not string %} <span class="n">{{ item[1] }}</span>{% endif %}</label>
+            </div>{% endfor %}
+            <div class="border-top mt-1 pt-1 d-flex justify-content-between gap-2">
+              <button type="button" class="btn btn-link btn-sm p-0 visibles">Marcar los visibles</button>
+              <button type="button" class="btn btn-link btn-sm p-0 ninguna">Quitar selección</button></div>
+          </div>
+        </div></div>
+      {% endfor %}
+      <div class="col-6 col-lg-2"><label class="form-label small mb-0" for="q">Producto</label>
+        <input type="search" id="q" name="q" value="{{ f.q }}" class="form-control form-control-sm" placeholder="Código, Nº parte o descripción"></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-0" for="cliente">Cliente</label>
+        <input type="search" id="cliente" name="cliente" value="{{ f.cliente }}" class="form-control form-control-sm" placeholder="Nombre del cliente"></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-0" for="meses">Columnas de meses</label>
+        <select id="meses" name="meses" class="form-select form-select-sm">
+          <option value="periodo" {{ 'selected' if f.meses == 'periodo' }}>Cada mes del período</option>
+          <option value="anio" {{ 'selected' if f.meses == 'anio' }}>Ene–Dic (suma de los años)</option></select></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-0" for="medida">Meses en</label>
+        <select id="medida" name="medida" class="form-select form-select-sm">
+          <option value="unidades" {{ 'selected' if f.medida == 'unidades' }}>Unidades</option>
+          <option value="monto" {{ 'selected' if f.medida == 'monto' }}>Venta C$</option></select></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-0" for="orden">Ordenar productos por</label>
+        <select id="orden" name="orden" class="form-select form-select-sm">{% for k, v in ordenes.items() %}<option value="{{ k }}" {{ 'selected' if f.orden == k }}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><div class="form-check small mb-1"><input class="form-check-input" type="checkbox" name="sin_venta" value="1" id="sin_venta" {{ 'checked' if f.sin_venta }}>
+        <label class="form-check-label" for="sin_venta">Incluir productos sin venta</label></div>
+        <button class="btn btn-primary btn-sm w-100"><i class="bi bi-funnel" aria-hidden="true"></i> Generar</button></div>
+    </div>
+    <div class="form-text">Bodega = dónde está el producto hoy (con existencia); las ventas cuentan de cualquier bodega. Venta = sub-total neto sin IVA, sin facturas anuladas.
+      En los meses, el borde naranja marca el mes en que más compra.</div>
+  </form>
+
+  {% if not generado %}
+  <div class="card card-body text-muted small">Escoja los filtros y pulse <strong>Generar</strong>. Por defecto toma los últimos 12 meses de ventas cargadas.</div>
+  {% elif not filas %}
+  <div class="card card-body text-muted text-center py-4">No hay productos con esos filtros. <div class="small mt-1">{{ filtros_txt }}</div></div>
+  {% else %}
+  <div class="small text-muted mb-2">{{ filtros_txt }}</div>
+  <div class="row g-2 mb-3">
+    {% for etiqueta, valor in [('Productos', n(t.productos) ~ (' (' ~ n(t.con_venta) ~ ' con venta)' if t.con_venta != t.productos else '')),
+        ('Venta C$', n(t.venta, 2)), ('Unidades vendidas', n(t.unidades)), ('Facturas', n(t.facturas)), ('Clientes', n(t.clientes)), ('Existencia actual', n(t.existencia))] %}
+    <div class="col-6 col-md-4 col-xl-2"><div class="card card-body py-2 shadow-sm h-100"><div class="small text-muted">{{ etiqueta }}</div><div class="fs-5 fw-bold" style="color:#027266">{{ valor }}</div></div></div>
+    {% endfor %}
+  </div>
+  <div class="d-flex justify-content-end gap-2 mb-1 small">
+    <button type="button" class="btn btn-link btn-sm p-0" id="abrir-todos">Abrir todos</button> ·
+    <button type="button" class="btn btn-link btn-sm p-0" id="cerrar-todos">Cerrar todos</button>
+  </div>
+
+  {% for r in filas %}
+  <details class="producto" {{ 'open' if loop.index <= 3 }}>
+    <summary>
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <span class="flecha text-muted"><i class="bi bi-chevron-right" aria-hidden="true"></i></span>
+        <div class="me-auto" style="min-width: 260px">
+          <span class="fw-semibold">{{ r.codigo }}</span>{% if r.parte %} · {{ r.parte }}{% endif %} <span class="badge text-bg-light border">{{ r.marca }}</span>
+          <div class="small text-muted text-truncate" style="max-width: 460px">{{ r.nombre }}{% if r.proveedor %} · {{ r.proveedor }}{% endif %}</div>
+        </div>
+        <div class="dato text-end" title="{{ r.bodegas_txt or 'Sin existencia' }}"><small>Existencia actual</small><b class="{{ 'text-danger' if r.existencia <= 0 }}">{{ n(r.existencia) }}</b>
+          {% if r.en_bodegas is not none %}<small>{{ n(r.en_bodegas) }} en las bodegas filtradas</small>{% endif %}</div>
+        <div class="dato text-end"><small>Unidades</small><b>{{ n(r.unidades) }}</b></div>
+        <div class="dato text-end"><small>Venta C$</small><b style="color:#FE6412">{{ n(r.venta, 2) }}</b></div>
+        <div class="dato text-end"><small>Facturas</small><b>{{ n(r.n_facturas) }}</b></div>
+        <div class="dato text-end"><small>Clientes</small><b>{{ n(r.n_clientes) }}</b></div>
+        <div class="dato text-end"><small>Mes que más se vende</small><b>{{ r.mes_mayor or '—' }}</b></div>
+      </div>
+    </summary>
+    {% if r.clientes %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0 tabla-cli">
+        <thead class="table-light"><tr><th>Cliente</th><th class="num">Unidades</th><th class="num">Venta C$</th><th class="num">% del producto</th>
+          <th class="num" title="Facturas distintas en que compró este producto">Facturas</th><th>Última compra</th><th>Mes que más compra</th>
+          {% for m, e in meses %}<th class="mes">{{ e }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for c in r.clientes[:max_clientes] %}
+          <tr><td class="text-truncate" style="max-width: 280px" title="{{ c.cliente }}">{{ c.cliente }}{% if c.codigo %} <span class="text-muted">· {{ c.codigo }}</span>{% endif %}</td>
+            <td class="num">{{ n(c.unidades) }}</td><td class="num fw-semibold">{{ n(c.venta, 2) }}</td><td class="num">{{ "%.1f"|format(c.pct) }}%</td>
+            <td class="num">{{ c.n_facturas }}</td><td>{{ c.ultima.strftime('%d/%m/%Y') }}</td><td>{{ c.mes_mayor or '' }}</td>
+            {{ celdas_meses(c.meses) }}</tr>
+          {% endfor %}
+          <tr class="table-light fw-semibold"><td>Total del producto</td><td class="num">{{ n(r.unidades) }}</td><td class="num">{{ n(r.venta, 2) }}</td><td></td>
+            <td class="num">{{ r.n_facturas }}</td><td></td><td>{{ r.mes_mayor or '' }}</td>{{ celdas_meses(r.meses) }}</tr>
+        </tbody>
+      </table>
+    </div>
+    {% if r.clientes|length > max_clientes %}<div class="small text-muted px-3 py-1">Se muestran {{ max_clientes }} de {{ r.clientes|length }} clientes; el Excel los trae todos.</div>{% endif %}
+    {% else %}<div class="small text-muted px-3 py-2">Sin ventas en el período.{% if r.bodegas_txt %} Existencia: {{ r.bodegas_txt }}.{% endif %}</div>{% endif %}
+  </details>
+  {% endfor %}
+  {% if t.productos > max_productos %}<div class="small text-muted">Se muestran {{ max_productos }} de {{ n(t.productos) }} productos; use los filtros o descargue el Excel para verlos todos.</div>{% endif %}
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  document.querySelectorAll('.multi').forEach(caja => {
+    const boton = caja.querySelector('button[data-bs-toggle]'), buscar = caja.querySelector('.buscar');
+    const opciones = [...caja.querySelectorAll('.opc')], casillas = [...caja.querySelectorAll('.chk')];
+    const texto = () => {
+      const v = casillas.filter(c => c.checked).map(c => c.value);
+      boton.textContent = !v.length ? caja.dataset.todos : v.length <= 2 ? v.join(', ') : `${v.length} ${caja.dataset.plural}`;
+    };
+    casillas.forEach(c => c.addEventListener('change', texto));
+    buscar.addEventListener('input', () => {
+      const q = buscar.value.trim().toLowerCase();
+      opciones.forEach(o => o.classList.toggle('d-none', !!q && !o.dataset.texto.includes(q)));
+    });
+    buscar.addEventListener('keydown', e => { if (e.key === 'Enter') e.preventDefault(); });
+    caja.querySelector('.visibles').addEventListener('click', () => { opciones.filter(o => !o.classList.contains('d-none')).forEach(o => o.querySelector('input').checked = true); texto(); });
+    caja.querySelector('.ninguna').addEventListener('click', () => { casillas.forEach(c => c.checked = false); texto(); });
+    boton.addEventListener('shown.bs.dropdown', () => buscar.focus());
+    texto();
+  });
+  document.getElementById('abrir-todos')?.addEventListener('click', () => document.querySelectorAll('details.producto').forEach(d => d.open = true));
+  document.getElementById('cerrar-todos')?.addEventListener('click', () => document.querySelectorAll('details.producto').forEach(d => d.open = false));
+})();
+</script>
+{% endblock %}
