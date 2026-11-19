@@ -135,7 +135,7 @@
           {% for m, e in meses %}<th class="mes">{{ e }}</th>{% endfor %}</tr></thead>
         <tbody>
           {% for c in r.clientes[:max_clientes] %}
-          <tr><td class="text-truncate" style="max-width: 280px" title="{{ c.cliente }}">{{ c.cliente }}{% if c.codigo %} <span class="text-muted">· {{ c.codigo }}</span>{% endif %}</td>
+          <tr><td class="text-truncate" style="max-width: 280px" title="{{ c.cliente }}">{{ c.cliente }}{% if c.vendedor %} <span class="text-muted" title="Vendedor de su compra más reciente">· {{ c.vendedor }}</span>{% endif %}</td>
             <td class="num">{{ n(c.unidades) }}</td><td class="num fw-semibold">{{ n(c.venta, 2) }}</td><td class="num">{{ "%.1f"|format(c.pct) }}%</td>
             <td class="num">{{ c.n_facturas }}</td><td>{{ c.ultima.strftime('%d/%m/%Y') }}</td><td>{{ c.mes_mayor or '' }}</td>
             {{ celdas_meses(c.meses) }}</tr>

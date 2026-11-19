@@ -160,7 +160,7 @@ def calcular(f):
 
         # 3) Ventas del período. Con filtros de producto se consultan solo esos códigos (índice código + fecha);
         #    sin filtros, una pasada por fecha y se filtra en Python
-        sql = ("SELECT Codigo, `Cod. CLiente`, Cliente, `Tipo Factura`, `No. Factura`, Fecha, `Cantidad Vendida`, `Sub-Total 2` "
+        sql = ("SELECT Codigo, `Cod. CLiente`, Cliente, `Tipo Factura`, `No. Factura`, Fecha, `Cantidad Vendida`, `Sub-Total 2`, Vendedor "
                "FROM ventas_por_producto WHERE Fecha BETWEEN %s AND %s AND Estatus <> 'Anulado'")
         params = [f["desde"].isoformat(), f["hasta"].isoformat()]
         for palabra in f["cliente"].split():
@@ -202,7 +202,7 @@ def calcular(f):
 
     por_anio = f["meses"] == "anio"
     productos = {}
-    for cod, cod_cli, cliente, tipo, factura, fch, cant, monto in ventas:
+    for cod, cod_cli, cliente, tipo, factura, fch, cant, monto, vendedor in ventas:
         if cod not in catalogo:
             continue
         cant, monto = float(cant or 0), float(monto or 0)
@@ -214,8 +214,11 @@ def calcular(f):
         pm = p["meses"].setdefault(mes, [0.0, 0.0]); pm[0] += cant; pm[1] += monto
         cli_id = int(cod_cli) if cod_cli is not None else (cliente or "")
         c = p["clientes"].setdefault(cli_id, {"codigo": cli_id if isinstance(cli_id, int) else None, "cliente": (cliente or "").strip(),
-                                             "unidades": 0.0, "venta": 0.0, "facturas": set(), "ultima": fch, "primera": fch, "meses": {}})
+                                             "unidades": 0.0, "venta": 0.0, "facturas": set(), "ultima": fch, "primera": fch, "meses": {},
+                                             "vendedor": ""})
         c["unidades"] += cant; c["venta"] += monto; c["facturas"].add(fac)
+        if fch >= c["ultima"] or not c["vendedor"]:
+            c["vendedor"] = vendedor_corto(vendedor) or c["vendedor"]     # el de la compra más reciente
         c["ultima"], c["primera"] = max(c["ultima"], fch), min(c["primera"], fch)
         cm = c["meses"].setdefault(mes, [0.0, 0.0]); cm[0] += cant; cm[1] += monto
 
@@ -257,6 +260,26 @@ def calcular(f):
                "facturas": len(set().union(*(productos[c]["facturas"] for c in productos if c in codigos))) if productos else 0,
                "clientes": len({cid for r in filas for cid in productos.get(r["codigo"], {"clientes": {}})["clientes"]})}
     return filas, totales
+
+
+def vendedor_corto(nombre):
+    """Nombre y primer apellido del vendedor, solo informativo: «Glen G. Mayorga C.» → «Glen Mayorga»,
+    «JOSE ADALID PORRAS GARCIA» → «Jose Porras», «Eddy . Chevez .» → «Eddy Chevez», «MOSTRADOR . . .» → «Mostrador»."""
+    partes = (nombre or "").split()
+    inicial = lambda t: t == "." or (len(t) <= 2 and (t.endswith(".") or len(t) == 1))
+    while partes and inicial(partes[0]) and any(not inicial(t) for t in partes[1:]):
+        partes.pop(0)                                    # «A. Javier Torres M.»: la inicial del primer nombre no cuenta
+    if not partes:
+        return ""
+    primero, resto = partes[0], partes[1:]
+    completos = [t for t in resto if not inicial(t)]
+    if not completos:
+        apellido = ""
+    elif resto and inicial(resto[0]):
+        apellido = completos[0]                          # segundo nombre abreviado o vacío: lo que sigue es el apellido
+    else:
+        apellido = completos[1] if len(completos) >= 2 else completos[0]   # segundo nombre + apellido(s)
+    return " ".join(w.capitalize() if w.isupper() or w.islower() else w for w in (primero, apellido) if w)
 
 
 def intensidad(valor, maximo):
@@ -333,7 +356,7 @@ def excel():
     ws = wb.active
     ws.title = "Clientes por producto"
     titulo(ws, "Grupo Comersa · Clientes por producto")
-    cols = base + [("Cód. cliente", 10), ("Cliente", 34), ("Unidades", 10), ("Venta C$", 14), ("Facturas", 9), ("% de la venta del producto", 10),
+    cols = base + [("Vendedor", 16), ("Cliente", 34), ("Unidades", 10), ("Venta C$", 14), ("Facturas", 9), ("% de la venta del producto", 10),
                    ("Primera compra", 11), ("Última compra", 11), ("Mes que más compra", 11)] + [(e, 9) for _, e in meses]
     encabezar(ws, 4, cols)
     n = 5
@@ -341,7 +364,7 @@ def excel():
         for c in r["clientes"] or [None]:
             valores = datos_producto(r)
             if c:
-                valores += [c["codigo"], c["cliente"], c["unidades"], round(c["venta"], 2), c["n_facturas"], c["pct"] / 100, c["primera"], c["ultima"],
+                valores += [c["vendedor"] or None, c["cliente"], c["unidades"], round(c["venta"], 2), c["n_facturas"], c["pct"] / 100, c["primera"], c["ultima"],
                             c["mes_mayor"]] + [round(c["meses"][m][i], 2) if m in c["meses"] else None for m, _ in meses]
             else:
                 valores += [None, "Sin ventas en el período"]
@@ -400,8 +423,10 @@ def excel():
         for c in r["clientes"]:
             clave_cli = c["codigo"] if c["codigo"] is not None else c["cliente"]
             gc = g["clientes"].setdefault(clave_cli, {"codigo": c["codigo"], "cliente": c["cliente"], "unidades": 0.0, "venta": 0.0,
-                                                      "facturas": set(), "meses": {}, "ultima": c["ultima"]})
+                                                      "facturas": set(), "meses": {}, "ultima": c["ultima"], "vendedor": c["vendedor"]})
             gc["unidades"] += c["unidades"]; gc["venta"] += c["venta"]; gc["facturas"] |= c["facturas"]
+            if c["ultima"] >= gc["ultima"]:
+                gc["vendedor"] = c["vendedor"] or gc["vendedor"]
             gc["ultima"] = max(gc["ultima"], c["ultima"])
             for m, (u, v_) in c["meses"].items():
                 cm = gc["meses"].setdefault(m, [0.0, 0.0]); cm[0] += u; cm[1] += v_
@@ -453,7 +478,7 @@ def excel():
                        max((c["ultima"] for c in clientes), default=None)], True, True)
         n += 1
         for c in clientes:
-            escribir_bn(n, [None] * k + ["   " + c["cliente"] + (f" · {c['codigo']}" if c["codigo"] is not None else ""), c["unidades"],
+            escribir_bn(n, [None] * k + ["   " + c["cliente"] + (f" · {c['vendedor']}" if c["vendedor"] else ""), c["unidades"],
                                          len(c["facturas"]), round(c["venta"], 2), mes_mayor(c["meses"]), c["ultima"]], False, False)
             hr.row_dimensions[n].outlineLevel = 1
             n += 1
