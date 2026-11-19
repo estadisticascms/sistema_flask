@@ -236,7 +236,7 @@ def calcular(f):
         p = productos.get(cod, {"unidades": 0.0, "venta": 0.0, "facturas": set(), "meses": {}, "clientes": {}})
         clientes = sorted(p["clientes"].values(), key=lambda c: (-c["venta"], c["cliente"]))
         for c in clientes:
-            c["n_facturas"] = len(c.pop("facturas"))
+            c["n_facturas"] = len(c["facturas"])
             c["mes_mayor"] = mes_mayor(c["meses"])
             c["ultima"] = date.fromisoformat(c["ultima"])
             c["primera"] = date.fromisoformat(c["primera"])
@@ -245,7 +245,7 @@ def calcular(f):
         filas.append({**x, "ingresos": ing_u, "ingresos_costo": ing_m, "ingresos_docs": ing_d, "ultimo_ingreso": ult_ing,
                       "existencia": existencia.get(cod, 0.0), "en_bodegas": en_bodegas.get(cod, 0.0) if f["bodegas"] else None,
                       "bodegas_txt": " · ".join(f"{b}: {c:,.0f}" for b, c in sorted(detalle_bod.get(cod, []), key=lambda d: -d[1])),
-                      "unidades": p["unidades"], "venta": p["venta"], "n_facturas": len(p["facturas"]), "meses": p["meses"],
+                      "unidades": p["unidades"], "venta": p["venta"], "n_facturas": len(p["facturas"]), "facturas": p["facturas"], "meses": p["meses"],
                       "mes_mayor": mes_mayor(p["meses"]), "clientes": clientes, "n_clientes": len(clientes)})
     orden = {"venta": lambda r: (-r["venta"], r["codigo"]), "unidades": lambda r: (-r["unidades"], r["codigo"]),
              "clientes": lambda r: (-r["n_clientes"], -r["venta"]), "existencia": lambda r: (-r["existencia"], r["codigo"]),
@@ -372,14 +372,21 @@ def excel():
     hp.freeze_panes = "D5"
     hp.auto_filter.ref = f"A4:{get_column_letter(len(cols))}{max(tot - 1, 4)}"
 
-    # Hoja 3: resumen por número de parte y descripción
+    # Hoja 3: resumen por número de parte y descripción; debajo de cada uno, sus clientes (filas agrupadas, se pliegan con +/−)
     hr = wb.create_sheet("Resumen por Nº parte")
-    titulo(hr, "Grupo Comersa · Resumen por número de parte")
+    titulo(hr, "Grupo Comersa · Resumen por número de parte y sus clientes")
+    etiquetas = dict(meses)
+
+    def mes_mayor(datos):
+        positivos = {k: v[i] for k, v in datos.items() if v[i] > 0}
+        return etiquetas.get(max(positivos, key=positivos.get)) if positivos else None
+
     grupos = {}
     for r in filas:
         g = grupos.setdefault((r["parte"].upper() or "(SIN Nº PARTE)", r["nombre"].upper()),
                               {"parte": r["parte"] or "(sin Nº parte)", "nombre": r["nombre"], "codigos": [], "marcas": set(), "ultimo": None,
-                               "ingresos": 0.0, "ingresos_costo": 0.0, "existencia": 0.0, "en_bodegas": 0.0, "unidades": 0.0, "venta": 0.0})
+                               "ingresos": 0.0, "ingresos_costo": 0.0, "existencia": 0.0, "en_bodegas": 0.0, "unidades": 0.0, "venta": 0.0,
+                               "facturas": set(), "meses": {}, "clientes": {}})
         g["codigos"].append(r["codigo"])
         g["marcas"].add(r["marca"])
         if r["ultimo_ingreso"] and (not g["ultimo"] or r["ultimo_ingreso"] > g["ultimo"]):
@@ -387,25 +394,60 @@ def excel():
         for k in ("ingresos", "ingresos_costo", "existencia", "unidades", "venta"):
             g[k] += r[k]
         g["en_bodegas"] += r["en_bodegas"] or 0
+        g["facturas"] |= r["facturas"]
+        for m, (u, v_) in r["meses"].items():
+            gm = g["meses"].setdefault(m, [0.0, 0.0]); gm[0] += u; gm[1] += v_
+        for c in r["clientes"]:
+            clave_cli = c["codigo"] if c["codigo"] is not None else c["cliente"]
+            gc = g["clientes"].setdefault(clave_cli, {"codigo": c["codigo"], "cliente": c["cliente"], "unidades": 0.0, "venta": 0.0,
+                                                      "facturas": set(), "meses": {}, "ultima": c["ultima"]})
+            gc["unidades"] += c["unidades"]; gc["venta"] += c["venta"]; gc["facturas"] |= c["facturas"]
+            gc["ultima"] = max(gc["ultima"], c["ultima"])
+            for m, (u, v_) in c["meses"].items():
+                cm = gc["meses"].setdefault(m, [0.0, 0.0]); cm[0] += u; cm[1] += v_
+
     cols = [("Nº parte", 18), ("Descripción", 40), ("Códigos", 20), ("Marca", 14), ("Fecha último ingreso", 12),
             ("Total ingresos del período (unid.)", 12), ("Costo de los ingresos C$", 14), ("Existencia actual", 11)]
     cols += [("Existencia bodega seleccionada", 12)] if con_bod else []
-    cols += [("Unidades vendidas", 10), ("Venta C$", 14)]
+    cols += [("Unidades vendidas", 10), ("Facturas", 9), ("Venta C$", 14),
+             ("Cliente", 34), ("Mes que más compra", 11), ("Cantidad", 10), ("Facturas del cliente", 9), ("Venta del cliente C$", 14),
+             ("Última compra", 11)]
     encabezar(hr, 4, cols)
-    fmts = {5: "dd/mm/yyyy", 6: "#,##0.##", 7: "#,##0.00", 8: "#,##0.##"}
-    fmts.update({9: "#,##0.##", 10: "#,##0.##", 11: "#,##0.00"} if con_bod else {9: "#,##0.##", 10: "#,##0.00"})
+    k = 9 if con_bod else 8                 # última columna de existencia
+    c_uni, c_fac, c_ven, c_cli = k + 1, k + 2, k + 3, k + 4
+    fmts = {5: "dd/mm/yyyy", 6: "#,##0.##", 7: "#,##0.00", 8: "#,##0.##", 9: "#,##0.##", c_uni: "#,##0.##", c_fac: "#,##0", c_ven: "#,##0.00",
+            c_cli + 2: "#,##0.##", c_cli + 3: "#,##0", c_cli + 4: "#,##0.00", c_cli + 5: "dd/mm/yyyy"}
+    fondo_parte = PatternFill("solid", fgColor="E6F1EF")
+    gris = Font(size=9, color="8A8984")
     orden_g = sorted(grupos.values(), key=lambda g: (g["parte"] == "(sin Nº parte)", g["parte"].upper(), g["nombre"].upper()))
-    for n, g in enumerate(orden_g, start=5):
+    n = 5
+    for g in orden_g:
+        clientes = sorted(g["clientes"].values(), key=lambda c: (-c["venta"], c["cliente"]))
         escribir(hr, n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
                          g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
-                 + ([g["en_bodegas"]] if con_bod else []) + [g["unidades"], round(g["venta"], 2)], fmts)
-    tot = len(orden_g) + 5
+                 + ([g["en_bodegas"]] if con_bod else [])
+                 + [g["unidades"], len(g["facturas"]) or None, round(g["venta"], 2),
+                    f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''}" if clientes else "Sin ventas en el período", mes_mayor(g["meses"])], fmts)
+        for col in range(1, len(cols) + 1):
+            hr.cell(row=n, column=col).fill = fondo_parte
+            hr.cell(row=n, column=col).font = Font(bold=True)
+        n += 1
+        for c in clientes:
+            # Nº parte y descripción repetidos en gris: así el filtro de Excel deja ver los clientes de una parte
+            escribir(hr, n, [g["parte"], g["nombre"]] + [None] * (k - 2) + [None, None, None]
+                     + [c["cliente"] + (f" · {c['codigo']}" if c["codigo"] is not None else ""), mes_mayor(c["meses"]), c["unidades"],
+                        len(c["facturas"]), round(c["venta"], 2), c["ultima"]], fmts)
+            hr.cell(row=n, column=1).font = hr.cell(row=n, column=2).font = gris
+            hr.row_dimensions[n].outlineLevel = 1
+            n += 1
+    tot = n
     hr.cell(row=tot, column=1, value=f"Total · {len(orden_g):,} números de parte").font = Font(bold=True)
-    for col in range(6, len(cols) + 1):
+    for col in [6, 7, 8] + ([9] if con_bod else []) + [c_uni, c_ven, c_cli + 2, c_cli + 4]:
         letra = get_column_letter(col)
         c = hr.cell(row=tot, column=col, value=f"=SUBTOTAL(9,{letra}5:{letra}{tot - 1})")
         c.font = Font(bold=True)
         c.number_format = fmts.get(col, "#,##0.##")
+    hr.sheet_properties.outlinePr.summaryBelow = False          # el +/− queda en la fila del número de parte
     hr.freeze_panes = "C5"
     hr.auto_filter.ref = f"A4:{get_column_letter(len(cols))}{max(tot - 1, 4)}"
 
