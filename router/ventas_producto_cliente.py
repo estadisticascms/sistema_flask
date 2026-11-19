@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 
 from flask import Blueprint, render_template, request, send_file
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from utils.db import get_connection
@@ -406,50 +406,87 @@ def excel():
             for m, (u, v_) in c["meses"].items():
                 cm = gc["meses"].setdefault(m, [0.0, 0.0]); cm[0] += u; cm[1] += v_
 
-    cols = [("Nº parte", 18), ("Descripción", 40), ("Códigos", 20), ("Marca", 14), ("Fecha último ingreso", 12),
-            ("Total ingresos del período (unid.)", 12), ("Costo de los ingresos C$", 14), ("Existencia actual", 11)]
-    cols += [("Existencia bodega seleccionada", 12)] if con_bod else []
-    cols += [("Unidades vendidas", 10), ("Facturas", 9), ("Venta C$", 14),
-             ("Cliente", 34), ("Mes que más compra", 11), ("Cantidad", 10), ("Facturas del cliente", 9), ("Venta del cliente C$", 14),
-             ("Última compra", 11)]
-    encabezar(hr, 4, cols)
+    # Un solo grupo de columnas para el número de parte (sus totales) y para cada cliente (filas de abajo). Blanco y negro para imprimir.
+    cols = [("Nº parte", 16), ("Descripción", 34), ("Códigos", 14), ("Marca", 11), ("Fecha último ingreso", 11),
+            ("Total ingresos del período (unid.)", 11), ("Costo de los ingresos C$", 13), ("Existencia actual", 10)]
+    cols += [("Existencia bodega seleccionada", 11)] if con_bod else []
+    cols += [("Cliente", 34), ("Unidades vendidas", 10), ("Facturas", 9), ("Venta C$", 13), ("Mes que más compra", 10), ("Última compra", 11)]
     k = 9 if con_bod else 8                 # última columna de existencia
-    c_uni, c_fac, c_ven, c_cli = k + 1, k + 2, k + 3, k + 4
-    fmts = {5: "dd/mm/yyyy", 6: "#,##0.##", 7: "#,##0.00", 8: "#,##0.##", 9: "#,##0.##", c_uni: "#,##0.##", c_fac: "#,##0", c_ven: "#,##0.00",
-            c_cli + 2: "#,##0.##", c_cli + 3: "#,##0", c_cli + 4: "#,##0.00", c_cli + 5: "dd/mm/yyyy"}
-    fondo_parte = PatternFill("solid", fgColor="E6F1EF")
-    gris = Font(size=9, color="8A8984")
+    c_cli, c_uni, c_fac, c_ven, c_mes, c_ult = range(k + 1, k + 7)
+    fmts = {5: "dd/mm/yyyy", 6: "#,##0.##", 7: "#,##0.00", 8: "#,##0.##", 9: "#,##0.##", c_uni: "#,##0.##", c_fac: "#,##0",
+            c_ven: "#,##0.00", c_ult: "dd/mm/yyyy"}
+    if not con_bod:
+        fmts[9] = None
+    fino, medio = Side(style="thin", color="000000"), Side(style="medium", color="000000")
+    punteado = Side(style="hair", color="000000")
+    negro = "000000"
+    for col, (nombre, ancho) in enumerate(cols, start=1):
+        c = hr.cell(row=4, column=col, value=nombre)
+        c.font = Font(bold=True, color=negro, size=9)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = Border(top=medio, bottom=medio, left=fino, right=fino)
+        hr.column_dimensions[get_column_letter(col)].width = ancho
+    hr.row_dimensions[4].height = 36
+    hr["A1"].font = Font(bold=True, size=13, color=negro)
+    hr["A2"].font = Font(size=8, color=negro)
+
+    def escribir_bn(fila, valores, negrita, borde_arriba):
+        for col, v in enumerate(valores, start=1):
+            c = hr.cell(row=fila, column=col, value=v)
+            if isinstance(v, str) and v.startswith("="):
+                c.data_type = "s"
+            elif fmts.get(col):
+                c.number_format = fmts[col]
+            c.font = Font(bold=negrita, size=9 if negrita else 8, color=negro)
+            c.border = Border(top=fino if borde_arriba else punteado, bottom=punteado, left=fino, right=fino)
+            c.alignment = Alignment(vertical="top", wrap_text=col in (2, 3, c_cli))
+
     orden_g = sorted(grupos.values(), key=lambda g: (g["parte"] == "(sin Nº parte)", g["parte"].upper(), g["nombre"].upper()))
     n = 5
     for g in orden_g:
         clientes = sorted(g["clientes"].values(), key=lambda c: (-c["venta"], c["cliente"]))
-        escribir(hr, n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
-                         g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
-                 + ([g["en_bodegas"]] if con_bod else [])
-                 + [g["unidades"], len(g["facturas"]) or None, round(g["venta"], 2),
-                    f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''}" if clientes else "Sin ventas en el período", mes_mayor(g["meses"])], fmts)
-        for col in range(1, len(cols) + 1):
-            hr.cell(row=n, column=col).fill = fondo_parte
-            hr.cell(row=n, column=col).font = Font(bold=True)
+        escribir_bn(n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
+                        g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
+                    + ([g["en_bodegas"]] if con_bod else [])
+                    + [f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''}" if clientes else "Sin ventas en el período",
+                       g["unidades"] or None, len(g["facturas"]) or None, round(g["venta"], 2) or None, mes_mayor(g["meses"]),
+                       max((c["ultima"] for c in clientes), default=None)], True, True)
         n += 1
         for c in clientes:
-            # Nº parte y descripción repetidos en gris: así el filtro de Excel deja ver los clientes de una parte
-            escribir(hr, n, [g["parte"], g["nombre"]] + [None] * (k - 2) + [None, None, None]
-                     + [c["cliente"] + (f" · {c['codigo']}" if c["codigo"] is not None else ""), mes_mayor(c["meses"]), c["unidades"],
-                        len(c["facturas"]), round(c["venta"], 2), c["ultima"]], fmts)
-            hr.cell(row=n, column=1).font = hr.cell(row=n, column=2).font = gris
+            escribir_bn(n, [None] * k + ["   " + c["cliente"] + (f" · {c['codigo']}" if c["codigo"] is not None else ""), c["unidades"],
+                                         len(c["facturas"]), round(c["venta"], 2), mes_mayor(c["meses"]), c["ultima"]], False, False)
             hr.row_dimensions[n].outlineLevel = 1
             n += 1
-    tot = n
-    hr.cell(row=tot, column=1, value=f"Total · {len(orden_g):,} números de parte").font = Font(bold=True)
-    for col in [6, 7, 8] + ([9] if con_bod else []) + [c_uni, c_ven, c_cli + 2, c_cli + 4]:
-        letra = get_column_letter(col)
-        c = hr.cell(row=tot, column=col, value=f"=SUBTOTAL(9,{letra}5:{letra}{tot - 1})")
-        c.font = Font(bold=True)
-        c.number_format = fmts.get(col, "#,##0.##")
+    # Totales calculados aquí (solo filas de número de parte): una fórmula sumaría también las filas de clientes
+    hr.cell(row=n, column=1, value=f"TOTAL · {len(orden_g):,} números de parte")
+    totales_fila = {6: sum(g["ingresos"] for g in orden_g), 7: round(sum(g["ingresos_costo"] for g in orden_g), 2),
+                    8: sum(g["existencia"] for g in orden_g), c_uni: sum(g["unidades"] for g in orden_g),
+                    c_ven: round(sum(g["venta"] for g in orden_g), 2), c_cli: f"{t['clientes']:,} clientes"}
+    if con_bod:
+        totales_fila[9] = sum(g["en_bodegas"] for g in orden_g)
+    for col, v in totales_fila.items():
+        hr.cell(row=n, column=col, value=v)
+    for col in range(1, len(cols) + 1):
+        c = hr.cell(row=n, column=col)
+        c.font = Font(bold=True, size=9, color=negro)
+        c.border = Border(top=medio, bottom=medio, left=fino, right=fino)
+        if fmts.get(col):
+            c.number_format = fmts[col]
     hr.sheet_properties.outlinePr.summaryBelow = False          # el +/− queda en la fila del número de parte
     hr.freeze_panes = "C5"
-    hr.auto_filter.ref = f"A4:{get_column_letter(len(cols))}{max(tot - 1, 4)}"
+    hr.auto_filter.ref = f"A4:{get_column_letter(len(cols))}{max(n - 1, 4)}"
+    # Impresión: horizontal, a lo ancho de la hoja, encabezado repetido, sin colores
+    hr.print_title_rows = "4:4"
+    hr.page_setup.orientation = "landscape"
+    hr.page_setup.paperSize = hr.PAPERSIZE_LETTER
+    hr.page_setup.fitToWidth, hr.page_setup.fitToHeight = 1, 0
+    hr.sheet_properties.pageSetUpPr.fitToPage = True
+    hr.print_options.horizontalCentered = True
+    hr.page_setup.blackAndWhite = True
+    hr.page_margins.left = hr.page_margins.right = 0.3
+    hr.page_margins.top, hr.page_margins.bottom = 0.5, 0.6
+    hr.oddFooter.center.text = "Página &P de &N"
+    hr.oddFooter.center.size = 8
 
     salida = io.BytesIO()
     wb.save(salida)
