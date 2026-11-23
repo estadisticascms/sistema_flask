@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, render_template, redirect, url_for, flash
@@ -9,21 +11,43 @@ from router import carga_simple
 recibos_bp = Blueprint("recibos", __name__)
 
 # Reporte "Recibos de Caja" del sistema -> tabla reciboscaja (clave: numerorc)
+# Se aceptan los dos formatos del reporte: el anterior (Excel: Fecha Recibo, ROC #, Monto Cordobas, Monto Dolares) y el
+# nuevo de noviembre 2026 (CSV con «;»: Caja, Cajero, Vendedor, Fecha, # Recibo., Beneficiario, Recibimos De, Concepto,
+# Monto CO, Monto US). Solo se guardan fecha, número, beneficiario, concepto y monto en córdobas.
 COLUMNAS_RC = {"Fecha Recibo": "fecharc", "ROC #": "numerorc", "Beneficiario": "cliente",
                "Concepto": "concepto", "Monto Cordobas": "total"}
+ALIAS_RC = {   # columna (como se muestra) -> nombres posibles en el archivo, normalizados (sin espacios ni signos)
+    "Fecha Recibo": {"FECHARECIBO", "FECHA"},
+    "ROC #": {"ROC", "RECIBO", "NORECIBO", "NRECIBO", "NUMERORECIBO", "NUMERODERECIBO"},
+    "Beneficiario": {"BENEFICIARIO"},
+    "Concepto": {"CONCEPTO"},
+    "Monto Cordobas": {"MONTOCORDOBAS", "MONTOCO", "MONTOC", "MONTOCS"},
+    "Monto Dolares": {"MONTODOLARES", "MONTOUS", "MONTOUSD"},
+}
 CAMPOS_RC = ["fecharc", "numerorc", "cliente", "concepto", "total"]
 NOMBRES_RC = {v: k for k, v in COLUMNAS_RC.items()}
+
+
+def normalizar(nombre):
+    return re.sub(r"[^A-Z0-9]", "", unicodedata.normalize("NFKD", a_texto(nombre)).encode("ascii", "ignore").decode().upper())
+
+
+def ubicar_columnas(filas):
+    """Fila de encabezados y posición de cada columna, con los nombres del formato anterior o del nuevo."""
+    for i, fila in enumerate(filas[:40]):
+        nombres = [normalizar(c) for c in fila]
+        pos = {col: next((j for j, n in enumerate(nombres) if n in alias), None) for col, alias in ALIAS_RC.items()}
+        if all(pos[c] is not None for c in COLUMNAS_RC):
+            return i, pos
+    raise ErrorArchivo("no se encontraron las columnas del reporte de Recibos de Caja "
+                       "(Fecha, # Recibo, Beneficiario, Concepto, Monto CO)")
 PREFIJO_RC = "carga_recibos_"
 MAX_DETALLE = 300
 
 
 def leer_recibos(archivo):
     filas = leer_filas(archivo)
-    try:
-        inicio, pos = buscar_encabezado(filas, list(COLUMNAS_RC))
-    except ErrorArchivo:
-        raise ErrorArchivo("no se encontraron las columnas del reporte de Recibos de Caja "
-                           "(Fecha Recibo, ROC #, Beneficiario, Concepto, Monto Cordobas)")
+    inicio, pos = ubicar_columnas(filas)
     pos_usd = pos.get("Monto Dolares")
 
     def celda(fila, j):
@@ -56,7 +80,7 @@ def leer_recibos(archivo):
         except ValueError:
             usd = 0
         if usd:
-            advertencias.append(f"Fila {num}: ROC {numero} trae U$ {usd:,.2f} en Monto Dolares; "
+            advertencias.append(f"Fila {num}: ROC {numero} trae U$ {usd:,.2f} en dólares; "
                                 f"la tabla solo guarda el monto en córdobas (C$ {r['total']:,.2f})")
         if r["total"] <= 0:
             advertencias.append(f"Fila {num}: ROC {numero} con monto C$ {r['total']:,.2f}")

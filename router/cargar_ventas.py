@@ -1,3 +1,4 @@
+import csv
 import io
 import json
 import os
@@ -112,10 +113,23 @@ class _TablaHTML(HTMLParser):
 
 
 def leer_filas(archivo, hoja=None):
-    """Devuelve las filas del archivo como listas (acepta .xlsx, .xls y .xls-HTML)."""
+    """Devuelve las filas del archivo como listas (acepta .xlsx, .xls, .xls-HTML y CSV con ; , o tabulador)."""
     contenido = archivo.read()
     if not contenido:
         raise ErrorArchivo("el archivo está vacío")
+
+    # CSV: ni Excel (.xlsx empieza con PK, .xls con D0CF11E0) ni HTML. Las demás cargas no cambian.
+    if not contenido.startswith((b"PK\x03\x04", b"\xd0\xcf\x11\xe0")) and contenido.lstrip(b"\xef\xbb\xbf \r\n\t")[:1] != b"<":
+        try:
+            texto = contenido.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            texto = contenido.decode("cp1252", errors="replace")
+        muestra = texto[:5000]
+        try:
+            separador = csv.Sniffer().sniff(muestra, delimiters=";,\t|").delimiter
+        except csv.Error:
+            separador = max(";,\t|", key=muestra.count)
+        return [[c.strip() or None for c in fila] for fila in csv.reader(io.StringIO(texto), delimiter=separador)]
 
     if contenido.lstrip(b"\xef\xbb\xbf \r\n\t")[:1] == b"<":
         try:
