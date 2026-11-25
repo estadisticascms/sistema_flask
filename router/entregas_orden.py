@@ -174,6 +174,9 @@ def transportistas_activos(cursor):
         t["limite"] = hora_texto(t["hora_limite_recepcion"])
         t["horarios"] = [h for h in horarios if h["transportista_id"] == t["id"]]
         t["destinos"] = sorted({h["destino"] for h in t["horarios"]})
+        # Sin horario fijo: no tiene ninguna hora de salida cargada, o el destino está registrado «a cualquier hora»
+        t["sin_horario"] = not any(h["hora_salida"] is not None for h in t["horarios"])
+        t["libres"] = sorted({h["destino"] for h in t["horarios"] if h["hora_salida"] is None})
     return lista
 
 

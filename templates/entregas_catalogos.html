@@ -140,7 +140,7 @@
     <table class="table table-sm small align-middle mb-2" style="max-width: 640px">
       <thead><tr><th>Destino</th><th>Sale</th><th>Días</th><th></th></tr></thead>
       <tbody>{% for h in editar_t.horarios %}
-        <tr><td>{{ h.destino }}</td><td>{{ h.salida }}</td><td>{{ h.dias or 'Todos' }}</td>
+        <tr><td>{{ h.destino }}</td><td>{{ h.salida or 'A cualquier hora' }}</td><td>{{ h.dias or 'Todos' }}</td>
           <td class="text-end"><form method="post" action="{{ url_for('entregas_catalogos.eliminar_horario', id_=h.id) }}" class="d-inline">
             <button class="btn btn-sm btn-link text-danger p-0" title="Quitar horario"><i class="bi bi-x-lg" aria-hidden="true"></i><span class="visually-hidden">Quitar horario</span></button></form></td></tr>
       {% endfor %}</tbody>
@@ -150,7 +150,8 @@
       <div class="col-md-4"><label class="form-label small mb-0" for="h-destino">Destino</label>
         <input id="h-destino" name="destino" class="form-control form-control-sm" maxlength="100" required placeholder="Matagalpa"></div>
       <div class="col-md-2"><label class="form-label small mb-0" for="h-hora">Hora de salida</label>
-        <input type="time" id="h-hora" name="hora_salida" class="form-control form-control-sm" required></div>
+        <input type="time" id="h-hora" name="hora_salida" class="form-control form-control-sm" aria-describedby="h-hora-ayuda">
+        <div class="form-text" id="h-hora-ayuda">Vacía = sale a cualquier hora</div></div>
       <div class="col-md-4"><span class="form-label small d-block mb-1">Días (ninguno = todos)</span>
         {% for k, v in dias %}<div class="form-check form-check-inline small mb-0"><input class="form-check-input" type="checkbox" name="dias" value="{{ k }}" id="d-{{ k }}">
           <label class="form-check-label" for="d-{{ k }}" title="{{ v }}">{{ k }}</label></div>{% endfor %}</div>
@@ -182,7 +183,7 @@
           <td>{{ t.direccion or '' }}{% if t.mapa_url %} <a href="{{ t.mapa_url }}" target="_blank" rel="noopener" title="Abrir mapa"><i class="bi bi-geo-alt" aria-hidden="true"></i><span class="visually-hidden">Mapa</span></a>{% endif %}</td>
           <td class="text-end">{{ t.minutos_traslado if t.minutos_traslado is not none else '' }}</td>
           <td>{{ t.limite }}</td>
-          <td>{% for h in t.horarios[:3] %}<div>{{ h.salida }} {{ h.destino }}{% if h.dias %} <span class="text-muted">({{ h.dias }})</span>{% endif %}</div>{% endfor %}{% if t.horarios|length > 3 %}<div class="text-muted">y {{ t.horarios|length - 3 }} más</div>{% endif %}</td>
+          <td>{% for h in t.horarios[:3] %}<div>{{ h.salida or 'Cualquier hora' }} {{ h.destino }}{% if h.dias %} <span class="text-muted">({{ h.dias }})</span>{% endif %}</div>{% endfor %}{% if t.horarios|length > 3 %}<div class="text-muted">y {{ t.horarios|length - 3 }} más</div>{% endif %}</td>
           <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas_catalogos.catalogos', tab='transportistas', transportista=t.id) }}"><i class="bi bi-pencil" aria-hidden="true"></i><span class="visually-hidden">Editar {{ t.nombre }}</span></a></td>
         </tr>
       {% endfor %}

@@ -95,7 +95,7 @@
     <div class="row g-2">
       <div class="col-md-5"><label class="form-label small mb-0" for="transportista_id">Transporte *</label>
         <select class="form-select" id="transportista_id" name="transportista_id" required><option value="">— escoja —</option>
-          {% for t in transportistas %}<option value="{{ t.id }}" data-destinos="{{ t.destinos|join('|') }}" data-sin-horario="{{ 0 if t.horarios else 1 }}" {{ 'selected' if datos.get('transportista_id')|string == t.id|string }}>{{ t.nombre }} · {{ tipos.get(t.tipo, t.tipo) }}{% if t.limite %} · recibe hasta {{ t.limite }}{% endif %}</option>{% endfor %}
+          {% for t in transportistas %}<option value="{{ t.id }}" data-destinos="{{ t.destinos|join('|') }}" data-sin-horario="{{ 1 if t.sin_horario else 0 }}" data-libres="{{ t.libres|join('|') }}" {{ 'selected' if datos.get('transportista_id')|string == t.id|string }}>{{ t.nombre }} · {{ tipos.get(t.tipo, t.tipo) }}{% if t.limite %} · recibe hasta {{ t.limite }}{% endif %}</option>{% endfor %}
         </select></div>
       <div class="col-md-4"><label class="form-label small mb-0" for="destino">Destino</label>
         <input class="form-control" id="destino" name="destino" maxlength="100" list="lista-destinos" value="{{ datos.get('destino', '') }}" placeholder="Ciudad o departamento">
@@ -151,8 +151,14 @@
 
   // «Lo antes posible»: solo para transportes sin horario fijo (salen a cualquier hora)
   const antes = document.getElementById('antes-posible');
-  const verAntes = () => { const op = sel.options[sel.selectedIndex]; antes.classList.toggle('d-none', !(op && op.value && op.dataset.sinHorario === '1')); };
-  sel.addEventListener('change', verAntes); verAntes();
+  const igual = t => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+  const verAntes = () => {
+    const op = sel.options[sel.selectedIndex];
+    const libre = op && op.value && (op.dataset.sinHorario === '1' ||
+      (op.dataset.libres || '').split('|').some(d => d && igual(d) === igual(document.getElementById('destino').value)));
+    antes.classList.toggle('d-none', !libre);
+  };
+  sel.addEventListener('change', verAntes); document.getElementById('destino').addEventListener('input', verAntes); verAntes();
 
   // Alerta de tiempo en vivo (el servidor la vuelve a calcular al enviar)
   const caja = document.getElementById('alerta'), confirmar = document.getElementById('caja-confirmar');

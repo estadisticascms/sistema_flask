@@ -270,3 +270,8 @@ ALTER TABLE ent_avisos MODIFY tipo VARCHAR(30) NOT NULL;
 -- 24/11/2026 · Bodegas de vendedor: la mercadería ya se entregó al cliente; de sus líneas solo se envía la factura con el resto del
 -- paquete (no se confirman, preparan ni retiran, pero su factura se pide y sale en la etiqueta).
 ALTER TABLE ent_bodegas ADD COLUMN solo_factura TINYINT(1) NOT NULL DEFAULT 0 AFTER requiere_traslado;
+
+-- 25/11/2026 · Destinos que el transportista atiende a cualquier hora (por ejemplo, un interlocal a León): la hora de salida puede
+-- quedar vacía. Esos destinos no dan sugerencia de «próxima salida»; en Subir orden aparece el botón «Lo antes posible».
+ALTER TABLE ent_transportista_horarios MODIFY hora_salida TIME NULL;
+-- Para deshacer (antes, borrar o completar los horarios sin hora): ALTER TABLE ent_transportista_horarios MODIFY hora_salida TIME NOT NULL;

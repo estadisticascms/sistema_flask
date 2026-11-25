@@ -293,8 +293,8 @@ def agregar_horario(id_):
     salida = leer_hora(request.form.get("hora_salida"))
     dias = ",".join(d for d, _ in DIAS if d in request.form.getlist("dias")) or None
     volver = url_for("entregas_catalogos.catalogos", tab="transportistas", transportista=id_)
-    if not destino or not salida or salida == "error":
-        flash("Escriba el destino y la hora de salida (HH:MM).", "warning")
+    if not destino or salida == "error":       # sin hora: sale a cualquier hora hacia ese destino
+        flash("Escriba el destino y, si tiene horario fijo, la hora de salida (HH:MM).", "warning")
         return redirect(volver)
 
     def agregar(cursor):
@@ -304,7 +304,8 @@ def agregar_horario(id_):
         cursor.execute("INSERT INTO ent_transportista_horarios (transportista_id, destino, hora_salida, dias) VALUES (%s, %s, %s, %s)",
                        (id_, destino, salida, dias))
         return True
-    flash("✅ Horario agregado." if con_cursor(agregar) else "El transportista no existe.", "success")
+    ok = con_cursor(agregar)
+    flash(("✅ Horario agregado." if salida else f"✅ {destino}: sale a cualquier hora.") if ok else "El transportista no existe.", "success")
     return redirect(volver)
 
 
