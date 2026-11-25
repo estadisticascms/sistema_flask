@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block title %}{{ p[1] }} · Entregas{% endblock %}
+{% block content %}
+<div class="container mt-3 mb-4" style="max-width: 900px">
+  {% set activo = p[0] %}{% include "_entregas_nav.html" %}
+  <div class="card card-body shadow-sm text-center py-5">
+    <i class="bi {{ p[3] }} fs-1" style="color: #FE6412" aria-hidden="true"></i>
+    <h5 class="mt-2 mb-1">{{ p[1] }}</h5>
+    <p class="text-muted mb-3">{{ p[4] }}</p>
+    <div class="small">Pantalla para: {% for r in p[5] %}<span class="ent-rol">{{ ent_roles[r][0] }}</span> {% endfor %}</div>
+    <div class="alert alert-light border small mt-3 mb-0 mx-auto" style="max-width: 520px">
+      <i class="bi bi-cone-striped" aria-hidden="true"></i> En construcción: se habilita en la <strong>parte {{ p[6] }}</strong> del módulo.
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,222 @@
+{% extends "layout.html" %}
+{% block title %}Catálogos y configuración · Entregas{% endblock %}
+{% block content %}
+<style>
+  .cat-tabs .nav-link { color: #027266; }
+  .cat-tabs .nav-link.active { color: #FE6412; font-weight: 600; }
+  .si { color: #027266; font-weight: 600; } .no { color: #8a8984; }
+  .inactiva td { opacity: .5; }
+  .pendiente { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 8px; background: #fff1e8; color: #9a3412; }
+  .chk-col { columns: 3 220px; }
+</style>
+<div class="container-fluid mt-3 mb-4" style="max-width: 1200px">
+  {% set activo = 'entregas_catalogos' %}{% include "_entregas_nav.html" %}
+
+  <ul class="nav nav-tabs cat-tabs mb-3">
+    <li class="nav-item"><a class="nav-link {{ 'active' if tab == 'bodegas' }}" href="{{ url_for('entregas_catalogos.catalogos', tab='bodegas') }}"><i class="bi bi-building" aria-hidden="true"></i> Bodegas <span class="badge text-bg-light">{{ d.bodegas|length }}</span></a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if tab == 'transportistas' }}" href="{{ url_for('entregas_catalogos.catalogos', tab='transportistas') }}"><i class="bi bi-truck-front" aria-hidden="true"></i> Transportistas <span class="badge text-bg-light">{{ d.transportistas|length }}</span></a></li>
+    <li class="nav-item"><a class="nav-link {{ 'active' if tab == 'configuracion' }}" href="{{ url_for('entregas_catalogos.catalogos', tab='configuracion') }}"><i class="bi bi-stopwatch" aria-hidden="true"></i> Configuración de la alerta</a></li>
+  </ul>
+
+{% if tab == 'bodegas' %}
+  {# ===================== BODEGAS ===================== #}
+  {% if editar_b or nueva_b %}
+  {% set b = editar_b or {} %}
+  <form method="post" action="{{ url_for('entregas_catalogos.guardar_bodega') }}" class="card card-body shadow-sm mb-3">
+    <h6>{{ 'Editar bodega ' ~ b.nombre_en_orden if editar_b else 'Nueva bodega' }}</h6>
+    <input type="hidden" name="id" value="{{ b.id or '' }}">
+    <div class="row g-2">
+      <div class="col-md-4"><label class="form-label small mb-0" for="nombre_en_orden">Nombre tal como sale en la orden *</label>
+        <input id="nombre_en_orden" name="nombre_en_orden" class="form-control" maxlength="60" required value="{{ b.nombre_en_orden or '' }}" placeholder="BODEGA #1">
+        <div class="form-text">Debe ser idéntico al texto del PDF: con él se reconoce la bodega de cada línea.</div></div>
+      <div class="col-md-4"><label class="form-label small mb-0" for="nombre">Nombre corto</label>
+        <input id="nombre" name="nombre" class="form-control" maxlength="60" value="{{ b.nombre or '' }}" placeholder="Igual al de la orden si se deja vacío"></div>
+      <div class="col-md-4 d-flex align-items-center"><div class="form-check form-switch mt-3">
+        <input class="form-check-input" type="checkbox" role="switch" name="activo" value="1" id="activo" {{ 'checked' if b.activo is not defined or b.activo }}>
+        <label class="form-check-label" for="activo">Activa</label></div></div>
+      <div class="col-md-8"><div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" name="requiere_traslado" value="1" id="requiere_traslado" {{ 'checked' if b.requiere_traslado }}>
+        <label class="form-check-label" for="requiere_traslado">Requiere traslado</label>
+        <div class="form-text mt-0">La bodega destino la escoge el coordinador en cada línea al aplicar el traslado, según el tipo de producto.</div></div>
+        <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" name="solo_factura" value="1" id="solo_factura" {{ 'checked' if b.solo_factura }}>
+        <label class="form-check-label" for="solo_factura">Bodega de vendedor: solo factura</label>
+        <div class="form-text mt-0">La mercadería ya se entregó al cliente: sus líneas no se confirman, preparan ni retiran; solo su factura va en el paquete.</div></div></div>
+    </div>
+    <div class="d-flex gap-2 mt-3">
+      <button class="btn btn-success"><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar bodega</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('entregas_catalogos.catalogos', tab='bodegas') }}">Cancelar</a>
+    </div>
+  </form>
+  {% if editar_b and not editar_b.lineas and not editar_b.bodegueros %}
+  <form method="post" action="{{ url_for('entregas_catalogos.eliminar_bodega', id_=editar_b.id) }}" class="mb-3"
+        onsubmit="return confirm({{ ('¿Borrar la bodega ' ~ editar_b.nombre_en_orden ~ '?')|tojson }});">
+    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash" aria-hidden="true"></i> Borrar bodega</button>
+  </form>
+  {% endif %}
+  {% endif %}
+
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-2 gap-2">
+    <div class="small text-muted">Las bodegas de cada línea de la orden se reconocen por su nombre exacto. Una bodega con traslado la atiende el
+      coordinador de bodega; la mercadería la prepara el bodeguero de la bodega a la que el coordinador la traslada.</div>
+    <a class="btn btn-sm" style="background: #FE6412; color: #fff" href="{{ url_for('entregas_catalogos.catalogos', tab='bodegas', bodega='nueva') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nueva bodega</a>
+  </div>
+  {% if d.sin_bodega %}<div class="alert alert-warning py-2 small">Bodegueros sin bodega asignada: {{ d.sin_bodega|join(', ') }}.
+    Asígnela en <a href="{{ url_for('entregas.usuarios') }}">Usuarios y roles</a>.</div>{% endif %}
+  {% if d.bodegas %}
+  <div class="table-responsive border rounded-3 bg-white mb-3">
+    <table class="table table-sm table-hover align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Nombre en la orden</th><th>Nombre corto</th><th>Traslado</th><th>Bodeguero(s)</th><th class="text-end">Líneas</th><th></th></tr></thead>
+      <tbody>
+      {% for b in d.bodegas %}
+        <tr class="{{ 'inactiva' if not b.activo }}">
+          <td class="fw-semibold">{{ b.nombre_en_orden }}{% if not b.activo %} <span class="badge text-bg-secondary">Inactiva</span>{% endif %}</td>
+          <td>{{ b.nombre }}</td>
+          <td>{% if b.solo_factura %}<span class="si">Vendedor · solo factura</span>{% elif b.requiere_traslado %}<span class="si">Sí</span>{% else %}<span class="no">No</span>{% endif %}</td>
+          <td>{{ b.bodegueros|join(', ') if b.bodegueros else '' }}{% if not b.bodegueros and b.activo and not b.solo_factura %}<span class="text-muted">— <a href="{{ url_for('entregas.usuarios') }}">asignar</a></span>{% endif %}</td>
+          <td class="text-end">{{ b.lineas or '' }}</td>
+          <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas_catalogos.catalogos', tab='bodegas', bodega=b.id) }}"><i class="bi bi-pencil" aria-hidden="true"></i><span class="visually-hidden">Editar {{ b.nombre }}</span></a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card card-body text-center text-muted mb-3">Todavía no hay bodegas. Agréguelas con «Nueva bodega» o desde las existencias.</div>
+  {% endif %}
+
+  {% if d.de_existencias %}
+  <form method="post" action="{{ url_for('entregas_catalogos.agregar_de_existencias') }}" class="card card-body shadow-sm">
+    <h6 class="mb-1">Agregar desde las existencias cargadas</h6>
+    <div class="small text-muted mb-2">Nombres de bodega del último inventario que todavía no están en el catálogo. Marque solo las que salen en las órdenes de venta.</div>
+    <div class="chk-col small mb-2">
+      {% for n in d.de_existencias %}
+      <div class="form-check"><input class="form-check-input" type="checkbox" name="nombre" value="{{ n }}" id="ex-{{ loop.index }}">
+        <label class="form-check-label" for="ex-{{ loop.index }}">{{ n }}</label></div>
+      {% endfor %}
+    </div>
+    <div><button class="btn btn-sm btn-outline-success"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar las marcadas</button></div>
+  </form>
+  {% endif %}
+
+{% elif tab == 'transportistas' %}
+  {# ===================== TRANSPORTISTAS ===================== #}
+  {% if editar_t or nuevo_t %}
+  {% set t = editar_t or {} %}
+  <form method="post" action="{{ url_for('entregas_catalogos.guardar_transportista') }}" class="card card-body shadow-sm mb-3">
+    <h6>{{ 'Editar ' ~ t.nombre if editar_t else 'Nuevo transportista' }}</h6>
+    <input type="hidden" name="id" value="{{ t.id or '' }}">
+    <div class="row g-2">
+      <div class="col-md-5"><label class="form-label small mb-0" for="t-nombre">Nombre *</label>
+        <input id="t-nombre" name="nombre" class="form-control" maxlength="100" required value="{{ t.nombre or '' }}"></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="t-tipo">Tipo *</label>
+        <select id="t-tipo" name="tipo" class="form-select" required><option value="">— escoja —</option>
+          {% for k, v in tipos.items() %}<option value="{{ k }}" {{ 'selected' if t.tipo == k }}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small mb-0" for="t-tel">Teléfono</label>
+        <input id="t-tel" name="telefono" class="form-control" maxlength="30" value="{{ t.telefono or '' }}"></div>
+      <div class="col-md-2 d-flex align-items-center"><div class="form-check form-switch mt-3">
+        <input class="form-check-input" type="checkbox" role="switch" name="activo" value="1" id="t-activo" {{ 'checked' if t.activo is not defined or t.activo }}>
+        <label class="form-check-label" for="t-activo">Activo</label></div></div>
+      <div class="col-md-6"><label class="form-label small mb-0" for="t-dir">Dirección (terminal o agencia)</label>
+        <input id="t-dir" name="direccion" class="form-control" maxlength="255" value="{{ t.direccion or '' }}"></div>
+      <div class="col-md-6"><label class="form-label small mb-0" for="t-mapa">Enlace del mapa</label>
+        <input id="t-mapa" name="mapa_url" class="form-control" maxlength="255" value="{{ t.mapa_url or '' }}" placeholder="https://maps.google.com/…"></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="t-min">Minutos de traslado</label>
+        <input id="t-min" name="minutos_traslado" class="form-control" inputmode="numeric" value="{{ t.minutos_traslado if t.minutos_traslado is not none and t.minutos_traslado is defined else '' }}">
+        <div class="form-text">De la empresa a esta terminal.</div></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="t-limite">Hora límite de recepción</label>
+        <input type="time" id="t-limite" name="hora_limite_recepcion" class="form-control" value="{{ t.limite or '' }}"></div>
+    </div>
+    <div class="d-flex gap-2 mt-3">
+      <button class="btn btn-success"><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar transportista</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('entregas_catalogos.catalogos', tab='transportistas') }}">Cancelar</a>
+    </div>
+  </form>
+
+  {% if editar_t %}
+  <div class="card card-body shadow-sm mb-3">
+    <h6 class="mb-2">Horarios de salida de {{ editar_t.nombre }}</h6>
+    {% if editar_t.horarios %}
+    <table class="table table-sm small align-middle mb-2" style="max-width: 640px">
+      <thead><tr><th>Destino</th><th>Sale</th><th>Días</th><th></th></tr></thead>
+      <tbody>{% for h in editar_t.horarios %}
+        <tr><td>{{ h.destino }}</td><td>{{ h.salida }}</td><td>{{ h.dias or 'Todos' }}</td>
+          <td class="text-end"><form method="post" action="{{ url_for('entregas_catalogos.eliminar_horario', id_=h.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-link text-danger p-0" title="Quitar horario"><i class="bi bi-x-lg" aria-hidden="true"></i><span class="visually-hidden">Quitar horario</span></button></form></td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {% else %}<div class="small text-muted mb-2">Sin horarios.</div>{% endif %}
+    <form method="post" action="{{ url_for('entregas_catalogos.agregar_horario', id_=editar_t.id) }}" class="row g-2 align-items-end">
+      <div class="col-md-4"><label class="form-label small mb-0" for="h-destino">Destino</label>
+        <input id="h-destino" name="destino" class="form-control form-control-sm" maxlength="100" required placeholder="Matagalpa"></div>
+      <div class="col-md-2"><label class="form-label small mb-0" for="h-hora">Hora de salida</label>
+        <input type="time" id="h-hora" name="hora_salida" class="form-control form-control-sm" required></div>
+      <div class="col-md-4"><span class="form-label small d-block mb-1">Días (ninguno = todos)</span>
+        {% for k, v in dias %}<div class="form-check form-check-inline small mb-0"><input class="form-check-input" type="checkbox" name="dias" value="{{ k }}" id="d-{{ k }}">
+          <label class="form-check-label" for="d-{{ k }}" title="{{ v }}">{{ k }}</label></div>{% endfor %}</div>
+      <div class="col-md-2"><button class="btn btn-sm btn-outline-success w-100"><i class="bi bi-plus-lg" aria-hidden="true"></i> Agregar</button></div>
+    </form>
+  </div>
+  {% if not editar_t.usado %}
+  <form method="post" action="{{ url_for('entregas_catalogos.eliminar_transportista', id_=editar_t.id) }}" class="mb-3"
+        onsubmit="return confirm({{ ('¿Borrar ' ~ editar_t.nombre ~ ' y sus horarios?')|tojson }});">
+    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash" aria-hidden="true"></i> Borrar transportista</button>
+  </form>
+  {% endif %}
+  {% endif %}
+  {% endif %}
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="small text-muted">Empresas de envíos, buses, reparto propio o cliente que retira. Los minutos de traslado y los horarios se usan en la alerta de tiempo.</div>
+    <a class="btn btn-sm" style="background: #FE6412; color: #fff" href="{{ url_for('entregas_catalogos.catalogos', tab='transportistas', transportista='nuevo') }}"><i class="bi bi-plus-lg" aria-hidden="true"></i> Nuevo transportista</a>
+  </div>
+  {% if d.transportistas %}
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm table-hover align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Nombre</th><th>Tipo</th><th>Dirección</th><th class="text-end">Min. traslado</th><th>Límite recepción</th><th>Horarios</th><th></th></tr></thead>
+      <tbody>
+      {% for t in d.transportistas %}
+        <tr class="{{ 'inactiva' if not t.activo }}">
+          <td class="fw-semibold">{{ t.nombre }}{% if not t.activo %} <span class="badge text-bg-secondary">Inactivo</span>{% endif %}{% if t.telefono %}<div class="text-muted fw-normal">{{ t.telefono }}</div>{% endif %}</td>
+          <td>{{ tipos.get(t.tipo, t.tipo) }}</td>
+          <td>{{ t.direccion or '' }}{% if t.mapa_url %} <a href="{{ t.mapa_url }}" target="_blank" rel="noopener" title="Abrir mapa"><i class="bi bi-geo-alt" aria-hidden="true"></i><span class="visually-hidden">Mapa</span></a>{% endif %}</td>
+          <td class="text-end">{{ t.minutos_traslado if t.minutos_traslado is not none else '' }}</td>
+          <td>{{ t.limite }}</td>
+          <td>{% for h in t.horarios[:3] %}<div>{{ h.salida }} {{ h.destino }}{% if h.dias %} <span class="text-muted">({{ h.dias }})</span>{% endif %}</div>{% endfor %}{% if t.horarios|length > 3 %}<div class="text-muted">y {{ t.horarios|length - 3 }} más</div>{% endif %}</td>
+          <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas_catalogos.catalogos', tab='transportistas', transportista=t.id) }}"><i class="bi bi-pencil" aria-hidden="true"></i><span class="visually-hidden">Editar {{ t.nombre }}</span></a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card card-body text-center text-muted">Todavía no hay transportistas.</div>
+  {% endif %}
+
+{% else %}
+  {# ===================== CONFIGURACIÓN ===================== #}
+  <form method="post" action="{{ url_for('entregas_catalogos.guardar_configuracion') }}" class="card card-body shadow-sm" style="max-width: 820px">
+    <h6 class="mb-1">Alerta de tiempo</h6>
+    <div class="small text-muted mb-3">Tiempo necesario = preparación + traslado entre bodegas (si alguna línea lo requiere) + facturación + empaque +
+      minutos de traslado del transportista. Los valores marcados <span class="pendiente">Pendiente</span> los debe dar la empresa: déjelos vacíos hasta tenerlos.</div>
+    {% for clave, nombre, tipo, ayuda, pendiente in configuracion %}
+    <div class="row g-2 align-items-center mb-2">
+      <div class="col-md-5"><label class="form-label mb-0 small fw-semibold" for="c-{{ clave }}">{{ nombre }}</label>
+        {% if pendiente and not d.config.get(clave) %} <span class="pendiente">Pendiente</span>{% endif %}</div>
+      <div class="col-md-3">
+        {% if tipo == 'hora' %}<input type="time" id="c-{{ clave }}" name="{{ clave }}" class="form-control form-control-sm" value="{{ d.config.get(clave, '') }}" required>
+        {% elif tipo == 'opcion' %}<select id="c-{{ clave }}" name="{{ clave }}" class="form-select form-select-sm"><option value="">— sin definir —</option>
+          {% for v, t in opciones[clave] %}<option value="{{ v }}" {{ 'selected' if d.config.get(clave) == v }}>{{ t }}</option>{% endfor %}</select>
+        {% else %}<div class="input-group input-group-sm"><input id="c-{{ clave }}" name="{{ clave }}" class="form-control" inputmode="numeric" value="{{ d.config.get(clave, '') }}" {{ 'required' if not pendiente }}><span class="input-group-text">min</span></div>{% endif %}
+      </div>
+      <div class="col-md-4 small text-muted">{{ ayuda }}</div>
+    </div>
+    {% endfor %}
+    <div><button class="btn btn-success mt-2"><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar configuración</button></div>
+  </form>
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+
+{% endblock %}

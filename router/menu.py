@@ -145,6 +145,36 @@ SECCIONES = [
         ],
     },
     {
+        # Módulo de Entregas (router/entregas.py). Cada opción la ven solo los usuarios con el rol que la usa: al guardar los
+        # roles en «Usuarios y roles» se habilitan sus pantallas, y cada pantalla vuelve a validar el rol en el servidor.
+        "id": "entregas", "titulo": "Entregas", "menu": "Entregas", "icono": "bi-truck", "color": "naranja",
+        "descripcion": "Seguimiento de cada orden desde que el vendedor la envía hasta que se entrega.",
+        "grupos": [
+            {"titulo": "Vendedor", "items": [
+                ("Subir orden", "/entregas/subir_orden", "bi-file-earmark-arrow-up", "PDF de la orden → vista previa → transporte y hora → enviar", "entregas pedido orden pdf envio"),
+                ("Mis envíos", "/entregas/mis_envios", "bi-send-check", "Estado de mis envíos, faltantes por decidir y listos para facturar", "entregas faltantes facturar"),
+            ]},
+            {"titulo": "Bodega", "items": [
+                ("Mi bodega", "/entregas/bodega", "bi-box-seam", "Líneas de mi bodega: existencias y preparación", "entregas bodeguero existencia preparar"),
+                ("Bodegas con traslado", "/entregas/coordinador", "bi-arrow-left-right", "Existencias de bodegas con traslado; traslados por aplicar, en camino y por recibir", "entregas coordinador traslado"),
+            ]},
+            {"titulo": "Paquetería", "items": [
+                ("Seguimiento de órdenes", "/entregas/seguimiento", "bi-kanban", "Tablero de todas las órdenes abiertas y la preparación por bodega", "entregas paqueteria tablero"),
+                ("Bodegas que aplican traslado", "/entregas/bodegas_traslado", "bi-signpost-split", "Qué bodegas requieren traslado y hacia qué bodega", "entregas traslado bodega"),
+                ("Retiro y empaque", "/entregas/empaque", "bi-box2-heart", "Retiro por bodega, bultos, peso y etiqueta", "entregas etiqueta bultos"),
+                ("Rutas", "/entregas/rutas", "bi-signpost-2", "Armar las rutas del día y asignarlas al mensajero", "entregas ruta mensajero"),
+            ]},
+            {"titulo": "Mensajero", "items": [
+                ("Mis rutas", "/entregas/mis_rutas", "bi-geo-alt", "Paradas del día, «Salí» y registro de la entrega con fotos", "entregas mensajero parada foto"),
+            ]},
+            {"titulo": "Administración del módulo", "items": [
+                ("Catálogos y configuración", "/entregas/catalogos", "bi-sliders", "Bodegas, transportistas, horarios y tiempos de la alerta", "entregas transportistas horarios configuracion"),
+                ("Usuarios y roles", "/entregas/usuarios", "bi-people", "Roles de cada usuario en Entregas y la bodega del bodeguero", "entregas roles permisos bodeguero"),
+                ("Tablero y reportes", "/entregas/reportes", "bi-bar-chart-line", "Tiempos por etapa, entregas a tiempo, faltantes y fletes", "entregas reportes"),
+            ]},
+        ],
+    },
+    {
         "id": "admin", "titulo": "Administración", "menu": "Admin", "icono": "bi-shield-lock-fill", "color": "gris",
         "descripcion": "Usuarios del sistema y permisos por pantalla.",
         "grupos": [

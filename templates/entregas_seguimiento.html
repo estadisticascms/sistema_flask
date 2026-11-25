@@ -1,0 +1,83 @@
+{% extends "layout.html" %}
+{% block title %}Seguimiento de órdenes · Entregas{% endblock %}
+{% block content %}
+<style>
+  .chip { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+  .bod { font-size: .72rem; border-radius: 8px; padding: 2px 7px; background: #f1f0ec; display: inline-block; margin: 1px 0; white-space: nowrap; }
+  .bod.ok { background: #e3f3f1; color: #027266; } .bod.mal { background: #fde8e7; color: #b42318; }
+  tr.rojo td:first-child { box-shadow: inset 4px 0 #b42318; } tr.amarillo td:first-child { box-shadow: inset 4px 0 #d4a106; }
+  tr.verde td:first-child { box-shadow: inset 4px 0 #027266; }
+  .tarjeta { border-left: 4px solid #027266; }
+</style>
+<div class="container-fluid mt-3 mb-4" style="max-width: 1400px">
+  {% set activo = 'entregas_seguimiento' %}{% include "_entregas_nav.html" %}
+
+  <div class="row g-2 mb-3">
+    {% for etiqueta, valor, color in [('Órdenes abiertas', resumen.abiertas, '#027266'), ('Con existencias por confirmar', resumen.por_confirmar, '#027266'),
+                                      ('Con faltantes', resumen.faltantes, '#b42318'), ('En riesgo de tiempo', resumen.riesgo, '#b42318'),
+                                      ('Listas para facturar', resumen.por_facturar, '#FE6412')] %}
+    <div class="col-6 col-lg"><div class="card card-body py-2 shadow-sm tarjeta h-100" style="border-left-color: {{ color }}">
+      <div class="small text-muted">{{ etiqueta }}</div><div class="fs-4 fw-bold" style="color: {{ color }}">{{ valor }}</div></div></div>
+    {% endfor %}
+  </div>
+
+  <form method="get" class="card card-body shadow-sm py-2 mb-3" id="filtros">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2"><label class="form-label small mb-0" for="estado">Estado</label>
+        <select class="form-select form-select-sm" id="estado" name="estado"><option value="">Todos los abiertos</option>
+          {% for s in estados %}<option value="{{ s }}" {{ 'selected' if f.estado == s }}>{{ nombre_estado[s] }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="bodega">Bodega</label>
+        <select class="form-select form-select-sm" id="bodega" name="bodega"><option value="">Todas</option>
+          {% for b in bodegas %}<option value="{{ b.id }}" {{ 'selected' if f.bodega == b.id }}>{{ b.nombre }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="q">Buscar</label>
+        <input class="form-control form-control-sm" id="q" name="q" value="{{ f.q }}" placeholder="Pedido o cliente"></div>
+      <div class="col-md-2"><div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="riesgo" value="1" id="riesgo" {{ 'checked' if f.riesgo }}>
+        <label class="form-check-label small" for="riesgo">Solo en riesgo o justas</label></div></div>
+      <div class="col-md-2 d-flex gap-2"><button class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Filtrar</button>
+        <span class="small text-muted align-self-center">act. {{ ahora.strftime('%H:%M') }}</span></div>
+    </div>
+  </form>
+
+  {% if envios %}
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm table-hover align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Pedido</th><th>Cliente · vendedor</th><th>Transporte</th><th>Sale</th><th>Alerta</th><th>Estado</th><th>Avance por bodega</th><th></th></tr></thead>
+      <tbody>
+      {% for e in envios %}
+        {% set c = {'rojo': ('#b42318', '#fde8e7', 'En riesgo'), 'amarillo': ('#9a6700', '#fff8db', 'Justo'), 'verde': ('#027266', '#e3f3f1', 'A tiempo')} %}
+        <tr class="{{ e.nivel or '' }}">
+          <td><a class="fw-semibold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=e.id) }}">{{ e.pedido_num }}</a>
+            {% if e.prioridad == 'urgente' %}<div><span class="badge text-bg-danger">Urgente</span></div>{% endif %}</td>
+          <td>{{ e.cliente }}<div class="text-muted">{{ e.vendedor }}</div></td>
+          <td>{{ e.transportista }}{% if e.destino %}<div class="text-muted">{{ e.destino }}</div>{% endif %}</td>
+          <td class="text-nowrap fw-semibold">{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</td>
+          <td>{% if e.nivel %}<span class="chip" style="color: {{ c[e.nivel][0] }}; background: {{ c[e.nivel][1] }}">{{ c[e.nivel][2] }}</span>{% endif %}
+            {% if e.riesgo_confirmado %}<div class="text-danger" style="font-size: .68rem">hora confirmada en riesgo</div>{% endif %}
+            {% if e.alerta and e.alerta.margen is not none %}<div class="text-muted" style="font-size: .7rem">{{ 'faltan ' ~ e.alerta.margen_texto if e.alerta.margen < 0 else 'margen ' ~ e.alerta.margen_texto }}</div>{% endif %}</td>
+          <td>{{ nombre_estado[e.estado] }}<div class="text-muted" style="font-size: .7rem">hace {{ e.en_estado }}</div></td>
+          <td>{% for g in e.bodegas %}
+            <span class="bod {{ 'mal' if g.faltantes else ('ok' if g.pendientes == 0 and g.traslado_pend == 0 else '') }}"
+                  title="{{ 'Coordinador' if g.responsable == 'coordinador' else 'Bodeguero' }}">
+              <i class="bi {{ 'bi-arrow-left-right' if g.responsable == 'coordinador' else 'bi-box-seam' }}" aria-hidden="true"></i>
+              {% if g.solo_factura %}{{ g.bodega }}: solo factura (ya entregada){% else %}{{ g.bodega }}: {{ g.confirmadas }}/{{ g.total - g.quitadas }} confirmadas{% if g.pendientes %} · {{ g.pendientes }} por confirmar{% endif %}{% if g.faltantes %} · {{ g.faltantes }} falta{% endif %}{% if g.traslado_pend %} · {{ g.traslado_pend }} traslado por aplicar{% endif %}{% if g.traslado_camino %} · {{ g.traslado_camino }} traslado en camino{% endif %}{% if g.listas %} · {{ g.listas }} lista(s){% endif %}{% if g.retiradas %} · {{ g.retiradas }} retirada(s){% endif %}{% endif %}
+            </span><br>{% endfor %}</td>
+          <td>{% if e.estado in ('ORDEN_ENVIADA', 'EN_REVISION', 'POR_FACTURAR', 'FACTURADA') %}
+            <form method="post" action="{{ url_for('entregas_operacion.recordar', envio_id=e.id) }}" title="Avisar a quien tiene pendiente el paso actual">
+              <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-alarm" aria-hidden="true"></i> Recordar</button></form>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="small text-muted mt-1">Primero las que tienen faltantes, luego por riesgo, prioridad y hora de salida. Se actualiza solo cada minuto.</div>
+  {% else %}
+  <div class="card card-body text-center text-muted py-5">No hay órdenes abiertas{{ ' con esos filtros' if f.estado or f.q or f.bodega or f.riesgo }}.</div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Se recarga cada minuto, salvo que la persona esté escribiendo en los filtros
+setInterval(() => { if (!document.getElementById('filtros').contains(document.activeElement)) location.reload(); }, 60000);
+</script>
+{% endblock %}

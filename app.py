@@ -57,6 +57,12 @@ from router.anulaciones_vendedor import anulaciones_vendedor_bp
 from router.cantidades_minimas import cantidades_minimas_bp
 from router.pedidos_importacion import pedidos_importacion_bp
 from router.ventas_producto_cliente import ventas_producto_cliente_bp
+from router.entregas import entregas_bp
+from router.entregas_catalogos import entregas_catalogos_bp
+from router.entregas_orden import entregas_orden_bp
+from router.entregas_operacion import entregas_operacion_bp
+from router.entregas_vendedor import entregas_vendedor_bp
+from router.entregas_paqueteria import entregas_paqueteria_bp
 from router.analisis_proveedor import analisis_proveedor_bp
 from router.validacion_facturas import validacion_facturas_bp
 from router.menu import contexto_menu
@@ -143,6 +149,12 @@ app.register_blueprint(anulaciones_vendedor_bp)
 app.register_blueprint(cantidades_minimas_bp)
 app.register_blueprint(pedidos_importacion_bp)
 app.register_blueprint(ventas_producto_cliente_bp)
+app.register_blueprint(entregas_bp)
+app.register_blueprint(entregas_catalogos_bp)
+app.register_blueprint(entregas_orden_bp)
+app.register_blueprint(entregas_operacion_bp)
+app.register_blueprint(entregas_vendedor_bp)
+app.register_blueprint(entregas_paqueteria_bp)
 app.register_blueprint(analisis_proveedor_bp)
 app.register_blueprint(validacion_facturas_bp)
 app.context_processor(contexto_menu)  # menú único para inicio y barra superior

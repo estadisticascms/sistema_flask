@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block title %}Avisos · Entregas{% endblock %}
+{% block content %}
+{% set iconos = {'orden_nueva': 'bi-file-earmark-plus', 'faltante': 'bi-exclamation-triangle', 'listo_facturar': 'bi-receipt',
+                 'cambio_bodega': 'bi-arrow-left-right', 'recordatorio': 'bi-alarm', 'anulada': 'bi-x-octagon',
+                 'bodega_desconocida': 'bi-question-octagon', 'facturada': 'bi-check2-circle', 'traslado_recibido': 'bi-box-arrow-in-down', 'lista_retiro': 'bi-box-arrow-up'} %}
+<style>
+  .aviso.nuevo { border-left: 4px solid #FE6412; background: #fffaf6; }
+  .aviso.leido { opacity: .65; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 800px">
+  {% include "_entregas_nav.html" %}
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0"><i class="bi bi-bell" aria-hidden="true"></i> Avisos</h6>
+    {% if avisos|selectattr('leido_en', 'none')|list %}
+    <form method="post" action="{{ url_for('entregas_operacion.leer_avisos') }}"><button class="btn btn-sm btn-outline-secondary">Marcar todos como leídos</button></form>
+    {% endif %}
+  </div>
+  <div class="list-group">
+    {% for a in avisos %}
+    <div class="list-group-item aviso {{ 'nuevo' if not a.leido_en else 'leido' }}">
+      <div class="d-flex gap-2">
+        <i class="bi {{ iconos.get(a.tipo, 'bi-bell') }} fs-5" style="color: {{ '#FE6412' if not a.leido_en else '#8a8984' }}" aria-hidden="true"></i>
+        <div class="flex-grow-1">
+          <div class="small">{{ a.mensaje }}</div>
+          <div class="text-muted" style="font-size: .72rem">{{ a.creado_en.strftime('%d/%m %H:%M') }}{% if a.de %} · de {{ a.de }}{% endif %}</div>
+        </div>
+        <form method="post" action="{{ url_for('entregas_operacion.leer_avisos') }}" class="d-flex gap-1 align-items-start">
+          <input type="hidden" name="id" value="{{ a.id }}">
+          {% if a.envio_id %}<button class="btn btn-sm btn-outline-primary" name="abrir" value="1">Ver pedido</button>{% endif %}
+          {% if not a.leido_en %}<button class="btn btn-sm btn-link text-muted" title="Marcar como leído"><i class="bi bi-check2" aria-hidden="true"></i><span class="visually-hidden">Marcar como leído</span></button>{% endif %}
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="list-group-item text-muted text-center py-4">No hay avisos.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

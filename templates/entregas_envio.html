@@ -1,0 +1,99 @@
+{% extends "layout.html" %}
+{% block title %}Pedido {{ e.pedido_num }} · Entregas{% endblock %}
+{% block content %}
+<style>
+  .estado { font-size: .75rem; font-weight: 700; border-radius: 12px; padding: 2px 10px; background: #e3f3f1; color: #027266; }
+  .estado.ANULADA { background: #eceae4; color: #52514e; }
+  .linea-est { font-size: .68rem; font-weight: 600; border-radius: 8px; padding: 0 6px; background: #eceae4; color: #52514e; white-space: nowrap; }
+  .linea-est.ok { background: #e3f3f1; color: #027266; } .linea-est.mal { background: #fde8e7; color: #b42318; } .linea-est.tr { background: #fff1e8; color: #9a3412; }
+  .dato small { display: block; color: #6b6a66; font-size: .72rem; }
+  .progreso { display: flex; flex-wrap: wrap; gap: 3px; } .progreso span { font-size: .66rem; padding: 1px 6px; border-radius: 8px; background: #f1f0ec; color: #8a8984; }
+  .progreso span.hecho { background: #027266; color: #fff; } .progreso span.actual { background: #FE6412; color: #fff; font-weight: 600; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 1000px">
+  {% set activo = '' %}{% include "_entregas_nav.html" %}
+  <div class="card card-body shadow-sm mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+      <h6 class="mb-0">Pedido <strong>{{ e.pedido_num }}</strong> <span class="estado {{ e.estado }}">{{ nombre_estado[e.estado] }}</span>
+        {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %}
+        {% if e.riesgo_confirmado %}<span class="badge text-bg-danger" title="El vendedor confirmó la hora aunque la alerta estaba en rojo"><i class="bi bi-exclamation-octagon" aria-hidden="true"></i> En riesgo (confirmado)</span>{% endif %}</h6>
+      {% if e.estado in ('EMPACADA', 'EN_RUTA', 'ENTREGADA') and ('paqueteria' in mis_roles or 'admin' in mis_roles) %}<a class="btn btn-sm btn-outline-secondary ms-auto" href="{{ url_for('entregas_paqueteria.etiqueta', id_=e.id) }}" target="_blank" rel="noopener"><i class="bi bi-printer" aria-hidden="true"></i> Etiqueta</a>{% endif %}
+      {% if e.pdf_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas_orden.envio_pdf', id_=e.id) }}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf" aria-hidden="true"></i> Ver PDF de la orden</a>{% endif %}
+    </div>
+    {% if e.estado != 'ANULADA' %}
+    <div class="progreso mb-3" aria-label="Avance del envío">{% set pos = estados.index(e.estado) %}
+      {% for s in estados[:-1] %}<span class="{{ 'actual' if loop.index0 == pos else ('hecho' if loop.index0 < pos else '') }}">{{ nombre_estado[s] }}</span>{% endfor %}</div>
+    {% else %}<div class="alert alert-secondary py-1 small">Anulada: {{ e.motivo_anulacion or '' }}</div>{% endif %}
+    {% if alerta %}<div class="mb-3">{% include "_entregas_alerta.html" with context %}
+      <div class="text-muted mt-1" style="font-size: .72rem">Calculada ahora. Al enviar la orden estaba en {{ {'verde': 'verde', 'amarillo': 'amarillo', 'rojo': 'rojo'}.get(e.riesgo, 'sin calcular') }}.</div></div>{% endif %}
+    <div class="row g-2 dato small">
+      <div class="col-12 col-md-5"><small>Cliente</small>{{ e.cliente }}</div>
+      <div class="col-6 col-md-2"><small>Términos</small>{{ e.terminos }}</div>
+      <div class="col-6 col-md-2"><small>Fecha del pedido</small>{{ e.fecha_pedido.strftime('%d/%m/%Y') if e.fecha_pedido else '' }}</div>
+      <div class="col-6 col-md-3 text-md-end"><small>Subtotal de la orden</small>C$ {{ "{:,.2f}".format(e.subtotal_orden or 0) }}</div>
+      <div class="col-6 col-md-3"><small>Vendedor</small>{{ e.vendedor }}{% if e.ingresado_por_orden %} <span class="text-muted">(ingresó {{ e.ingresado_por_orden }})</span>{% endif %}</div>
+      <div class="col-6 col-md-3"><small>Transporte</small>{{ e.transportista }} · {{ tipos.get(e.transportista_tipo, '') }}</div>
+      <div class="col-6 col-md-3"><small>Destino</small>{{ e.destino or '—' }}</div>
+      <div class="col-6 col-md-3"><small>Hora requerida de salida</small><strong>{{ e.hora_requerida.strftime('%d/%m/%Y %H:%M') }}</strong></div>
+      <div class="col-6 col-md-3"><small>Flete lo paga</small>{{ 'Empresa' if e.flete_paga == 'empresa' else 'Cliente' }}</div>
+      {% if e.bultos %}<div class="col-6 col-md-3"><small>Empaque</small>{{ e.bultos }} bulto(s), {{ '%g' % e.peso_kg }} kg</div>{% endif %}
+      {% if e.forma_pago %}<div class="col-6 col-md-3"><small>Forma de pago</small>{{ 'Pago en la entrega' if e.forma_pago == 'contra_entrega' else 'Transferencia' }}</div>{% endif %}
+      {% if e.notas %}<div class="col-12"><small>Notas</small>{{ e.notas }}</div>{% endif %}
+    </div>
+  </div>
+
+  <h6>Líneas{% if not todas %} <span class="small text-muted fw-normal">· solo las que le corresponden</span>{% endif %}</h6>
+  <div class="table-responsive border rounded-3 bg-white mb-3">
+    <table class="table table-sm align-middle mb-0 small">
+      <thead class="table-light"><tr><th>#</th><th>Bodega</th><th>Código</th><th>Producto</th><th class="text-end">Cant.</th><th class="text-end">Subtotal</th><th>Existencia</th><th>Traslado</th><th>Preparación</th></tr></thead>
+      <tbody>
+      {% for l in lineas %}
+        <tr>
+          <td>{{ l.linea }}</td>
+          <td>{{ l.bodega }}{% if l.solo_factura %}<div class="text-muted">solo factura (ya entregada)</div>{% endif %}{% if l.traslado_estado != 'NO_REQUIERE' %}<div class="text-muted">{{ 'traslado a ' ~ l.bodega_prepara if l.bodega_prepara_id else 'destino por definir' }}</div>{% endif %}</td>
+          <td class="text-nowrap">{{ l.codigo }}</td>
+          <td>{{ l.producto or '' }}{% if l.medida or l.marca %}<div class="text-muted">{{ [l.medida, l.marca]|select|join(' · ') }}</div>{% endif %}</td>
+          <td class="text-end">{{ '%g' % l.cantidad }}</td>
+          <td class="text-end text-nowrap">{{ "{:,.2f}".format(l.subtotal or 0) }}</td>
+          <td><span class="linea-est {{ 'ok' if l.existencia == 'CONFIRMADA' else ('mal' if l.existencia in ('FALTANTE', 'QUITADA') else '') }}">{{ l.existencia|capitalize }}</span>
+            <div class="text-muted" style="font-size: .68rem">{{ 'coordinador' if l.responsable == 'coordinador' else 'bodeguero' }}</div></td>
+          <td>{% if l.traslado_estado == 'NO_REQUIERE' %}<span class="text-muted">—</span>{% else %}<span class="linea-est tr">{{ l.traslado_estado|replace('_', ' ')|capitalize }}</span>{% endif %}</td>
+          <td><span class="linea-est {{ 'ok' if l.preparacion in ('LISTA', 'RETIRADA') else '' }}">{{ l.preparacion|replace('_', ' ')|capitalize }}</span></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if facturas or (es_dueno and e.estado == 'POR_FACTURAR') %}
+  <h6>Facturas</h6>
+  <div class="card card-body shadow-sm mb-3 small">
+    {% for f in facturas %}<div>{{ f.bodega }}: <strong>{{ f.factura_num }}</strong> <span class="text-muted">· {{ f.usuario }}, {{ f.registrada_en.strftime('%d/%m %H:%M') }}</span></div>
+    {% else %}<span class="text-muted">Sin facturas registradas.</span>{% endfor %}
+    {% if es_dueno and e.estado == 'POR_FACTURAR' %}<div class="mt-2"><a class="btn btn-sm text-white" style="background: #FE6412" href="{{ url_for('entregas_vendedor.facturar', id_=e.id) }}"><i class="bi bi-receipt" aria-hidden="true"></i> Ver ajustes y registrar facturas</a></div>{% endif %}
+  </div>
+  {% endif %}
+
+  <h6>Historial</h6>
+  <ul class="list-group small">
+    {% for ev in eventos %}
+    <li class="list-group-item d-flex flex-wrap justify-content-between gap-2">
+      <span>{% if ev.campo == 'estado' %}<strong>{{ nombre_estado.get(ev.a_estado, ev.a_estado) }}</strong>{% else %}{{ ev.campo|capitalize }}: {{ ev.de_estado or '' }} → <strong>{{ ev.a_estado }}</strong>{% endif %}
+        {% if ev.comentario %}<span class="text-muted">· {{ ev.comentario }}</span>{% endif %}</span>
+      <span class="text-muted">{{ ev.usuario }} · {{ ev.creado_en.strftime('%d/%m/%Y %H:%M') }}</span>
+    </li>
+    {% else %}<li class="list-group-item text-muted">Sin movimientos.</li>{% endfor %}
+  </ul>
+
+  {% if e.estado not in ('ENTREGADA', 'ANULADA') and ((es_dueno and 'vendedor' in mis_roles) or 'admin' in mis_roles) %}
+  <details class="mt-3"><summary class="small text-danger">Anular la orden</summary>
+    <form method="post" action="{{ url_for('entregas_vendedor.anular_envio', id_=e.id) }}" class="d-flex flex-wrap gap-2 align-items-end mt-2"
+          onsubmit="return confirm('¿Anular el pedido {{ e.pedido_num }}?');">
+      <div class="flex-grow-1"><label class="form-label small mb-0" for="motivo">Motivo (obligatorio)</label>
+        <input class="form-control form-control-sm" id="motivo" name="motivo" maxlength="255" required></div>
+      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-octagon" aria-hidden="true"></i> Anular</button>
+    </form>
+  </details>
+  {% endif %}
+</div>
+{% endblock %}

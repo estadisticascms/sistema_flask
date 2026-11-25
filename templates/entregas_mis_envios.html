@@ -1,0 +1,90 @@
+{% extends "layout.html" %}
+{% block title %}Mis envíos · Entregas{% endblock %}
+{% macro chip(e) %}
+  {% set c = {'rojo': ('#b42318', '#fde8e7', 'En riesgo'), 'amarillo': ('#9a6700', '#fff8db', 'Justo'), 'verde': ('#027266', '#e3f3f1', 'A tiempo')} %}
+  {% if e.nivel %}<span class="chip" style="color: {{ c[e.nivel][0] }}; background: {{ c[e.nivel][1] }}">{{ c[e.nivel][2] }}</span>{% endif %}
+{% endmacro %}
+{% macro cabecera(e) %}
+  <div class="d-flex flex-wrap justify-content-between gap-2">
+    <div><a class="fw-bold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=e.id) }}">Pedido {{ e.pedido_num }}</a>
+      {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %} {{ chip(e) }}
+      <div class="small">{{ e.cliente }}</div>
+      <div class="small text-muted">{{ e.transportista }}{% if e.destino %} → {{ e.destino }}{% endif %}</div></div>
+    <div class="text-end small"><div>Sale <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong></div>
+      <div class="text-muted">{{ nombre_estado[e.estado] }} · {{ e.confirmadas }}/{{ e.lineas|length }} líneas listas</div></div>
+  </div>
+{% endmacro %}
+{% block content %}
+<style>
+  .chip { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+  .seccion { font-size: .8rem; font-weight: 700; color: #6b6a66; text-transform: uppercase; letter-spacing: .03em; margin: 1.2rem 0 .5rem; }
+  .falta { border-top: 1px solid #eceae4; padding-top: .6rem; margin-top: .6rem; }
+  .btn-verde { background: #027266; color: #fff; } .btn-verde:hover { background: #015a50; color: #fff; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 900px">
+  {% set activo = 'entregas_mis_envios' %}{% include "_entregas_nav.html" %}
+  <div class="d-flex justify-content-end mb-2"><a class="btn btn-sm text-white" style="background: #FE6412" href="{{ url_for('entregas_orden.subir_orden') }}"><i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i> Subir orden</a></div>
+
+  {% if g.faltantes %}
+  <div class="seccion text-danger"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Faltantes por decidir</div>
+  {% for e in g.faltantes %}
+  <div class="card card-body shadow-sm mb-3" style="border-left: 5px solid #b42318">
+    {{ cabecera(e) }}
+    {% for l in e.faltantes %}
+    <div class="falta">
+      <div class="d-flex flex-wrap justify-content-between gap-2">
+        <div><span class="fw-semibold">{{ l.codigo }}</span> · {{ l.producto or '' }}<div class="small text-muted">{{ l.bodega }} · línea {{ l.linea }}</div></div>
+        <div class="text-end small"><strong class="text-danger">Falta</strong>: hay {{ '%g' % l.cant_disponible }} de {{ '%g' % l.cantidad }}
+          {% if l.decision == 'esperar' %}<div class="text-muted">Usted decidió esperar</div>{% endif %}</div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-2 align-items-end">
+        <form method="post" action="{{ url_for('entregas_vendedor.decidir', linea_id=l.id) }}" onsubmit="return confirm('¿Quitar la línea {{ l.linea }}? Queda como venta perdida.');">
+          <input type="hidden" name="decision" value="quitar"><button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg" aria-hidden="true"></i> Quitar</button></form>
+        {% if l.cant_disponible and l.cant_disponible > 0 %}
+        <form method="post" action="{{ url_for('entregas_vendedor.decidir', linea_id=l.id) }}">
+          <input type="hidden" name="decision" value="parcial"><button class="btn btn-sm btn-verde">Que vayan {{ '%g' % l.cant_disponible }}</button></form>
+        {% endif %}
+        <form method="post" action="{{ url_for('entregas_vendedor.decidir', linea_id=l.id) }}" class="d-flex gap-1 align-items-end">
+          <input type="hidden" name="decision" value="cambiar_bodega">
+          <div><label class="form-label small mb-0" for="b-{{ l.id }}">Otra bodega</label>
+            <select class="form-select form-select-sm" name="bodega_id" id="b-{{ l.id }}" required><option value="">— escoja —</option>
+              {% for b in bodegas if b.id != l.bodega_id %}<option value="{{ b.id }}">{{ b.nombre }}{{ ' (con traslado)' if b.requiere_traslado }}</option>{% endfor %}</select></div>
+          <button class="btn btn-sm btn-outline-secondary">Cambiar</button></form>
+        {% if l.decision != 'esperar' %}
+        <form method="post" action="{{ url_for('entregas_vendedor.decidir', linea_id=l.id) }}">
+          <input type="hidden" name="decision" value="esperar"><button class="btn btn-sm btn-outline-secondary">Esperar</button></form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if g.facturar %}
+  <div class="seccion" style="color: #FE6412"><i class="bi bi-receipt" aria-hidden="true"></i> Listos para facturar</div>
+  {% for e in g.facturar %}
+  <div class="card card-body shadow-sm mb-3" style="border-left: 5px solid #FE6412">
+    {{ cabecera(e) }}
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
+      <span class="small">{{ e.facturas }} de {{ e.por_facturar }} factura(s) registradas</span>
+      <a class="btn btn-sm text-white" style="background: #FE6412" href="{{ url_for('entregas_vendedor.facturar', id_=e.id) }}"><i class="bi bi-receipt" aria-hidden="true"></i> Ver ajustes y registrar facturas</a>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <div class="seccion">En proceso</div>
+  {% for e in g.proceso %}
+  <div class="card card-body shadow-sm mb-2">{{ cabecera(e) }}</div>
+  {% else %}<div class="small text-muted mb-2">Ninguna orden en proceso.</div>{% endfor %}
+
+  {% if g.cerrados %}
+  <div class="seccion">Cerradas en los últimos 7 días</div>
+  {% for e in g.cerrados %}
+  <div class="card card-body py-2 mb-2 small"><div class="d-flex justify-content-between gap-2">
+    <a href="{{ url_for('entregas_orden.envio', id_=e.id) }}">Pedido {{ e.pedido_num }}</a><span class="text-muted">{{ e.cliente }}</span><span>{{ nombre_estado[e.estado] }}</span></div></div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}

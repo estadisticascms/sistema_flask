@@ -1,0 +1,24 @@
+{# Alerta de tiempo (parte 5). Variables: alerta (router/entregas_alerta.calcular), en_formulario (muestra «Usar esta hora») #}
+{% set colores = {'rojo': ('#b42318', '#fde8e7', 'bi-exclamation-octagon-fill', 'En riesgo'),
+                  'amarillo': ('#9a6700', '#fff8db', 'bi-exclamation-triangle-fill', 'Justo'),
+                  'verde': ('#027266', '#e3f3f1', 'bi-check-circle-fill', 'A tiempo')} %}
+{% if alerta %}
+{% set c = colores.get(alerta.nivel, ('#52514e', '#f1f0ec', 'bi-stopwatch', 'Sin hora requerida')) %}
+<div class="rounded-3 p-2 px-3 small" style="background: {{ c[1] }}; border-left: 5px solid {{ c[0] }}" data-nivel="{{ alerta.nivel or '' }}">
+  <div class="d-flex flex-wrap justify-content-between gap-2">
+    <strong style="color: {{ c[0] }}"><i class="bi {{ c[2] }}" aria-hidden="true"></i> {{ c[3] }}
+      {% if alerta.margen is not none %}<span class="fw-normal">· {{ 'faltan ' ~ alerta.margen_texto if alerta.margen < 0 else 'margen ' ~ alerta.margen_texto }}</span>{% endif %}</strong>
+    <span class="text-muted">Tiempo necesario: {{ alerta.necesario_texto }}</span>
+  </div>
+  {% for m in alerta.motivos %}<div>{{ m }}</div>{% endfor %}
+  {% if alerta.nivel is none %}<div class="text-muted">Escriba la hora requerida de salida para calcular la alerta.</div>{% endif %}
+  <div class="text-muted mt-1" style="font-size: .75rem">
+    {% for d in alerta.desglose %}{{ d.nombre }} {% if d.hecho %}(hecho){% elif d.falta %}<span title="Estimado pendiente">(sin dato)</span>{% else %}{{ d.minutos }} min{% endif %}{{ ' · ' if not loop.last }}{% endfor %}
+  </div>
+  {% if alerta.faltan %}<div class="mt-1" style="font-size: .75rem; color: #9a3412"><i class="bi bi-info-circle" aria-hidden="true"></i>
+    Faltan estimados: {{ alerta.faltan|join(', ') }}. Se toman como 0{% if alerta.sin_amarillo %}, y sin margen para amarillo la alerta solo distingue rojo y verde{% endif %}.</div>{% endif %}
+  {% if alerta.aviso_limite %}<div class="mt-1 fw-semibold" style="color: #b42318"><i class="bi bi-clock-history" aria-hidden="true"></i> {{ alerta.aviso_limite }}</div>{% endif %}
+  {% if alerta.sugerencia %}<div class="mt-1"><i class="bi bi-bus-front" aria-hidden="true"></i> {{ alerta.sugerencia.texto }}
+    {% if en_formulario %}<button type="button" class="btn btn-link btn-sm p-0 align-baseline usar-sugerencia" data-hora="{{ alerta.sugerencia.hora.strftime('%Y-%m-%dT%H:%M') }}">usar esta hora</button>{% endif %}</div>{% endif %}
+</div>
+{% endif %}

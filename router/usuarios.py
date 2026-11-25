@@ -4,6 +4,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from utils.db import get_connection
 from router.accesos import requiere_acceso, vistas_validas
 from router.bitacora import INTENTOS_MAX, MINUTOS_BLOQUEO, ip_bloqueada, registrar
+from router.entregas import borrar_roles, historial_en_entregas
 
 usuarios_bp = Blueprint("usuarios", __name__)
 
@@ -202,7 +203,11 @@ def eliminar_usuario(id):
             admins = cursor.fetchone()["n"]
             if user["rol"] == "admin" and admins <= 1:
                 flash("No se puede eliminar el único administrador.", "warning")
+            elif historial_en_entregas(cursor, id):
+                flash(f"No se puede eliminar {user['usuario']}: tiene movimientos en Entregas que deben conservarse. "
+                      f"Quítele los roles o suspéndalo en Entregas › Usuarios y roles, y cambie su contraseña.", "warning")
             else:
+                borrar_roles(cursor, id)
                 cursor.execute("DELETE FROM accesos_vistas WHERE usuario=%s", (user["usuario"],))
                 cursor.execute("DELETE FROM usuarios WHERE id=%s", (id,))
                 conn.commit()

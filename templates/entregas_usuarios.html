@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block title %}Usuarios y roles · Entregas{% endblock %}
+{% block content %}
+<style>
+  .rol-chip { font-size: .72rem; font-weight: 600; border-radius: 10px; padding: 1px 8px; background: #e3f3f1; color: #027266; white-space: nowrap; }
+  .rol-chip.admin { background: #fff1e8; color: #9a3412; }
+  .suspendido { opacity: .55; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 1100px">
+  {% set activo = 'entregas_usuarios' %}{% include "_entregas_nav.html" %}
+
+  {% if sin_migracion %}
+  <div class="alert alert-warning"><i class="bi bi-database-exclamation" aria-hidden="true"></i>
+    Las tablas del módulo todavía no existen. Falta aplicar la migración <code>docs/sql/ent_entregas.sql</code>.</div>
+  {% else %}
+  <div class="card card-body shadow-sm mb-3 small">
+    Los usuarios y sus contraseñas se crean en <a href="{{ url_for('usuarios.listar_usuarios') }}">Admin › Usuarios</a>, como siempre.
+    Aquí se les asignan uno o varios <strong>roles de Entregas</strong>. Al guardar, el usuario queda con las pantallas de Entregas
+    de sus roles, y cada pantalla vuelve a validar el rol en el servidor.
+    <ul class="mb-0 mt-2">{% for r, d in ent_roles.items() %}<li><span class="rol-chip {{ 'admin' if r == 'admin' }}">{{ d[0] }}</span> {{ d[1] }}</li>{% endfor %}</ul>
+  </div>
+
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-light"><tr><th>Usuario</th><th>Roles en Entregas</th><th>Bodega (bodeguero)</th><th></th></tr></thead>
+      <tbody>
+      {% for u in usuarios %}
+        <tr class="{{ 'suspendido' if u.roles and not u.activo }}">
+          <td class="fw-semibold">{{ u.usuario }}</td>
+          <td>{% for r in ent_roles if r in u.roles %}<span class="rol-chip {{ 'admin' if r == 'admin' }}">{{ ent_roles[r][0] }}</span> {% else %}<span class="text-muted small">Sin rol</span>{% endfor %}
+            {% if u.roles and not u.activo %}<span class="badge text-bg-secondary">Suspendido</span>{% endif %}</td>
+          <td class="small">{% if 'bodega' in u.roles %}{{ bodegas[u.roles.bodega].nombre if u.roles.bodega in bodegas else '— sin asignar —' }}{% endif %}</td>
+          <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas.usuario_roles', id_=u.id) }}"><i class="bi bi-pencil" aria-hidden="true"></i> Roles</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="small text-muted mt-1">{{ con_roles|length }} de {{ usuarios|length }} usuarios con rol en Entregas.</div>
+  {% endif %}
+</div>
+{% endblock %}

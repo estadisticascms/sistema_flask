@@ -1,0 +1,94 @@
+{% extends "layout.html" %}
+{% block title %}Retiro y empaque · Entregas{% endblock %}
+{% macro chip(e) %}
+  {% set c = {'rojo': ('#b42318', '#fde8e7', 'En riesgo'), 'amarillo': ('#9a6700', '#fff8db', 'Justo'), 'verde': ('#027266', '#e3f3f1', 'A tiempo')} %}
+  {% if e.nivel %}<span class="chip" style="color: {{ c[e.nivel][0] }}; background: {{ c[e.nivel][1] }}">{{ c[e.nivel][2] }}</span>{% endif %}
+{% endmacro %}
+{% macro cabecera(e) %}
+  <div class="d-flex flex-wrap justify-content-between gap-2">
+    <div><a class="fw-bold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=e.id) }}">Pedido {{ e.pedido_num }}</a>
+      {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %} {{ chip(e) }}
+      <div class="small">{{ e.cliente }} <span class="text-muted">· {{ e.vendedor }}</span></div>
+      <div class="small text-muted">{{ e.transportista }}{% if e.destino %} → {{ e.destino }}{% endif %}</div></div>
+    <div class="text-end small"><div>Sale <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong></div>
+      {% if e.alerta and e.alerta.margen is not none %}<div class="text-muted">{{ 'faltan ' ~ e.alerta.margen_texto if e.alerta.margen < 0 else 'margen ' ~ e.alerta.margen_texto }}</div>{% endif %}</div>
+  </div>
+{% endmacro %}
+{% macro datos_etiqueta(e) %}
+  <div class="small mt-1">Facturas: {% for f in e.facturas %}<strong>{{ f.factura_num }}</strong> <span class="text-muted">({{ f.bodega }})</span>{{ ', ' if not loop.last }}{% else %}<span class="text-danger">sin facturas</span>{% endfor %}
+    {% if e.forma_pago == 'contra_entrega' %} · <span class="badge text-bg-danger">COBRAR</span>{% elif e.terminos|upper == 'CONTADO' and not e.forma_pago %} · <span class="text-muted">contado sin forma de pago indicada</span>{% endif %}
+    {% if e.bultos %} · {{ e.bultos }} bulto(s), {{ '%g' % e.peso_kg }} kg{% endif %}</div>
+{% endmacro %}
+{% block content %}
+<style>
+  .chip { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+  .seccion { font-size: .8rem; font-weight: 700; color: #6b6a66; text-transform: uppercase; letter-spacing: .03em; margin: 1.2rem 0 .5rem; }
+  .bodega { border-top: 1px solid #eceae4; padding-top: .5rem; margin-top: .5rem; }
+  .btn-verde { background: #027266; color: #fff; } .btn-verde:hover { background: #015a50; color: #fff; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 1000px">
+  {% include "_entregas_nav.html" %}
+
+  <div class="seccion" style="color: #027266"><i class="bi bi-box-arrow-up" aria-hidden="true"></i> Listas para retiro <span class="badge text-bg-light">{{ d.listas|length }}</span></div>
+  {% for e in d.listas %}
+  <div class="card card-body shadow-sm mb-3" style="border-left: 5px solid #027266">
+    {{ cabecera(e) }}
+    {% for g in e.bodegas %}
+    <div class="bodega d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div><strong>{{ g.bodega }}</strong>
+        <div class="small text-muted">{% for l in g.lineas %}{{ l.codigo }} ({{ '%g' % l.va }}){{ ', ' if not loop.last }}{% endfor %}</div></div>
+      {% if g.solo_factura %}<span class="small text-muted">Solo factura: la mercadería ya se entregó</span>
+      {% elif g.retiradas == g.lineas|length %}<span class="small text-success"><i class="bi bi-check2-all" aria-hidden="true"></i> Retirado</span>
+      {% else %}
+      <form method="post" action="{{ url_for('entregas_paqueteria.retirar') }}">
+        <input type="hidden" name="envio_id" value="{{ e.id }}"><input type="hidden" name="bodega_id" value="{{ g.bodega_id }}">
+        <button class="btn btn-sm btn-verde"><i class="bi bi-box-arrow-up" aria-hidden="true"></i> Retiré de {{ g.bodega }} ({{ g.listas }})</button>
+      </form>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<div class="small text-muted">Ninguna orden lista para retiro.</div>{% endfor %}
+
+  <div class="seccion"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Facturadas, en preparación <span class="badge text-bg-light">{{ d.preparando|length }}</span></div>
+  {% for e in d.preparando %}
+  <div class="card card-body shadow-sm mb-2">
+    {{ cabecera(e) }}
+    <div class="small mt-1">{% for g in e.bodegas %}<span class="me-3">{{ g.bodega }}: {{ g.listas + g.retiradas }}/{{ g.lineas|length }} listas{% if g.camino %} · {{ g.camino }} traslado sin llegar{% endif %}</span>{% endfor %}</div>
+    <div class="small text-muted">El retiro se habilita cuando todo esté preparado y lo trasladado haya llegado.</div>
+  </div>
+  {% else %}<div class="small text-muted">Ninguna.</div>{% endfor %}
+
+  <div class="seccion" style="color: #FE6412"><i class="bi bi-box2-heart" aria-hidden="true"></i> Retiradas: por empacar <span class="badge text-bg-light">{{ d.retiradas|length }}</span></div>
+  {% for e in d.retiradas %}
+  <div class="card card-body shadow-sm mb-2" style="border-left: 5px solid #FE6412">
+    {{ cabecera(e) }}
+    {{ datos_etiqueta(e) }}
+    <form method="post" action="{{ url_for('entregas_paqueteria.empacar_envio') }}" class="d-flex flex-wrap gap-2 align-items-end mt-2">
+      <input type="hidden" name="envio_id" value="{{ e.id }}">
+      <div><label class="form-label small mb-0" for="bu-{{ e.id }}">Bultos</label>
+        <input type="number" min="1" max="999" step="1" class="form-control form-control-sm" id="bu-{{ e.id }}" name="bultos" required style="max-width: 90px"></div>
+      <div><label class="form-label small mb-0" for="pe-{{ e.id }}">Peso (kg)</label>
+        <input type="number" min="0.01" step="0.01" class="form-control form-control-sm" id="pe-{{ e.id }}" name="peso_kg" required style="max-width: 110px"></div>
+      <button class="btn btn-sm btn-verde"><i class="bi bi-box2-heart" aria-hidden="true"></i> Empacar</button>
+    </form>
+  </div>
+  {% else %}<div class="small text-muted">Ninguna.</div>{% endfor %}
+
+  <div class="seccion"><i class="bi bi-tag" aria-hidden="true"></i> Empacadas: listas para la ruta <span class="badge text-bg-light">{{ d.empacadas|length }}</span></div>
+  {% for e in d.empacadas %}
+  <div class="card card-body shadow-sm mb-2 {{ 'border-success border-2' if request.args.get('imprimir')|int == e.id }}">
+    {{ cabecera(e) }}
+    {{ datos_etiqueta(e) }}
+    <div class="d-flex flex-wrap gap-2 align-items-end mt-2">
+      <a class="btn btn-sm btn-verde" href="{{ url_for('entregas_paqueteria.etiqueta', id_=e.id) }}" target="_blank" rel="noopener"><i class="bi bi-printer" aria-hidden="true"></i> Etiqueta ({{ e.bultos }} bulto{{ 's' if e.bultos != 1 }})</a>
+      <details class="small"><summary class="text-muted">Corregir bultos o peso</summary>
+        <form method="post" action="{{ url_for('entregas_paqueteria.empacar_envio') }}" class="d-flex flex-wrap gap-2 align-items-end mt-1">
+          <input type="hidden" name="envio_id" value="{{ e.id }}">
+          <input type="number" min="1" max="999" class="form-control form-control-sm" name="bultos" value="{{ e.bultos }}" required style="max-width: 90px" aria-label="Bultos">
+          <input type="number" min="0.01" step="0.01" class="form-control form-control-sm" name="peso_kg" value="{{ '%g' % e.peso_kg }}" required style="max-width: 110px" aria-label="Peso en kg">
+          <button class="btn btn-sm btn-outline-secondary">Guardar</button></form></details>
+    </div>
+  </div>
+  {% else %}<div class="small text-muted">Ninguna.</div>{% endfor %}
+</div>
+{% endblock %}

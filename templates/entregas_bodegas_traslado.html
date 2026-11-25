@@ -1,0 +1,43 @@
+{% extends "layout.html" %}
+{% block title %}Bodegas que aplican traslado · Entregas{% endblock %}
+{% block content %}
+<div class="container mt-3 mb-4" style="max-width: 1000px">
+  {% set activo = 'entregas_bodegas_traslado' %}{% include "_entregas_nav.html" %}
+  <div class="card card-body shadow-sm mb-3 small">
+    En una bodega <strong>con traslado</strong>, el coordinador de bodega confirma las existencias, aplica el traslado y manda a traer la
+    mercadería a la bodega que corresponda según el tipo de producto (la escoge en cada línea al aplicar el traslado); la prepara
+    el bodeguero de esa bodega. <strong>El cambio aplica a las órdenes que se suban desde ahora</strong>:
+    las líneas ya creadas conservan su responsable.
+  </div>
+  {% if bodegas %}
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-light"><tr><th>Bodega</th><th>Bodeguero(s)</th><th style="width: 160px">Requiere traslado</th><th style="width: 110px"></th></tr></thead>
+      <tbody>
+      {% for b in bodegas %}
+        <tr>
+          <td><div class="fw-semibold">{{ b.nombre }}</div><div class="small text-muted">{{ b.nombre_en_orden }}</div></td>
+          <td class="small">{{ b.bodegueros|join(', ') if b.bodegueros else '—' }}</td>
+          <td><form method="post" id="f-{{ b.id }}"><input type="hidden" name="id" value="{{ b.id }}">
+            <div class="form-check form-switch mb-0"><input class="form-check-input traslado" type="checkbox" role="switch" name="requiere_traslado" value="1"
+              id="tr-{{ b.id }}" data-fila="{{ b.id }}" {{ 'checked' if b.requiere_traslado }}>
+              <label class="form-check-label small" for="tr-{{ b.id }}">{{ 'Sí' if b.requiere_traslado else 'No' }}</label></div></form></td>
+          <td class="text-end"><button class="btn btn-sm btn-success" form="f-{{ b.id }}"><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar</button></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card card-body text-center text-muted">Todavía no hay bodegas en el catálogo. Las agrega el administrador de Entregas en Catálogos.</div>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.traslado').forEach(chk => {
+  const ver = () => { chk.nextElementSibling.textContent = chk.checked ? 'Sí' : 'No'; };
+  chk.addEventListener('change', ver); ver();
+});
+</script>
+{% endblock %}

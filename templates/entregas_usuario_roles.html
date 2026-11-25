@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block title %}Roles de {{ u.usuario }} · Entregas{% endblock %}
+{% block content %}
+<div class="container mt-3 mb-4" style="max-width: 760px">
+  {% set activo = 'entregas_usuarios' %}{% include "_entregas_nav.html" %}
+  <form method="post" class="card card-body shadow-sm">
+    <h6 class="mb-1">Roles de <strong>{{ u.usuario }}</strong> en Entregas</h6>
+    <div class="small text-muted mb-3">Puede marcar varios. El usuario y su contraseña se cambian en Admin › Usuarios.</div>
+    {% for r, d in ent_roles.items() %}
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" name="rol" value="{{ r }}" id="rol-{{ r }}" {{ 'checked' if r in roles }}>
+      <label class="form-check-label" for="rol-{{ r }}"><strong>{{ d[0] }}</strong> <span class="small text-muted">· {{ d[1] }}</span></label>
+    </div>
+    {% if r == 'bodega' %}
+    <div class="ms-4 mb-3" id="caja-bodega">
+      <label class="form-label small mb-0" for="bodega_id">Bodega asignada (solo ve y cambia las líneas de esta bodega)</label>
+      {% if bodegas %}
+      <select class="form-select form-select-sm" name="bodega_id" id="bodega_id" style="max-width: 360px">
+        <option value="">— escoja —</option>
+        {% for b in bodegas %}<option value="{{ b.id }}" {{ 'selected' if roles.get('bodega') == b.id }}>{{ b.nombre }} ({{ b.nombre_en_orden }})</option>{% endfor %}
+      </select>
+      {% else %}
+      <div class="small text-warning-emphasis">Todavía no hay bodegas en el catálogo de Entregas (se cargan en la parte 3). Puede guardar el rol y asignar la bodega después.</div>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+    <hr>
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" role="switch" name="activo" value="1" id="activo" {{ 'checked' if activo }}>
+      <label class="form-check-label" for="activo">Activo en Entregas <span class="small text-muted">· desmarcado: conserva sus roles pero no puede usar el módulo</span></label>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-success"><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar roles</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('entregas.usuarios') }}">Volver</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const chk = document.getElementById('rol-bodega'), caja = document.getElementById('caja-bodega');
+  const ver = () => caja.classList.toggle('d-none', !chk.checked);
+  chk.addEventListener('change', ver); ver();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,208 @@
+{% extends "layout.html" %}
+{% block title %}{{ 'Mi bodega' if modo == 'bodega' else 'Bodegas con traslado' }} · Entregas{% endblock %}
+{% macro chip_riesgo(e) %}
+  {% set c = {'rojo': ('#b42318', '#fde8e7', 'En riesgo'), 'amarillo': ('#9a6700', '#fff8db', 'Justo'), 'verde': ('#027266', '#e3f3f1', 'A tiempo')} %}
+  {% if e.nivel %}<span class="chip" style="color: {{ c[e.nivel][0] }}; background: {{ c[e.nivel][1] }}">{{ c[e.nivel][2] }}{% if e.riesgo_confirmado %} · confirmado{% endif %}</span>{% endif %}
+{% endmacro %}
+{% block content %}
+<style>
+  .chip { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+  .envio { border-left: 5px solid #d7d5cf; }
+  .envio.rojo { border-left-color: #b42318; } .envio.amarillo { border-left-color: #d4a106; } .envio.verde { border-left-color: #027266; }
+  .linea { border-top: 1px solid #eceae4; padding: .6rem 0; }
+  .linea:first-of-type { border-top: 0; }
+  .ex { font-size: .7rem; font-weight: 700; border-radius: 8px; padding: 1px 7px; }
+  .ex.PENDIENTE { background: #eceae4; color: #52514e; } .ex.CONFIRMADA { background: #e3f3f1; color: #027266; }
+  .ex.FALTANTE { background: #fde8e7; color: #b42318; } .ex.QUITADA { background: #eceae4; color: #8a8984; text-decoration: line-through; }
+  .btn-hay { background: #027266; color: #fff; } .btn-hay:hover { background: #015a50; color: #fff; }
+  .acciones .btn { min-height: 38px; }
+  .cant { max-width: 110px; }
+  .seccion-tr { font-size: .78rem; font-weight: 700; color: #6b6a66; text-transform: uppercase; letter-spacing: .03em; margin: .9rem 0 .4rem; }
+  .tipo { font-size: .72rem; font-weight: 600; border-radius: 8px; padding: 1px 7px; background: #fff1e8; color: #9a3412; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 900px">
+  {% include "_entregas_nav.html" %}
+
+  {% if sin_bodega %}
+  <div class="alert alert-warning">No tiene una bodega asignada. Pida al administrador de Entregas que se la asigne en «Usuarios y roles».</div>
+  {% else %}
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
+    <div>
+      <h6 class="mb-0">{% if modo == 'bodega' %}Existencias de <strong>{{ bodega.nombre }}</strong>{% else %}Existencias de las bodegas con traslado{% endif %}</h6>
+      <div class="small text-muted">{{ totales.pendientes }} línea(s) por confirmar · {{ totales.faltantes }} faltante(s){% if totales.rojo %} · <span class="text-danger fw-semibold">{{ totales.rojo }} orden(es) en riesgo</span>{% endif %}</div>
+    </div>
+    <div class="small text-muted">{% if modo == 'bodega' %}<a href="#preparacion">Ir a preparación</a>{% else %}<a href="#traslados">Ir a traslados</a>{% endif %}</div>
+  </div>
+
+  {% for e in envios %}
+  <div class="card card-body shadow-sm mb-3 envio {{ e.nivel or '' }}">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <div>
+        <a class="fw-bold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=e.id) }}">Pedido {{ e.pedido_num }}</a>
+        {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %} {{ chip_riesgo(e) }}
+        <div class="small">{{ e.cliente }}</div>
+        <div class="small text-muted">{{ e.vendedor }} · {{ e.transportista }}{% if e.destino %} → {{ e.destino }}{% endif %}</div>
+      </div>
+      <div class="text-end small">
+        <div>Sale: <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong></div>
+        {% if e.alerta and e.alerta.margen is not none %}<div class="text-muted">{{ 'faltan ' ~ e.alerta.margen_texto if e.alerta.margen < 0 else 'margen ' ~ e.alerta.margen_texto }}</div>{% endif %}
+        <div class="text-muted">{{ nombre_estado[e.estado] }}</div>
+      </div>
+    </div>
+
+    <div class="mt-2">
+    {% for l in e.lineas %}
+      <div class="linea">
+        <div class="d-flex flex-wrap justify-content-between gap-2">
+          <div>
+            <span class="fw-semibold">{{ l.codigo }}</span> · {{ l.producto or '' }}
+            <div class="small text-muted">{{ [l.medida, l.marca]|select|join(' · ') }}{% if modo != 'bodega' %} · <strong>{{ l.bodega }}</strong>{% endif %} · línea {{ l.linea }}</div>
+          </div>
+          <div class="text-end"><div class="fs-5 fw-bold lh-1">{{ '%g' % l.cantidad }}</div>
+            <span class="ex {{ l.existencia }}">{{ l.existencia|capitalize }}{% if l.existencia == 'FALTANTE' %} · hay {{ '%g' % l.cant_disponible }}{% endif %}</span></div>
+        </div>
+        {% if l.existencia in ('PENDIENTE', 'FALTANTE') %}
+        <div class="acciones d-flex flex-wrap gap-2 mt-2 align-items-end">
+          <form method="post" action="{{ url_for('entregas_operacion.existencia_bodega' if modo == 'bodega' else 'entregas_operacion.existencia_coordinador') }}">
+            <input type="hidden" name="accion" value="confirmar"><input type="hidden" name="linea_id" value="{{ l.id }}">
+            <button class="btn btn-sm btn-hay"><i class="bi bi-check-lg" aria-hidden="true"></i> Hay {{ '%g' % l.cantidad }}</button>
+          </form>
+          <form method="post" action="{{ url_for('entregas_operacion.existencia_bodega' if modo == 'bodega' else 'entregas_operacion.existencia_coordinador') }}" class="d-flex flex-wrap gap-1 align-items-end">
+            <input type="hidden" name="accion" value="faltante"><input type="hidden" name="linea_id" value="{{ l.id }}">
+            <div><label class="form-label small mb-0" for="cd-{{ l.id }}">Hay disponible</label>
+              <input type="number" step="any" min="0" max="{{ '%g' % l.cantidad }}" class="form-control form-control-sm cant" id="cd-{{ l.id }}" name="cant_disponible" required
+                     value="{{ '%g' % l.cant_disponible if l.existencia == 'FALTANTE' else '0' }}"></div>
+            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg" aria-hidden="true"></i> {{ 'Corregir faltante' if l.existencia == 'FALTANTE' else 'Falta' }}</button>
+          </form>
+        </div>
+        {% elif l.existencia == 'CONFIRMADA' %}
+        <details class="small mt-1"><summary class="text-muted">¿Se equivocó? Marcar faltante</summary>
+          <form method="post" action="{{ url_for('entregas_operacion.existencia_bodega' if modo == 'bodega' else 'entregas_operacion.existencia_coordinador') }}" class="d-flex flex-wrap gap-1 align-items-end mt-1">
+            <input type="hidden" name="accion" value="faltante"><input type="hidden" name="linea_id" value="{{ l.id }}">
+            <div><label class="form-label small mb-0" for="cc-{{ l.id }}">Hay disponible</label>
+              <input type="number" step="any" min="0" max="{{ '%g' % l.cantidad }}" class="form-control form-control-sm cant" id="cc-{{ l.id }}" name="cant_disponible" value="0" required></div>
+            <button class="btn btn-sm btn-outline-danger">Marcar faltante</button>
+          </form>
+        </details>
+        {% endif %}
+      </div>
+    {% endfor %}
+    </div>
+
+    {% set abiertas = e.lineas|selectattr('existencia', 'equalto', 'PENDIENTE')|list %}
+    {% if abiertas|length > 1 %}
+    <form method="post" action="{{ url_for('entregas_operacion.existencia_bodega' if modo == 'bodega' else 'entregas_operacion.existencia_coordinador') }}" class="mt-2"
+          onsubmit="return confirm('¿Confirmar las {{ abiertas|length }} líneas pendientes de este pedido?');">
+      <input type="hidden" name="accion" value="confirmar">
+      {% for l in abiertas %}<input type="hidden" name="linea_id" value="{{ l.id }}">{% endfor %}
+      <button class="btn btn-sm btn-hay w-100"><i class="bi bi-check2-all" aria-hidden="true"></i> Hay todo: confirmar las {{ abiertas|length }} líneas pendientes</button>
+    </form>
+    {% endif %}
+    {% if e.otras %}<div class="small text-muted mt-2">La orden tiene {{ e.otras }} línea(s) más de otras bodegas.</div>{% endif %}
+  </div>
+  {% else %}
+  <div class="card card-body text-center text-muted py-5"><i class="bi bi-check2-circle fs-1" aria-hidden="true"></i>
+    No hay líneas por confirmar.</div>
+  {% endfor %}
+
+  {% if modo == 'bodega' %}
+  <h6 class="mt-4" id="preparacion"><i class="bi bi-box2" aria-hidden="true"></i> Preparación</h6>
+  <div class="small text-muted mb-2">Líneas confirmadas que prepara {{ bodega.nombre }}, incluida la mercadería trasladada que ya llegó. Se puede
+    preparar aunque la orden todavía no esté facturada.</div>
+  {% for e in preparar %}
+  <div class="card card-body shadow-sm mb-3 envio {{ e.nivel or '' }}">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <div><a class="fw-bold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=e.id) }}">Pedido {{ e.pedido_num }}</a>
+        {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %} {{ chip_riesgo(e) }}
+        <div class="small">{{ e.cliente }}</div><div class="small text-muted">{{ e.transportista }}{% if e.destino %} → {{ e.destino }}{% endif %}</div></div>
+      <div class="text-end small"><div>Sale: <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong></div><div class="text-muted">{{ nombre_estado[e.estado] }}</div></div>
+    </div>
+    {% for l in e.lineas %}
+    <div class="linea d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div><span class="fw-semibold">{{ l.codigo }}</span> · {{ l.producto or '' }}
+        <div class="small text-muted">{{ [l.medida, l.marca]|select|join(' · ') }}{% if l.traslado_estado == 'RECIBIDO' %} · <span class="tipo">llegó por traslado de {{ l.bodega }}</span>{% endif %}</div></div>
+      <div class="d-flex align-items-center gap-2">
+        <span class="fs-5 fw-bold">{{ '%g' % l.va }}</span>
+        <span class="ex {{ 'CONFIRMADA' if l.preparacion == 'EN_PREPARACION' else 'PENDIENTE' }}">{{ 'En preparación' if l.preparacion == 'EN_PREPARACION' else 'Por preparar' }}</span>
+        {% if l.preparacion == 'PENDIENTE' %}
+        <form method="post" action="{{ url_for('entregas_operacion.preparacion') }}"><input type="hidden" name="accion" value="empezar"><input type="hidden" name="linea_id" value="{{ l.id }}">
+          <button class="btn btn-sm btn-outline-secondary">Empezar</button></form>{% endif %}
+        <form method="post" action="{{ url_for('entregas_operacion.preparacion') }}"><input type="hidden" name="accion" value="lista"><input type="hidden" name="linea_id" value="{{ l.id }}">
+          <button class="btn btn-sm btn-hay"><i class="bi bi-check-lg" aria-hidden="true"></i> Lista</button></form>
+      </div>
+    </div>
+    {% endfor %}
+    {% if e.lineas|length > 1 %}
+    <div class="d-flex gap-2 mt-2">
+      {% set por_empezar = e.lineas|selectattr('preparacion', 'equalto', 'PENDIENTE')|list %}
+      {% if por_empezar %}<form method="post" action="{{ url_for('entregas_operacion.preparacion') }}" class="flex-fill"><input type="hidden" name="accion" value="empezar">
+        {% for l in por_empezar %}<input type="hidden" name="linea_id" value="{{ l.id }}">{% endfor %}
+        <button class="btn btn-sm btn-outline-secondary w-100">Empezar todas ({{ por_empezar|length }})</button></form>{% endif %}
+      <form method="post" action="{{ url_for('entregas_operacion.preparacion') }}" class="flex-fill"><input type="hidden" name="accion" value="lista">
+        {% for l in e.lineas %}<input type="hidden" name="linea_id" value="{{ l.id }}">{% endfor %}
+        <button class="btn btn-sm btn-hay w-100"><i class="bi bi-check2-all" aria-hidden="true"></i> Todas listas ({{ e.lineas|length }})</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}<div class="small text-muted mb-2">Nada por preparar.</div>{% endfor %}
+  {% if en_camino %}
+  <div class="seccion-tr">Vienen en camino por traslado (se preparan cuando lleguen)</div>
+  <ul class="list-group small mb-3">{% for l in en_camino %}
+    <li class="list-group-item d-flex justify-content-between gap-2"><span><strong>{{ l.codigo }}</strong> ({{ '%g' % l.va }}) · Pedido {{ l.pedido_num }} · desde {{ l.bodega }}</span>
+      <span class="text-muted">{{ 'aplicado' if l.traslado_estado == 'APLICADO' else 'en camino' }} · sale {{ l.hora_requerida.strftime('%d/%m %H:%M') }}</span></li>{% endfor %}</ul>
+  {% endif %}
+  {% endif %}
+
+  {% if modo == 'coordinador' and traslados is not none %}
+  <h6 class="mt-4" id="traslados"><i class="bi bi-arrow-left-right" aria-hidden="true"></i> Traslados</h6>
+  <div class="small text-muted mb-2">Aplicar: escriba el número del traslado del sistema de ventas y escoja a qué bodega va (según el tipo de producto).
+    Con todos aplicados y las existencias confirmadas, el vendedor ya puede facturar. Al marcar «Llegó», la línea pasa al bodeguero de esa bodega para prepararla.</div>
+
+  <div class="seccion-tr">Por aplicar <span class="badge text-bg-light">{{ traslados.aplicar|length }}</span></div>
+  {% for l in traslados.aplicar %}
+  <div class="card card-body shadow-sm mb-2 py-2">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <div><a class="fw-semibold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=l.envio_id) }}">Pedido {{ l.pedido_num }}</a>
+        {% if l.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %}
+        <span class="small text-muted">· sale {{ l.hora_requerida.strftime('%d/%m %H:%M') }}</span>
+        <div><span class="fw-semibold">{{ l.codigo }}</span> · {{ l.producto or '' }} <span class="small text-muted">· {{ l.marca or '' }}</span></div>
+        <div class="small">{% if l.tipo and l.tipo.texto %}<span class="tipo">{{ l.tipo.texto }}</span>{% else %}<span class="text-muted">Tipo de producto no encontrado en el catálogo</span>{% endif %}
+          <span class="text-muted">· desde {{ l.bodega }}</span></div></div>
+      <div class="text-end"><div class="fs-5 fw-bold lh-1">{{ '%g' % l.va }}</div>
+        <span class="ex {{ l.existencia }}">{{ l.existencia|capitalize }}</span></div>
+    </div>
+    {% if l.existencia == 'CONFIRMADA' %}
+    <form method="post" action="{{ url_for('entregas_operacion.traslado') }}" class="d-flex flex-wrap gap-2 align-items-end mt-2">
+      <input type="hidden" name="accion" value="aplicar"><input type="hidden" name="linea_id" value="{{ l.id }}">
+      <div><label class="form-label small mb-0" for="d-{{ l.id }}">Va a la bodega</label>
+        <select class="form-select form-select-sm" id="d-{{ l.id }}" name="destino_id" required><option value="">— escoja —</option>
+          {% for b in bodegas if b.id != l.bodega_id %}<option value="{{ b.id }}">{{ b.nombre }}</option>{% endfor %}</select></div>
+      <div><label class="form-label small mb-0" for="n-{{ l.id }}">N° de traslado</label>
+        <input class="form-control form-control-sm" id="n-{{ l.id }}" name="numero" maxlength="30" required style="max-width: 140px"></div>
+      <button class="btn btn-sm btn-hay"><i class="bi bi-check-lg" aria-hidden="true"></i> Aplicar</button>
+    </form>
+    {% else %}<div class="small text-muted mt-1">Confirme primero la existencia (arriba) para aplicar el traslado.</div>{% endif %}
+  </div>
+  {% else %}<div class="small text-muted mb-2">Ninguno.</div>{% endfor %}
+
+  {% for clave, titulo, accion, boton in [('en_camino', 'Aplicados: mandar a traer', 'en_camino', 'Mandé a traer'), ('recibir', 'En camino: marcar cuando llegue', 'recibido', 'Llegó')] %}
+  <div class="seccion-tr">{{ titulo }} <span class="badge text-bg-light">{{ traslados[clave]|length }}</span></div>
+  {% if traslados[clave] %}
+  <form method="post" action="{{ url_for('entregas_operacion.traslado') }}" class="card card-body shadow-sm mb-2 py-2">
+    <input type="hidden" name="accion" value="{{ accion }}">
+    {% for l in traslados[clave] %}
+    <div class="form-check py-1 {{ 'border-top' if not loop.first }}">
+      <input class="form-check-input" type="checkbox" name="linea_id" value="{{ l.id }}" id="{{ clave }}-{{ l.id }}">
+      <label class="form-check-label small w-100" for="{{ clave }}-{{ l.id }}">
+        <strong>{{ l.codigo }}</strong> ({{ '%g' % l.va }}) · Pedido {{ l.pedido_num }} · {{ l.bodega }} → <strong>{{ l.destino }}</strong> · traslado N° {{ l.traslado_num }}
+        <span class="text-muted">· sale {{ l.hora_requerida.strftime('%d/%m %H:%M') }}</span></label>
+    </div>
+    {% endfor %}
+    <div class="mt-2"><button class="btn btn-sm btn-hay"><i class="bi {{ 'bi-truck' if accion == 'en_camino' else 'bi-box-arrow-in-down' }}" aria-hidden="true"></i> {{ boton }} (marcadas)</button></div>
+  </form>
+  {% else %}<div class="small text-muted mb-2">Ninguno.</div>{% endif %}
+  {% endfor %}
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

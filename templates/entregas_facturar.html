@@ -1,0 +1,53 @@
+{% extends "layout.html" %}
+{% block title %}Facturar pedido {{ e.pedido_num }} · Entregas{% endblock %}
+{% block content %}
+<style>
+  .paso { font-size: .8rem; font-weight: 700; color: #6b6a66; text-transform: uppercase; letter-spacing: .03em; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 900px">
+  {% set activo = 'entregas_mis_envios' %}{% include "_entregas_nav.html" %}
+  <div class="card card-body shadow-sm mb-3">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <h6 class="mb-0">Facturar pedido <strong>{{ e.pedido_num }}</strong> <span class="small text-muted fw-normal">· {{ e.cliente }}</span></h6>
+      <span class="small">{{ nombre_estado[e.estado] }}</span>
+    </div>
+    {% if e.estado != 'POR_FACTURAR' %}
+    <div class="alert alert-warning small mt-2 mb-0">{% if e.estado in ('ORDEN_ENVIADA', 'EN_REVISION') %}Todavía no se puede facturar: falta confirmar existencias o aplicar un traslado.{% else %}La orden ya no está por facturar.{% endif %}</div>
+    {% endif %}
+  </div>
+
+  <div class="paso mb-2">1. Ajuste la orden en el sistema de ventas</div>
+  <div class="card card-body shadow-sm mb-3 small">
+    {% if d.ajustes %}
+    <ul class="mb-0">{% for a in d.ajustes %}<li>{{ a.texto }}</li>{% endfor %}</ul>
+    {% else %}<span class="text-muted">Sin ajustes: la orden sale tal como se subió.</span>{% endif %}
+  </div>
+
+  <div class="paso mb-2">2. Genere una factura por bodega y registre su número</div>
+  <form method="post" class="card card-body shadow-sm">
+    {% for g in d.grupos %}
+    <div class="row g-2 align-items-start {{ 'border-top pt-2 mt-2' if not loop.first }}">
+      <div class="col-md-7">
+        <div class="fw-semibold">{{ g.bodega }}</div>
+        <div class="small text-muted">{% for l in g.lineas %}{{ l.codigo }} ({{ '%g' % (l.cant_disponible if l.cant_disponible is not none else l.cantidad) }}){{ ', ' if not loop.last }}{% endfor %}</div>
+        {% if g.lineas|selectattr('solo_factura')|list %}<div class="small" style="color: #9a3412">Bodega de vendedor: la mercadería ya se entregó; esta factura va en el paquete.</div>{% endif %}
+        {% if g.lineas|selectattr('traslado_estado', 'ne', 'NO_REQUIERE')|list %}<div class="small" style="color: #9a3412">Incluye mercadería trasladada (factura en {{ 'la bodega destino' if d.modo == 'destino' else 'la bodega de origen' }}).</div>{% endif %}
+      </div>
+      <div class="col-md-5">
+        <label class="form-label small mb-0" for="f-{{ g.bodega_id }}">N° de factura</label>
+        <input class="form-control" id="f-{{ g.bodega_id }}" name="factura_{{ g.bodega_id }}" maxlength="30" value="{{ g.factura.factura_num if g.factura else '' }}"
+               {{ 'disabled' if e.estado != 'POR_FACTURAR' or g.bodega_id is none }}>
+        {% if g.factura %}<div class="form-text">Registrada por {{ g.factura.usuario }} el {{ g.factura.registrada_en.strftime('%d/%m %H:%M') }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% if d.sobrantes %}<div class="alert alert-warning small mt-3 mb-0">Facturas de bodegas que ya no tienen líneas en la orden (no se cuentan):
+      {% for f in d.sobrantes %}{{ f.bodega }} {{ f.factura_num }}{{ ', ' if not loop.last }}{% endfor %}.</div>{% endif %}
+    <div class="form-text mt-2">Se puede registrar por partes. Con una factura por cada bodega, la orden pasa a «Facturada».</div>
+    {% if e.estado == 'POR_FACTURAR' %}
+    <div class="d-flex gap-2 mt-3"><button class="btn text-white" style="background: #027266"><i class="bi bi-check-lg" aria-hidden="true"></i> Guardar facturas</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('entregas_vendedor.mis_envios') }}">Volver</a></div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

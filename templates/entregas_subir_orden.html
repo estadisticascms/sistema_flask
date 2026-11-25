@@ -1,0 +1,174 @@
+{% extends "layout.html" %}
+{% block title %}Subir orden · Entregas{% endblock %}
+{% block content %}
+<style>
+  .pasos { display: flex; gap: .5rem; flex-wrap: wrap; font-size: .8rem; }
+  .pasos span { padding: 2px 10px; border-radius: 12px; background: #eceae4; color: #52514e; }
+  .pasos span.hecho { background: #e3f3f1; color: #027266; } .pasos span.actual { background: #FE6412; color: #fff; font-weight: 600; }
+  .cuadre { border-radius: .5rem; padding: .5rem .75rem; background: #e3f3f1; color: #027266; font-weight: 600; }
+  .dato small { display: block; color: #6b6a66; font-size: .72rem; }
+  .bod-ok { color: #027266; } .bod-mal { color: #b42318; font-weight: 600; }
+  .traslado { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 7px; background: #fff1e8; color: #9a3412; white-space: nowrap; }
+  @media (max-width: 576px) { .tabla-lineas .ocultar-movil { display: none; } }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 1000px">
+  {% set activo = 'entregas_subir_orden' %}{% include "_entregas_nav.html" %}
+  <div class="pasos mb-3">
+    <span class="{{ 'actual' if paso == 1 else 'hecho' }}">1. PDF de la orden</span>
+    <span class="{{ 'actual' if paso == 2 else '' }}">2. Revisar lo leído</span>
+    <span class="{{ 'actual' if paso == 2 else '' }}">3. Transporte y hora</span>
+    <span>4. Enviar</span>
+  </div>
+
+{% if paso == 1 %}
+  {% if error %}<div class="alert alert-danger"><i class="bi bi-x-octagon" aria-hidden="true"></i> {% if archivo %}<strong>{{ archivo }}</strong>: {% endif %}{{ error }}</div>{% endif %}
+  <form method="post" enctype="multipart/form-data" class="card card-body shadow-sm">
+    <input type="hidden" name="accion" value="leer">
+    <label class="form-label fw-semibold" for="pdf">PDF de la Orden de Venta/Pedido</label>
+    <input type="file" class="form-control mb-2" id="pdf" name="pdf" accept="application/pdf,.pdf" required>
+    <div class="form-text mb-3">El sistema lee el cliente, los términos y cada producto con su bodega. Si la suma de las líneas no da el
+      subtotal impreso, la orden no se acepta.</div>
+    <div><button class="btn text-white" style="background: #FE6412"><i class="bi bi-file-earmark-text" aria-hidden="true"></i> Leer la orden</button></div>
+  </form>
+
+{% else %}
+  {% for e in errores %}<div class="alert alert-danger py-2"><i class="bi bi-x-octagon" aria-hidden="true"></i> {{ e }}</div>{% endfor %}
+  {% if errores_bodega and not errores %}
+  <div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+    {{ errores_bodega|join(' ') }} Si son productos que no se envían, márquelo abajo y se graban las otras {{ van }} línea(s).
+    Si sí se envían, o si es bodega de un vendedor y hay que mandar su factura, avise al administrador de Entregas para que agregue
+    la bodega con ese nombre exacto (como «solo factura» si es de vendedor).</div>
+  {% endif %}
+  {% for a in avisos %}<div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> {{ a }}</div>{% endfor %}
+
+  <div class="card card-body shadow-sm mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+      <h6 class="mb-0">Pedido <strong>{{ orden.pedido }}</strong> <span class="small text-muted fw-normal">· {{ archivo }}{% if orden.paginas > 1 %} · {{ orden.paginas }} páginas{% endif %}</span></h6>
+      <span class="cuadre small"><i class="bi bi-check2-circle" aria-hidden="true"></i> Cuadra: {{ orden.lineas|length }} líneas suman C$ {{ "{:,.2f}".format(orden.suma_lineas) }}</span>
+    </div>
+    <div class="row g-2 dato">
+      <div class="col-12 col-md-5"><small>Cliente</small>{{ orden.cliente }}</div>
+      <div class="col-6 col-md-2"><small>Términos</small>{{ orden.terminos }}</div>
+      <div class="col-6 col-md-2"><small>Fecha</small>{{ orden.fecha.strftime('%d/%m/%Y') if orden.fecha else orden.fecha_texto }}</div>
+      <div class="col-6 col-md-1"><small>Ingresó</small>{{ orden.ingresado_por }}</div>
+      <div class="col-6 col-md-2 text-md-end"><small>Subtotal</small>C$ {{ "{:,.2f}".format(orden.subtotal) }}</div>
+    </div>
+  </div>
+
+  <div class="table-responsive border rounded-3 bg-white mb-3">
+    <table class="table table-sm align-middle mb-0 small tabla-lineas">
+      <thead class="table-light"><tr><th>#</th><th>Bodega</th><th>Código</th><th>Producto</th><th class="ocultar-movil">Medida</th><th class="ocultar-movil">Marca</th><th class="text-end">Cant.</th><th class="text-end">Subtotal</th></tr></thead>
+      <tbody>
+      {% for l in orden.lineas %}
+        <tr>
+          <td>{{ l.linea }}</td>
+          <td>{% if l.b and l.b.activo %}<span class="bod-ok">{{ l.bodega }}</span>{% if l.b.solo_factura %}<div><span class="traslado" title="Bodega de vendedor: la mercadería ya se entregó; solo va la factura">Solo factura</span></div>{% elif l.b.requiere_traslado %}<div><span class="traslado" title="La confirma el coordinador y escoge a qué bodega se traslada">Con traslado</span></div>{% endif %}
+              {% else %}<span class="bod-mal" title="{{ 'Desactivada' if l.b else 'No está en el catálogo' }}"><i class="bi bi-x-circle" aria-hidden="true"></i> {{ l.bodega }}</span><div class="small text-muted">fuera del catálogo</div>{% endif %}</td>
+          <td class="text-nowrap">{{ l.codigo }}</td>
+          <td>{{ l.producto }}</td>
+          <td class="ocultar-movil">{{ l.medida }}</td>
+          <td class="ocultar-movil">{{ l.marca }}</td>
+          <td class="text-end">{{ '%g' % l.cantidad }}</td>
+          <td class="text-end text-nowrap">{{ "{:,.2f}".format(l.subtotal) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr class="fw-semibold"><td colspan="7" class="text-end">Suma de las líneas</td><td class="text-end text-nowrap">{{ "{:,.2f}".format(orden.suma_lineas) }}</td></tr></tfoot>
+    </table>
+  </div>
+
+  {% if errores %}
+  <a class="btn btn-outline-secondary" href="{{ url_for('entregas_orden.subir_orden') }}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Subir otra orden</a>
+  {% else %}
+  <form method="post" class="card card-body shadow-sm">
+    <input type="hidden" name="accion" value="enviar"><input type="hidden" name="token" value="{{ token }}"><input type="hidden" name="archivo" value="{{ archivo }}">
+    <input type="hidden" name="traslado" id="traslado" value="{{ 1 if traslado else 0 }}">
+    <h6>Transporte y hora</h6>
+    {% for e in errores_form %}<div class="alert alert-danger py-1 small mb-2">{{ e }}</div>{% endfor %}
+    {% if errores_bodega %}
+    <div class="form-check p-2 ps-5 mb-3 rounded-3 border border-warning">
+      <input class="form-check-input" type="checkbox" name="excluir_bodegas" value="1" id="excluir_bodegas" required {{ 'checked' if datos.get('excluir_bodegas') == '1' }}>
+      <label class="form-check-label small" for="excluir_bodegas"><strong>Estas líneas no se envían:</strong> {{ excluidas }}.
+        Grabar solo las otras {{ van }} línea(s).</label>
+    </div>
+    {% endif %}
+    <div class="row g-2">
+      <div class="col-md-5"><label class="form-label small mb-0" for="transportista_id">Transporte *</label>
+        <select class="form-select" id="transportista_id" name="transportista_id" required><option value="">— escoja —</option>
+          {% for t in transportistas %}<option value="{{ t.id }}" data-destinos="{{ t.destinos|join('|') }}" {{ 'selected' if datos.get('transportista_id')|string == t.id|string }}>{{ t.nombre }} · {{ tipos.get(t.tipo, t.tipo) }}{% if t.limite %} · recibe hasta {{ t.limite }}{% endif %}</option>{% endfor %}
+        </select></div>
+      <div class="col-md-4"><label class="form-label small mb-0" for="destino">Destino</label>
+        <input class="form-control" id="destino" name="destino" maxlength="100" list="lista-destinos" value="{{ datos.get('destino', '') }}" placeholder="Ciudad o departamento">
+        <datalist id="lista-destinos"></datalist></div>
+      <div class="col-md-3"><label class="form-label small mb-0" for="hora_requerida">Hora requerida de salida *</label>
+        <input type="datetime-local" class="form-control" id="hora_requerida" name="hora_requerida" required value="{{ datos.get('hora_requerida', '') }}"></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="prioridad">Prioridad</label>
+        <select class="form-select" id="prioridad" name="prioridad"><option value="normal">Normal</option>
+          <option value="urgente" {{ 'selected' if datos.get('prioridad') == 'urgente' }}>Urgente</option></select></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="flete_paga">Flete lo paga</label>
+        <select class="form-select" id="flete_paga" name="flete_paga"><option value="cliente">Cliente</option>
+          <option value="empresa" {{ 'selected' if datos.get('flete_paga') == 'empresa' }}>Empresa</option></select></div>
+      {% if contado %}
+      <div class="col-md-3"><label class="form-label small mb-0" for="forma_pago">Forma de pago (contado)</label>
+        <select class="form-select" id="forma_pago" name="forma_pago"><option value="">— sin indicar —</option>
+          <option value="transferencia" {{ 'selected' if datos.get('forma_pago') == 'transferencia' }}>Transferencia</option>
+          <option value="contra_entrega" {{ 'selected' if datos.get('forma_pago') == 'contra_entrega' }}>Pago en la entrega</option></select></div>
+      {% endif %}
+      <div class="col-12"><label class="form-label small mb-0" for="notas">Notas</label>
+        <textarea class="form-control" id="notas" name="notas" rows="2" maxlength="2000">{{ datos.get('notas', '') }}</textarea></div>
+    </div>
+    <div class="form-text">Forma de pago y quién paga el flete son opcionales mientras se confirma de dónde salen (pendiente del negocio).</div>
+    <div class="mt-3" id="alerta" aria-live="polite">{% include "_entregas_alerta.html" with context %}</div>
+    <div class="form-check mt-2 p-2 ps-5 rounded-3 border border-danger {{ '' if pedir_confirmacion or (alerta and alerta.nivel == 'rojo') else 'd-none' }}" id="caja-confirmar">
+      <input class="form-check-input" type="checkbox" name="confirmar_riesgo" value="1" id="confirmar_riesgo">
+      <label class="form-check-label small" for="confirmar_riesgo"><strong>Confirmo la hora aunque está en riesgo.</strong>
+        El envío se mostrará en rojo a bodega y paquetería. Si no, cambie la hora requerida.</label>
+    </div>
+    {% if pedir_confirmacion %}<div class="text-danger small mt-1">No se envió: la alerta está en rojo. Confirme la hora o cámbiela.</div>{% endif %}
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <button class="btn btn-success"><i class="bi bi-send" aria-hidden="true"></i> Enviar orden</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('entregas_orden.subir_orden') }}">Cancelar</a>
+    </div>
+  </form>
+  {% endif %}
+{% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const sel = document.getElementById('transportista_id'), lista = document.getElementById('lista-destinos');
+  if (!sel) return;
+  const llenar = () => {
+    const op = sel.options[sel.selectedIndex];
+    lista.innerHTML = '';
+    (op && op.dataset.destinos ? op.dataset.destinos.split('|') : []).forEach(d => { const o = document.createElement('option'); o.value = d; lista.appendChild(o); });
+  };
+  sel.addEventListener('change', llenar); llenar();
+
+  // Alerta de tiempo en vivo (el servidor la vuelve a calcular al enviar)
+  const caja = document.getElementById('alerta'), confirmar = document.getElementById('caja-confirmar');
+  const hora = document.getElementById('hora_requerida'), destino = document.getElementById('destino');
+  let espera;
+  async function recalcular() {
+    const datos = new FormData();
+    datos.append('transportista_id', sel.value); datos.append('hora_requerida', hora.value);
+    datos.append('destino', destino.value); datos.append('traslado', document.getElementById('traslado').value);
+    try {
+      const r = await (await fetch("{{ url_for('entregas_orden.alerta_en_vivo') }}", { method: 'POST', body: datos })).json();
+      caja.innerHTML = r.html;
+      const rojo = r.nivel === 'rojo';
+      confirmar.classList.toggle('d-none', !rojo);
+      if (!rojo) document.getElementById('confirmar_riesgo').checked = false;
+    } catch {}
+  }
+  const pronto = () => { clearTimeout(espera); espera = setTimeout(recalcular, 300); };
+  [sel, hora, destino].forEach(i => { i.addEventListener('change', pronto); i.addEventListener('input', pronto); });
+  caja.addEventListener('click', e => {
+    const b = e.target.closest('.usar-sugerencia');
+    if (b) { hora.value = b.dataset.hora; recalcular(); }
+  });
+  recalcular();
+})();
+</script>
+{% endblock %}
