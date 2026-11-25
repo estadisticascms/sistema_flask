@@ -26,6 +26,11 @@
   details.producto > summary .flecha { transition: transform .15s; display: inline-block; }
   details.producto[open] > summary .flecha { transform: rotate(90deg); }
   .dato { line-height: 1.1; } .dato small { color: #6b6a66; font-size: .7rem; display: block; }
+  .segmento { background: #027266; color: #fff; font-weight: 700; border-radius: .5rem; padding: .45rem .75rem; margin: 1.2rem 0 .5rem; }
+  .familia { font-weight: 700; color: #027266; border-bottom: 2px solid #027266; padding: .2rem .1rem; margin: .7rem 0 .4rem; }
+  .bodegas { margin: .35rem 0 0 1.6rem; color: #6b6a66; }
+  .bod { display: inline-block; border: 1px solid #dee2e6; border-radius: 10px; padding: 0 7px; margin: 1px 2px; background: #fff; color: #52514e; }
+  .bod.filtrada { border-color: #FE6412; color: #9a3412; background: #fff1e8; }
 </style>
 <div class="container-fluid mt-3 mb-4" style="max-width: 1500px">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -106,8 +111,19 @@
     <button type="button" class="btn btn-link btn-sm p-0" id="cerrar-todos">Cerrar todos</button>
   </div>
 
-  {% for r in filas %}
-  <details class="producto" {{ 'open' if loop.index <= 3 }}>
+  {% for s in grupos %}
+  <div class="segmento d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+    <span><i class="bi bi-diagram-3" aria-hidden="true"></i> Segmento: {{ s.segmento }}</span>
+    <span class="small fw-normal">{{ n(s.totales.productos) }} producto(s) · venta C$ {{ n(s.totales.venta, 2) }} · {{ n(s.totales.unidades) }} unid. · existencia {{ n(s.totales.existencia) }}</span>
+  </div>
+  {% for fam in s.familias %}
+  {% set primero = loop.first and s == grupos[0] %}
+  <div class="familia d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+    <span>{{ fam.etiqueta }}</span>
+    <span class="small text-muted fw-normal">{{ n(fam.totales.productos) }} producto(s) · venta C$ {{ n(fam.totales.venta, 2) }} · {{ n(fam.totales.unidades) }} unid. · {{ n(fam.totales.clientes) }} cliente(s)</span>
+  </div>
+  {% for r in fam.filas %}
+  <details class="producto" {{ 'open' if primero and loop.index <= 3 }}>
     <summary>
       <div class="d-flex flex-wrap align-items-center gap-3">
         <span class="flecha text-muted"><i class="bi bi-chevron-right" aria-hidden="true"></i></span>
@@ -126,6 +142,8 @@
         <div class="dato text-end"><small>Clientes</small><b>{{ n(r.n_clientes) }}</b></div>
         <div class="dato text-end"><small>Mes que más se vende</small><b>{{ r.mes_mayor or '—' }}</b></div>
       </div>
+      {% if r.por_bodega %}<div class="bodegas small">Existencia por bodega:
+        {% for b, c in r.por_bodega %}<span class="bod {{ 'filtrada' if b in f.bodegas }}">{{ b }} <b>{{ n(c) }}</b></span>{% endfor %}</div>{% endif %}
     </summary>
     {% if r.clientes %}
     <div class="table-responsive">
@@ -148,6 +166,8 @@
     {% if r.clientes|length > max_clientes %}<div class="small text-muted px-3 py-1">Se muestran {{ max_clientes }} de {{ r.clientes|length }} clientes; el Excel los trae todos.</div>{% endif %}
     {% else %}<div class="small text-muted px-3 py-2">Sin ventas en el período.{% if r.bodegas_txt %} Existencia: {{ r.bodegas_txt }}.{% endif %}</div>{% endif %}
   </details>
+  {% endfor %}
+  {% endfor %}
   {% endfor %}
   {% if t.productos > max_productos %}<div class="small text-muted">Se muestran {{ max_productos }} de {{ n(t.productos) }} productos; use los filtros o descargue el Excel para verlos todos.</div>{% endif %}
   {% endif %}

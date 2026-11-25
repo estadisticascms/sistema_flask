@@ -6,7 +6,10 @@
 - Facturas: facturas distintas (tipo + número) en que aparece el producto para ese cliente.
 - Meses: por mes del período, o por mes del año (Ene–Dic, sumando los años) para ver en qué meses compra más.
 - Ingresos: entradas por orden de compra (transacciones_inventario ENTRADA / ORDEN COMPRA, como Seguimiento de ingresos).
-  Total del período seleccionado en unidades y costo C$; «último ingreso» es la fecha más reciente, aunque sea antes del período."""
+  Total del período seleccionado en unidades y costo C$; «último ingreso» es la fecha más reciente, aunque sea antes del período.
+- Existencia por bodega: cada bodega donde hay existencia, con su cantidad (las filtradas resaltadas, las demás como «otras»).
+- Agrupación por segmento y «Familia | Subfamilia» (clasificación de productos, tabla clase_prod); lo que no tiene clasificación va al
+  final como «Sin clasificar». Dentro de cada grupo se respeta el orden escogido."""
 import io
 from datetime import date, datetime, timedelta
 
@@ -24,6 +27,8 @@ VISTA = "ventas_producto_cliente"
 VERDE, NARANJA = "027266", "FE6412"
 MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 MAX_PRODUCTOS_PANTALLA = 150
+SIN_CLASIFICAR = "Sin clasificar"
+POCO_INFORMATIVOS = {"", "Sin definir", "No aplica", "Por clasificar"}
 MAX_CLIENTES_PANTALLA = 60
 LOTE_CODIGOS = 1000               # códigos por consulta IN (...)
 ORDENES = {"venta": "Mayor venta", "unidades": "Más unidades", "clientes": "Más clientes", "existencia": "Mayor existencia", "codigo": "Código"}
@@ -144,6 +149,10 @@ def calcular(f):
                        f"WHERE {' AND '.join(where)}", params)
         catalogo = {r[0]: {"codigo": r[0], "nombre": (r[1] or "").strip(), "parte": (r[2] or "").strip(), "marca": (r[3] or "").strip(),
                            "proveedor": r[4] or ""} for r in cursor.fetchall()}
+        cursor.execute("SELECT codigo, segmento, familia, subfamilia FROM clase_prod")
+        for cod, seg, fam, sub in cursor.fetchall():
+            if cod in catalogo:
+                catalogo[cod].update(segmento=(seg or "").strip(), familia=(fam or "").strip(), subfamilia=(sub or "").strip())
 
         # 2) Existencia actual (todas las bodegas y las filtradas); con bodegas, solo productos que hoy están ahí
         cursor.execute("SELECT Codigo_producto, Bodega, SUM(Cant_Final) FROM existencias_bodega GROUP BY Codigo_producto, Bodega")
@@ -248,6 +257,9 @@ def calcular(f):
         filas.append({**x, "ingresos": ing_u, "ingresos_costo": ing_m, "ingresos_docs": ing_d, "ultimo_ingreso": ult_ing,
                       "existencia": existencia.get(cod, 0.0), "en_bodegas": en_bodegas.get(cod, 0.0) if f["bodegas"] else None,
                       "bodegas_txt": " · ".join(f"{b}: {c:,.0f}" for b, c in sorted(detalle_bod.get(cod, []), key=lambda d: -d[1])),
+                      "por_bodega": sorted(detalle_bod.get(cod, []), key=lambda d: (-d[1], d[0])),
+                      "segmento": x.get("segmento") or SIN_CLASIFICAR, "familia": x.get("familia") or SIN_CLASIFICAR,
+                      "subfamilia": x.get("subfamilia") or "",
                       "unidades": p["unidades"], "venta": p["venta"], "n_facturas": len(p["facturas"]), "facturas": p["facturas"], "meses": p["meses"],
                       "mes_mayor": mes_mayor(p["meses"]), "clientes": clientes, "n_clientes": len(clientes)})
     orden = {"venta": lambda r: (-r["venta"], r["codigo"]), "unidades": lambda r: (-r["unidades"], r["codigo"]),
@@ -260,6 +272,36 @@ def calcular(f):
                "facturas": len(set().union(*(productos[c]["facturas"] for c in productos if c in codigos))) if productos else 0,
                "clientes": len({cid for r in filas for cid in productos.get(r["codigo"], {"clientes": {}})["clientes"]})}
     return filas, totales
+
+
+def etiqueta_familia(familia, subfamilia):
+    """«Rodamientos y chumaceras | Rodamientos de bolas»; sin la subfamilia si se repite o no dice nada."""
+    if not subfamilia or subfamilia in POCO_INFORMATIVOS or subfamilia == familia:
+        return familia
+    return f"{familia} | {subfamilia}"
+
+
+def clave_texto(texto):
+    """Orden alfabético con lo que no está clasificado al final."""
+    return (texto in POCO_INFORMATIVOS or texto == SIN_CLASIFICAR, texto.upper())
+
+
+def agrupar(filas):
+    """[{segmento, totales, familias: [{etiqueta, filas, totales}]}] respetando el orden de las filas dentro de cada grupo."""
+    def totales(lista):
+        return {"productos": len(lista), "unidades": sum(r["unidades"] for r in lista), "venta": sum(r["venta"] for r in lista),
+                "existencia": sum(r["existencia"] for r in lista), "ingresos": sum(r["ingresos"] for r in lista),
+                "clientes": len({c["codigo"] if c["codigo"] is not None else c["cliente"] for r in lista for c in r["clientes"]})}
+    segmentos = {}
+    for r in filas:
+        etiqueta = etiqueta_familia(r["familia"], r["subfamilia"])
+        segmentos.setdefault(r["segmento"], {}).setdefault(etiqueta, []).append(r)
+    resultado = []
+    for seg in sorted(segmentos, key=clave_texto):
+        familias = [{"etiqueta": e, "filas": segmentos[seg][e], "totales": totales(segmentos[seg][e])}
+                    for e in sorted(segmentos[seg], key=lambda e: clave_texto(e.split(" | ")[0]) + (e.upper(),))]
+        resultado.append({"segmento": seg, "familias": familias, "totales": totales([r for fam in familias for r in fam["filas"]])})
+    return resultado
 
 
 def vendedor_corto(nombre):
@@ -298,6 +340,7 @@ def reporte():
     generado = request.args.get("generar") == "1"
     filas, t = calcular(f) if generado else ([], None)
     return render_template("ventas_producto_cliente.html", f=f, filas=filas[:MAX_PRODUCTOS_PANTALLA], t=t, generado=generado,
+                           grupos=agrupar(filas[:MAX_PRODUCTOS_PANTALLA]),
                            bodegas=lista_bodegas(), marcas=marcas, proveedores=proveedores, ordenes=ORDENES,
                            meses=claves_meses(f), params=params_url(f), filtros_txt=descripcion_filtros(f),
                            intensidad=intensidad, max_clientes=MAX_CLIENTES_PANTALLA, max_productos=MAX_PRODUCTOS_PANTALLA)
@@ -332,9 +375,15 @@ def excel():
 
     base = [("Código", 12), ("Nº parte", 16), ("Descripción", 36), ("Marca", 14), ("Proveedor", 24), ("Existencia actual", 11)]
     base += [("Existencia en bodegas filtradas", 12)] if con_bod else []
+    base += [("Segmento", 14), ("Familia", 24), ("Subfamilia", 26)]
 
     def datos_producto(r):
-        return [r["codigo"], r["parte"], r["nombre"], r["marca"], r["proveedor"], r["existencia"]] + ([r["en_bodegas"]] if con_bod else [])
+        return ([r["codigo"], r["parte"], r["nombre"], r["marca"], r["proveedor"], r["existencia"]] + ([r["en_bodegas"]] if con_bod else [])
+                + [r["segmento"], r["familia"], r["subfamilia"] or None])
+
+    # Productos en el orden de los grupos (segmento, familia | subfamilia) y, dentro, en el orden escogido
+    grupos_cls = agrupar(filas)
+    filas = [r for s in grupos_cls for fam in s["familias"] for r in fam["filas"]]
 
     def escribir(hoja, fila, valores, formatos):
         for col, v in enumerate(valores, start=1):
@@ -404,12 +453,20 @@ def excel():
         positivos = {k: v[i] for k, v in datos.items() if v[i] > 0}
         return etiquetas.get(max(positivos, key=positivos.get)) if positivos else None
 
-    grupos = {}
-    for r in filas:
+    def grupos_parte(filas_grupo):
+        """Números de parte (con sus clientes) de un grupo de productos."""
+        grupos = {}
+        for r in filas_grupo:
+            agregar_parte(grupos, r)
+        return sorted(grupos.values(), key=lambda g: (g["parte"] == "(sin Nº parte)", g["parte"].upper(), g["nombre"].upper()))
+
+    def agregar_parte(grupos, r):
         g = grupos.setdefault((r["parte"].upper() or "(SIN Nº PARTE)", r["nombre"].upper()),
                               {"parte": r["parte"] or "(sin Nº parte)", "nombre": r["nombre"], "codigos": [], "marcas": set(), "ultimo": None,
                                "ingresos": 0.0, "ingresos_costo": 0.0, "existencia": 0.0, "en_bodegas": 0.0, "unidades": 0.0, "venta": 0.0,
-                               "facturas": set(), "meses": {}, "clientes": {}})
+                               "facturas": set(), "meses": {}, "clientes": {}, "bodegas": {}})
+        for b, cant in r["por_bodega"]:
+            g["bodegas"][b] = g["bodegas"].get(b, 0) + cant
         g["codigos"].append(r["codigo"])
         g["marcas"].add(r["marca"])
         if r["ultimo_ingreso"] and (not g["ultimo"] or r["ultimo_ingreso"] > g["ultimo"]):
@@ -435,8 +492,10 @@ def excel():
     cols = [("Nº parte", 16), ("Descripción", 34), ("Códigos", 14), ("Marca", 11), ("Fecha último ingreso", 11),
             ("Total ingresos del período (unid.)", 11), ("Costo de los ingresos C$", 13), ("Existencia actual", 10)]
     cols += [("Existencia bodega seleccionada", 11)] if con_bod else []
+    cols += [("Existencia en otras bodegas" if con_bod else "Existencia por bodega", 26)]
     cols += [("Cliente", 34), ("Unidades vendidas", 10), ("Facturas", 9), ("Venta C$", 13), ("Mes que más compra", 10), ("Última compra", 11)]
-    k = 9 if con_bod else 8                 # última columna de existencia
+    k = 10 if con_bod else 9                # última columna de existencia (la de bodegas, en texto)
+    c_bod = k
     c_cli, c_uni, c_fac, c_ven, c_mes, c_ult = range(k + 1, k + 7)
     fmts = {5: "dd/mm/yyyy", 6: "#,##0.##", 7: "#,##0.00", 8: "#,##0.##", 9: "#,##0.##", c_uni: "#,##0.##", c_fac: "#,##0",
             c_ven: "#,##0.00", c_ult: "dd/mm/yyyy"}
@@ -464,24 +523,52 @@ def excel():
                 c.number_format = fmts[col]
             c.font = Font(bold=negrita, size=9 if negrita else 8, color=negro)
             c.border = Border(top=fino if borde_arriba else punteado, bottom=punteado, left=fino, right=fino)
-            c.alignment = Alignment(vertical="top", wrap_text=col in (2, 3, c_cli))
+            c.alignment = Alignment(vertical="top", wrap_text=col in (2, 3, c_bod, c_cli))
 
-    orden_g = sorted(grupos.values(), key=lambda g: (g["parte"] == "(sin Nº parte)", g["parte"].upper(), g["nombre"].upper()))
+    def texto_bodegas(bodegas):
+        lista = sorted(((b, c) for b, c in bodegas.items() if c and b not in f["bodegas"]), key=lambda x: (-x[1], x[0]))
+        return " · ".join(f"{b}: {c:,.0f}" for b, c in lista) or None
+
+    def fila_grupo(fila, texto, tot, nivel):
+        """Fila de segmento (nivel 0) o de familia | subfamilia (nivel 1) con sus totales."""
+        valores = [texto] + [None] * (len(cols) - 1)
+        valores[5], valores[7] = tot["ingresos"] or None, tot["existencia"]
+        valores[c_cli - 1] = f"{tot['productos']:,} producto(s) · {tot['clientes']:,} cliente(s)"
+        valores[c_uni - 1], valores[c_ven - 1] = tot["unidades"] or None, round(tot["venta"], 2) or None
+        escribir_bn(fila, valores, True, True)
+        for col in range(1, len(cols) + 1):
+            celda = hr.cell(row=fila, column=col)
+            celda.font = Font(bold=True, size=11 if nivel == 0 else 10, color=negro)
+            if nivel == 0:
+                celda.fill = PatternFill("solid", fgColor="D9D9D9")
+                celda.border = Border(top=medio, bottom=fino, left=fino, right=fino)
+        hr.cell(row=fila, column=1).alignment = Alignment(vertical="top", wrap_text=False)
+        hr.row_dimensions[fila].outlineLevel = nivel
+
+    orden_g = []
     n = 5
-    for g in orden_g:
-        clientes = sorted(g["clientes"].values(), key=lambda c: (-c["venta"], c["cliente"]))
-        escribir_bn(n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
-                        g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
-                    + ([g["en_bodegas"]] if con_bod else [])
-                    + [f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''}" if clientes else "Sin ventas en el período",
-                       g["unidades"] or None, len(g["facturas"]) or None, round(g["venta"], 2) or None, mes_mayor(g["meses"]),
-                       max((c["ultima"] for c in clientes), default=None)], True, True)
+    for s in grupos_cls:
+        fila_grupo(n, f"SEGMENTO: {s['segmento'].upper()}", s["totales"], 0)
         n += 1
-        for c in clientes:
-            escribir_bn(n, [None] * k + ["   " + c["cliente"] + (f" · {c['vendedor']}" if c["vendedor"] else ""), c["unidades"],
-                                         len(c["facturas"]), round(c["venta"], 2), mes_mayor(c["meses"]), c["ultima"]], False, False)
-            hr.row_dimensions[n].outlineLevel = 1
+        for fam in s["familias"]:
+            fila_grupo(n, fam["etiqueta"], fam["totales"], 1)
             n += 1
+            for g in grupos_parte(fam["filas"]):
+                orden_g.append(g)
+                clientes = sorted(g["clientes"].values(), key=lambda c: (-c["venta"], c["cliente"]))
+                escribir_bn(n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
+                                g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
+                            + ([g["en_bodegas"]] if con_bod else []) + [texto_bodegas(g["bodegas"])]
+                            + [f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''}" if clientes else "Sin ventas en el período",
+                               g["unidades"] or None, len(g["facturas"]) or None, round(g["venta"], 2) or None, mes_mayor(g["meses"]),
+                               max((c["ultima"] for c in clientes), default=None)], True, True)
+                hr.row_dimensions[n].outlineLevel = 2
+                n += 1
+                for c in clientes:
+                    escribir_bn(n, [None] * k + ["   " + c["cliente"] + (f" · {c['vendedor']}" if c["vendedor"] else ""), c["unidades"],
+                                                 len(c["facturas"]), round(c["venta"], 2), mes_mayor(c["meses"]), c["ultima"]], False, False)
+                    hr.row_dimensions[n].outlineLevel = 3
+                    n += 1
     # Totales calculados aquí (solo filas de número de parte): una fórmula sumaría también las filas de clientes
     hr.cell(row=n, column=1, value=f"TOTAL · {len(orden_g):,} números de parte")
     totales_fila = {6: sum(g["ingresos"] for g in orden_g), 7: round(sum(g["ingresos_costo"] for g in orden_g), 2),
@@ -497,7 +584,7 @@ def excel():
         c.border = Border(top=medio, bottom=medio, left=fino, right=fino)
         if fmts.get(col):
             c.number_format = fmts[col]
-    hr.sheet_properties.outlinePr.summaryBelow = False          # el +/− queda en la fila del número de parte
+    hr.sheet_properties.outlinePr.summaryBelow = False          # el +/− queda en la fila del grupo o del número de parte
     hr.freeze_panes = "C5"
     hr.auto_filter.ref = f"A4:{get_column_letter(len(cols))}{max(n - 1, 4)}"
     # Impresión: horizontal, a lo ancho de la hoja, encabezado repetido, sin colores
@@ -512,6 +599,30 @@ def excel():
     hr.page_margins.top, hr.page_margins.bottom = 0.5, 0.6
     hr.oddFooter.center.text = "Página &P de &N"
     hr.oddFooter.center.size = 8
+
+    # Hoja 4: existencia por bodega, una columna por cada bodega donde hay existencia de estos productos
+    he = wb.create_sheet("Existencia por bodega")
+    titulo(he, "Grupo Comersa · Existencia actual por bodega")
+    todas = sorted({b for r in filas for b, _ in r["por_bodega"]}, key=lambda b: (b not in f["bodegas"], b))
+    cols_e = [("Código", 12), ("Nº parte", 16), ("Descripción", 36), ("Marca", 14), ("Segmento", 14), ("Familia", 24), ("Subfamilia", 26),
+              ("Existencia total", 11)] + [(b, 11) for b in todas]
+    encabezar(he, 4, cols_e)
+    for col, b in enumerate(todas, start=9):
+        if b in f["bodegas"]:
+            he.cell(row=4, column=col).fill = PatternFill("solid", fgColor=NARANJA)     # bodegas filtradas, primero y en naranja
+    for n, r in enumerate(filas, start=5):
+        cantidades = dict(r["por_bodega"])
+        escribir(he, n, [r["codigo"], r["parte"], r["nombre"], r["marca"], r["segmento"], r["familia"], r["subfamilia"] or None, r["existencia"]]
+                 + [cantidades.get(b) or None for b in todas], {col: "#,##0.##" for col in range(8, len(cols_e) + 1)})
+    tot = len(filas) + 5
+    he.cell(row=tot, column=1, value=f"Total · {len(filas):,} productos").font = Font(bold=True)
+    for col in range(8, len(cols_e) + 1):
+        letra = get_column_letter(col)
+        c = he.cell(row=tot, column=col, value=f"=SUBTOTAL(9,{letra}5:{letra}{tot - 1})")
+        c.font = Font(bold=True)
+        c.number_format = "#,##0.##"
+    he.freeze_panes = "D5"
+    he.auto_filter.ref = f"A4:{get_column_letter(len(cols_e))}{max(tot - 1, 4)}"
 
     salida = io.BytesIO()
     wb.save(salida)
