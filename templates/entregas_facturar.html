@@ -37,7 +37,7 @@
         <label class="form-label small mb-0" for="f-{{ g.bodega_id }}">N° de factura</label>
         <input class="form-control" id="f-{{ g.bodega_id }}" name="factura_{{ g.bodega_id }}" maxlength="30" value="{{ g.factura.factura_num if g.factura else '' }}"
                {{ 'disabled' if e.estado != 'POR_FACTURAR' or g.bodega_id is none }}>
-        {% if g.factura %}<div class="form-text">Registrada por {{ g.factura.usuario }} el {{ g.factura.registrada_en.strftime('%d/%m %H:%M') }}</div>{% endif %}
+        {% if g.factura %}<div class="form-text">Registrada por {{ g.factura.usuario }} el {{ g.factura.registrada_en|hora('%d/%m') }}</div>{% endif %}
       </div>
     </div>
     {% endfor %}

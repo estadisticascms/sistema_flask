@@ -23,7 +23,7 @@
         <i class="bi {{ iconos.get(a.tipo, 'bi-bell') }} fs-5" style="color: {{ '#FE6412' if not a.leido_en else '#8a8984' }}" aria-hidden="true"></i>
         <div class="flex-grow-1">
           <div class="small">{{ a.mensaje }}</div>
-          <div class="text-muted" style="font-size: .72rem">{{ a.creado_en.strftime('%d/%m %H:%M') }}{% if a.de %} · de {{ a.de }}{% endif %}</div>
+          <div class="text-muted" style="font-size: .72rem">{{ a.creado_en|hora('%d/%m') }}{% if a.de %} · de {{ a.de }}{% endif %}</div>
         </div>
         <form method="post" action="{{ url_for('entregas_operacion.leer_avisos') }}" class="d-flex gap-1 align-items-start">
           <input type="hidden" name="id" value="{{ a.id }}">

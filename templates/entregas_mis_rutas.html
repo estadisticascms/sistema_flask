@@ -52,8 +52,8 @@
           {% if p.telefono %}<a class="btn btn-sm btn-outline-secondary" href="tel:{{ p.telefono }}"><i class="bi bi-telephone" aria-hidden="true"></i> {{ p.telefono }}</a>{% endif %}
         </div>
         <div class="small mt-1">
-          {% if p.hora_requerida %}<span class="{{ 'text-danger fw-bold' if p.atrasada }}">Hora límite: {{ p.hora_requerida.strftime('%H:%M') }}{{ ' (' ~ p.hora_requerida.strftime('%d/%m') ~ ')' if p.hora_requerida.date() != hoy }}{{ ' · atrasada' if p.atrasada }}</span>{% endif %}
-          {% if p.hora_limite_recepcion %} · recibe hasta {{ p.hora_limite_recepcion|string|truncate(5, True, '') }}{% endif %}
+          {% if p.hora_requerida %}<span class="{{ 'text-danger fw-bold' if p.atrasada }}">Hora límite: {{ p.hora_requerida|hora }}{{ ' (' ~ p.hora_requerida.strftime('%d/%m') ~ ')' if p.hora_requerida.date() != hoy }}{{ ' · atrasada' if p.atrasada }}</span>{% endif %}
+          {% if p.hora_limite_recepcion %} · recibe hasta {{ p.hora_limite_recepcion|hora }}{% endif %}
         </div>
       </div>
     </div>
@@ -71,7 +71,7 @@
 
     {% if p.entregado_en %}
     <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small text-success">
-      <i class="bi bi-check2-all" aria-hidden="true"></i> Entregada a las {{ p.entregado_en.strftime('%H:%M') }} · recibo C$ {{ "{:,.2f}".format(p.monto_recibo or 0) }}{% if p.guia %} · guía {{ p.guia }}{% endif %}
+      <i class="bi bi-check2-all" aria-hidden="true"></i> Entregada a las {{ p.entregado_en|hora }} · recibo C$ {{ "{:,.2f}".format(p.monto_recibo or 0) }}{% if p.guia %} · guía {{ p.guia }}{% endif %}
     </div>
     <div class="d-flex gap-2 mt-1">
       {% for t in ('entrega', 'recibo') %}

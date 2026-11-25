@@ -41,6 +41,7 @@ from router.entregas_avisos import avisar, avisar_sin_repetir, destinatarios, re
 from router.entregas_flujo import recalcular_estado
 from router.entregas_alerta import ahora_nicaragua, alerta_de_envio, calcular as calcular_alerta, leer_configuracion
 from router.entregas_catalogos import TIPOS_TRANSPORTISTA, hora_texto, texto
+from router.entregas_formato import hora12
 from router.entregas_pdf import ErrorLectura, leer_orden
 from utils.db import get_connection
 
@@ -242,7 +243,7 @@ def guardar_envio(cursor, orden, datos, usuario_id, token):
         if not l["solo_factura"]:
             a_quien += responsables_linea(cursor, {"responsable": l["responsable"], "bodega_id": l["b"]["id"]})
     avisar(cursor, a_quien, "orden_nueva", f"Orden nueva {orden['pedido']} ({orden['cliente'][:60]}): sale "
-           f"{datos['hora_requerida'].strftime('%d/%m %H:%M')}" + (" · EN RIESGO" if datos["riesgo"] == "rojo" else ""),
+           f"{hora12(datos['hora_requerida'], '%d/%m')}" + (" · EN RIESGO" if datos["riesgo"] == "rojo" else ""),
            envio_id=envio_id, creado_por=usuario_id)
     registrar_evento(cursor, envio_id, usuario_id, "ORDEN_ENVIADA",
                      comentario=f"Orden {orden['pedido']} subida desde el PDF ({len(lineas_que_van(orden))} líneas); alerta {alerta}"

@@ -95,7 +95,7 @@
     <div class="row g-2">
       <div class="col-md-5"><label class="form-label small mb-0" for="transportista_id">Transporte *</label>
         <select class="form-select" id="transportista_id" name="transportista_id" required><option value="">— escoja —</option>
-          {% for t in transportistas %}<option value="{{ t.id }}" data-destinos="{{ t.destinos|join('|') }}" data-sin-horario="{{ 1 if t.sin_horario else 0 }}" data-libres="{{ t.libres|join('|') }}" {{ 'selected' if datos.get('transportista_id')|string == t.id|string }}>{{ t.nombre }} · {{ tipos.get(t.tipo, t.tipo) }}{% if t.limite %} · recibe hasta {{ t.limite }}{% endif %}</option>{% endfor %}
+          {% for t in transportistas %}<option value="{{ t.id }}" data-destinos="{{ t.destinos|join('|') }}" data-sin-horario="{{ 1 if t.sin_horario else 0 }}" data-libres="{{ t.libres|join('|') }}" {{ 'selected' if datos.get('transportista_id')|string == t.id|string }}>{{ t.nombre }} · {{ tipos.get(t.tipo, t.tipo) }}{% if t.limite %} · recibe hasta {{ t.hora_limite_recepcion|hora }}{% endif %}</option>{% endfor %}
         </select></div>
       <div class="col-md-4"><label class="form-label small mb-0" for="destino">Destino</label>
         <input class="form-control" id="destino" name="destino" maxlength="100" list="lista-destinos" value="{{ datos.get('destino', '') }}" placeholder="Ciudad o departamento">

@@ -34,7 +34,7 @@
       <div class="col-6 col-md-3"><small>Vendedor</small>{{ e.vendedor }}{% if e.ingresado_por_orden %} <span class="text-muted">(ingresó {{ e.ingresado_por_orden }})</span>{% endif %}</div>
       <div class="col-6 col-md-3"><small>Transporte</small>{{ e.transportista }} · {{ tipos.get(e.transportista_tipo, '') }}</div>
       <div class="col-6 col-md-3"><small>Destino</small>{{ e.destino or '—' }}</div>
-      <div class="col-6 col-md-3"><small>Hora requerida de salida</small><strong>{{ e.hora_requerida.strftime('%d/%m/%Y %H:%M') }}</strong></div>
+      <div class="col-6 col-md-3"><small>Hora requerida de salida</small><strong>{{ e.hora_requerida|hora('%d/%m/%Y') }}</strong></div>
       <div class="col-6 col-md-3"><small>Flete lo paga</small>{{ 'Empresa' if e.flete_paga == 'empresa' else 'Cliente' }}</div>
       {% if e.bultos %}<div class="col-6 col-md-3"><small>Empaque</small>{{ e.bultos }} bulto(s), {{ '%g' % e.peso_kg }} kg</div>{% endif %}
       {% if e.forma_pago %}<div class="col-6 col-md-3"><small>Forma de pago</small>{{ 'Pago en la entrega' if e.forma_pago == 'contra_entrega' else 'Transferencia' }}</div>{% endif %}
@@ -68,7 +68,7 @@
   {% if facturas or (es_dueno and e.estado == 'POR_FACTURAR') %}
   <h6>Facturas</h6>
   <div class="card card-body shadow-sm mb-3 small">
-    {% for f in facturas %}<div>{{ f.bodega }}: <strong>{{ f.factura_num }}</strong> <span class="text-muted">· {{ f.usuario }}, {{ f.registrada_en.strftime('%d/%m %H:%M') }}</span></div>
+    {% for f in facturas %}<div>{{ f.bodega }}: <strong>{{ f.factura_num }}</strong> <span class="text-muted">· {{ f.usuario }}, {{ f.registrada_en|hora('%d/%m') }}</span></div>
     {% else %}<span class="text-muted">Sin facturas registradas.</span>{% endfor %}
     {% if es_dueno and e.estado == 'POR_FACTURAR' %}<div class="mt-2"><a class="btn btn-sm text-white" style="background: #FE6412" href="{{ url_for('entregas_vendedor.facturar', id_=e.id) }}"><i class="bi bi-receipt" aria-hidden="true"></i> Ver ajustes y registrar facturas</a></div>{% endif %}
   </div>
@@ -79,7 +79,7 @@
   <div class="card card-body shadow-sm mb-3 small">
     <div>Ruta #{{ entrega.ruta_id }} del {{ entrega.fecha.strftime('%d/%m/%Y') }} · mensajero <strong>{{ entrega.mensajero }}</strong> · parada {{ entrega.orden }}: {{ entrega.transportista }}</div>
     {% if entrega.entregado_en %}
-    <div>Entregada a las <strong>{{ entrega.entregado_en.strftime('%d/%m %H:%M') }}</strong>{% if entrega.guia %} · guía <strong>{{ entrega.guia }}</strong>{% endif %}
+    <div>Entregada a las <strong>{{ entrega.entregado_en|hora('%d/%m') }}</strong>{% if entrega.guia %} · guía <strong>{{ entrega.guia }}</strong>{% endif %}
       · recibo C$ {{ "{:,.2f}".format(entrega.monto_recibo or 0) }}{% if e.flete_monto is not none %} · flete de este envío C$ {{ "{:,.2f}".format(e.flete_monto) }}{% endif %}</div>
     <div class="d-flex gap-2 mt-2">
       {% for t in ('entrega', 'recibo') %}
@@ -89,7 +89,7 @@
       {% endfor %}
     </div>
     {% elif entrega.ruta_estado == 'ARMADA' %}<div class="text-muted">La ruta todavía no sale.</div>
-    {% else %}<div class="text-muted">En camino{% if entrega.salida %} desde las {{ entrega.salida.strftime('%H:%M') }}{% endif %}.</div>{% endif %}
+    {% else %}<div class="text-muted">En camino{% if entrega.salida %} desde las {{ entrega.salida|hora }}{% endif %}.</div>{% endif %}
   </div>
   {% endif %}
 
@@ -99,7 +99,7 @@
     <li class="list-group-item d-flex flex-wrap justify-content-between gap-2">
       <span>{% if ev.campo == 'estado' %}<strong>{{ nombre_estado.get(ev.a_estado, ev.a_estado) }}</strong>{% else %}{{ ev.campo|capitalize }}: {{ ev.de_estado or '' }} → <strong>{{ ev.a_estado }}</strong>{% endif %}
         {% if ev.comentario %}<span class="text-muted">· {{ ev.comentario }}</span>{% endif %}</span>
-      <span class="text-muted">{{ ev.usuario }} · {{ ev.creado_en.strftime('%d/%m/%Y %H:%M') }}</span>
+      <span class="text-muted">{{ ev.usuario }} · {{ ev.creado_en|hora('%d/%m/%Y') }}</span>
     </li>
     {% else %}<li class="list-group-item text-muted">Sin movimientos.</li>{% endfor %}
   </ul>

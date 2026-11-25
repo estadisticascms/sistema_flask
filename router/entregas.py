@@ -16,9 +16,11 @@ from mysql.connector import errorcode
 from mysql.connector.errors import ProgrammingError
 
 from router.accesos import requiere_acceso
+from router.entregas_formato import hora12
 from utils.db import get_connection
 
 entregas_bp = Blueprint("entregas", __name__)
+entregas_bp.add_app_template_filter(hora12, "hora")     # {{ fecha|hora }} -> «3:05 p. m.»; {{ fecha|hora('%d/%m') }}
 
 ROLES = {
     "vendedor": ("Vendedor", "Sube la orden, agrega transporte y hora, decide ante faltantes y registra las facturas"),

@@ -31,7 +31,7 @@
       <input class="form-check-input" type="checkbox" name="envio_id" value="{{ e.id }}" id="env-{{ e.id }}">
       <label class="form-check-label small" for="env-{{ e.id }}">
         <strong>Pedido {{ e.pedido_num }}</strong> · {{ e.cliente }}{% if e.destino %} → {{ e.destino }}{% endif %}
-        · {{ e.bultos }} bulto(s) · sale <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong>
+        · {{ e.bultos }} bulto(s) · sale <strong>{{ e.hora_requerida|hora('%d/%m') }}</strong>
         {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %}
         {% if e.forma_pago == 'contra_entrega' %}<span class="badge text-bg-danger">COBRAR</span>{% endif %}
       </label>
@@ -76,7 +76,7 @@
     <div class="d-flex flex-wrap justify-content-between gap-2">
       <div><strong>Ruta #{{ r.id }}</strong> · {{ r.fecha.strftime('%d/%m/%Y') }} {{ estado_ruta(r) }}
         <div class="small">Mensajero: <strong>{{ r.mensajero }}</strong> · {{ r.paradas|length }} parada(s), {{ r.envios }} envío(s) · {{ r.entregadas }}/{{ r.paradas|length }} entregadas</div>
-        <div class="small text-muted">{% if r.salida %}Salió {{ r.salida.strftime('%d/%m %H:%M') }}{% endif %}{% if r.regreso %} · regresó {{ r.regreso.strftime('%H:%M') }}{% endif %}</div></div>
+        <div class="small text-muted">{% if r.salida %}Salió {{ r.salida|hora('%d/%m') }}{% endif %}{% if r.regreso %} · regresó {{ r.regreso|hora }}{% endif %}</div></div>
       <div class="d-flex flex-wrap gap-2 align-items-start">
         {% if r.estado == 'ARMADA' %}
         <form method="post" action="{{ url_for('entregas_rutas.mensajero') }}" class="d-flex gap-1">
@@ -105,10 +105,10 @@
         <div class="d-flex flex-wrap justify-content-between gap-2">
           <div><strong>{{ p.transportista }}</strong> <span class="small text-muted">· {{ tipos.get(p.transportista_tipo, '') }}</span>
             {% if p.cobrar %}<span class="badge text-bg-danger">COBRAR</span>{% endif %}
-            <div class="small text-muted">{{ p.direccion or 'sin dirección' }}{% if p.hora_limite_recepcion %} · recibe hasta {{ p.hora_limite_recepcion|string|truncate(5, True, '') }}{% endif %}</div></div>
+            <div class="small text-muted">{{ p.direccion or 'sin dirección' }}{% if p.hora_limite_recepcion %} · recibe hasta {{ p.hora_limite_recepcion|hora }}{% endif %}</div></div>
           <div class="text-end small">
-            {% if p.entregado_en %}<span class="text-success"><i class="bi bi-check2-all" aria-hidden="true"></i> Entregada {{ p.entregado_en.strftime('%H:%M') }}</span>
-            {% elif p.hora_requerida %}<span class="{{ 'text-danger fw-bold' if p.atrasada }}">Sale {{ p.hora_requerida.strftime('%d/%m %H:%M') }}{{ ' · atrasada' if p.atrasada }}</span>{% endif %}
+            {% if p.entregado_en %}<span class="text-success"><i class="bi bi-check2-all" aria-hidden="true"></i> Entregada {{ p.entregado_en|hora }}</span>
+            {% elif p.hora_requerida %}<span class="{{ 'text-danger fw-bold' if p.atrasada }}">Sale {{ p.hora_requerida|hora('%d/%m') }}{{ ' · atrasada' if p.atrasada }}</span>{% endif %}
             {% if not p.entregado_en and r.estado != 'CERRADA' %}
             <div class="d-inline-flex gap-1 ms-2">
               {% for dir, icono in (('subir', 'bi-arrow-up'), ('bajar', 'bi-arrow-down')) %}

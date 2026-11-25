@@ -22,6 +22,8 @@ Todas las horas son de Nicaragua (UTC-6), sin depender de la zona del servidor.
 import unicodedata
 from datetime import datetime, time, timedelta, timezone
 
+from router.entregas_formato import hora12
+
 NICARAGUA = timezone(timedelta(hours=-6))
 COMPONENTES = [   # clave de configuración (o del transportista), nombre, cuándo aplica
     ("minutos_preparacion", "Preparación en bodega", "preparacion"),
@@ -138,16 +140,16 @@ def calcular(config, hora_requerida, hay_traslado, transportista=None, horarios=
     if salida:
         r["sugerencia"] = {"hora": salida, "destino": horario["destino"],
                            "texto": f"Próxima salida que se alcanza: {horario['destino']} {NOMBRE_DIA[salida.weekday()]} "
-                                    f"{salida.strftime('%d/%m %H:%M')}"}
+                                    f"{hora12(salida, '%d/%m')}"}
     limite = a_hora(transportista.get("hora_limite_recepcion"))
     if limite:
         tope = datetime.combine(ahora.date(), limite)
         if r["listo"] > tope:
-            r["aviso_limite"] = (f"Ya no se llega hoy a la hora límite de recepción del transporte ({limite.strftime('%H:%M')}): "
-                                 f"la mercadería estaría lista a las {r['listo'].strftime('%H:%M')}.")
+            r["aviso_limite"] = (f"Ya no se llega hoy a la hora límite de recepción del transporte ({hora12(limite)}): "
+                                 f"la mercadería estaría lista a las {hora12(r['listo'])}.")
         elif hora_requerida and hora_requerida.time() > limite and hora_requerida.date() == ahora.date():
-            r["aviso_limite"] = (f"La hora requerida ({hora_requerida.strftime('%H:%M')}) es después de la hora límite de recepción del "
-                                 f"transporte ({limite.strftime('%H:%M')}).")
+            r["aviso_limite"] = (f"La hora requerida ({hora12(hora_requerida)}) es después de la hora límite de recepción del "
+                                 f"transporte ({hora12(limite)}).")
 
     if not hora_requerida:
         return r
@@ -160,7 +162,7 @@ def calcular(config, hora_requerida, hay_traslado, transportista=None, horarios=
         r["motivos"].append(f"No alcanza el tiempo: se necesitan {duracion(necesario)} y faltan {duracion(max(restante, 0))}"
                             + (" (la hora requerida ya pasó)" if restante < 0 else "") + ".")
     if corte and urgencia is not None and enviada_en.time() > corte and restante < urgencia:
-        r["motivos"].append(f"Orden enviada después de las {corte.strftime('%H:%M')} con menos de {duracion(urgencia)} para la hora requerida.")
+        r["motivos"].append(f"Orden enviada después de las {hora12(corte)} con menos de {duracion(urgencia)} para la hora requerida.")
     if r["motivos"]:
         r["nivel"] = "rojo"
     elif amarillo is None:

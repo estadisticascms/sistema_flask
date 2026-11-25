@@ -73,7 +73,7 @@
     </div>
   </div>
   <div class="pie chico fila">
-    <span>Sale: <strong>{{ e.hora_requerida.strftime('%d/%m/%Y %H:%M') }}</strong></span>
+    <span>Sale: <strong>{{ e.hora_requerida|hora('%d/%m/%Y') }}</strong></span>
     <span>Vendedor: {{ e.vendedor }}</span>
   </div>
 </section>

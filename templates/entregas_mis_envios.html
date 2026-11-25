@@ -10,7 +10,7 @@
       {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %} {{ chip(e) }}
       <div class="small">{{ e.cliente }}</div>
       <div class="small text-muted">{{ e.transportista }}{% if e.destino %} → {{ e.destino }}{% endif %}</div></div>
-    <div class="text-end small"><div>Sale <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong></div>
+    <div class="text-end small"><div>Sale <strong>{{ e.hora_requerida|hora('%d/%m') }}</strong></div>
       <div class="text-muted">{{ nombre_estado[e.estado] }} · {{ e.confirmadas }}/{{ e.lineas|length }} líneas listas</div></div>
   </div>
 {% endmacro %}

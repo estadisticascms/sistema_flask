@@ -44,7 +44,7 @@
         <div class="small text-muted">{{ e.vendedor }} · {{ e.transportista }}{% if e.destino %} → {{ e.destino }}{% endif %}</div>
       </div>
       <div class="text-end small">
-        <div>Sale: <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong></div>
+        <div>Sale: <strong>{{ e.hora_requerida|hora('%d/%m') }}</strong></div>
         {% if e.alerta and e.alerta.margen is not none %}<div class="text-muted">{{ 'faltan ' ~ e.alerta.margen_texto if e.alerta.margen < 0 else 'margen ' ~ e.alerta.margen_texto }}</div>{% endif %}
         <div class="text-muted">{{ nombre_estado[e.estado] }}</div>
       </div>
@@ -115,7 +115,7 @@
       <div><a class="fw-bold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=e.id) }}">Pedido {{ e.pedido_num }}</a>
         {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %} {{ chip_riesgo(e) }}
         <div class="small">{{ e.cliente }}</div><div class="small text-muted">{{ e.transportista }}{% if e.destino %} → {{ e.destino }}{% endif %}</div></div>
-      <div class="text-end small"><div>Sale: <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong></div><div class="text-muted">{{ nombre_estado[e.estado] }}</div></div>
+      <div class="text-end small"><div>Sale: <strong>{{ e.hora_requerida|hora('%d/%m') }}</strong></div><div class="text-muted">{{ nombre_estado[e.estado] }}</div></div>
     </div>
     {% for l in e.lineas %}
     <div class="linea d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -149,7 +149,7 @@
   <div class="seccion-tr">Vienen en camino por traslado (se preparan cuando lleguen)</div>
   <ul class="list-group small mb-3">{% for l in en_camino %}
     <li class="list-group-item d-flex justify-content-between gap-2"><span><strong>{{ l.codigo }}</strong> ({{ '%g' % l.va }}) · Pedido {{ l.pedido_num }} · desde {{ l.bodega }}</span>
-      <span class="text-muted">{{ 'aplicado' if l.traslado_estado == 'APLICADO' else 'en camino' }} · sale {{ l.hora_requerida.strftime('%d/%m %H:%M') }}</span></li>{% endfor %}</ul>
+      <span class="text-muted">{{ 'aplicado' if l.traslado_estado == 'APLICADO' else 'en camino' }} · sale {{ l.hora_requerida|hora('%d/%m') }}</span></li>{% endfor %}</ul>
   {% endif %}
   {% endif %}
 
@@ -164,7 +164,7 @@
     <div class="d-flex flex-wrap justify-content-between gap-2">
       <div><a class="fw-semibold text-decoration-none" href="{{ url_for('entregas_orden.envio', id_=l.envio_id) }}">Pedido {{ l.pedido_num }}</a>
         {% if l.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %}
-        <span class="small text-muted">· sale {{ l.hora_requerida.strftime('%d/%m %H:%M') }}</span>
+        <span class="small text-muted">· sale {{ l.hora_requerida|hora('%d/%m') }}</span>
         <div><span class="fw-semibold">{{ l.codigo }}</span> · {{ l.producto or '' }} <span class="small text-muted">· {{ l.marca or '' }}</span></div>
         <div class="small">{% if l.tipo and l.tipo.texto %}<span class="tipo">{{ l.tipo.texto }}</span>{% else %}<span class="text-muted">Tipo de producto no encontrado en el catálogo</span>{% endif %}
           <span class="text-muted">· desde {{ l.bodega }}</span></div></div>
@@ -195,7 +195,7 @@
       <input class="form-check-input" type="checkbox" name="linea_id" value="{{ l.id }}" id="{{ clave }}-{{ l.id }}">
       <label class="form-check-label small w-100" for="{{ clave }}-{{ l.id }}">
         <strong>{{ l.codigo }}</strong> ({{ '%g' % l.va }}) · Pedido {{ l.pedido_num }} · {{ l.bodega }} → <strong>{{ l.destino }}</strong> · traslado N° {{ l.traslado_num }}
-        <span class="text-muted">· sale {{ l.hora_requerida.strftime('%d/%m %H:%M') }}</span></label>
+        <span class="text-muted">· sale {{ l.hora_requerida|hora('%d/%m') }}</span></label>
     </div>
     {% endfor %}
     <div class="mt-2"><button class="btn btn-sm btn-hay"><i class="bi {{ 'bi-truck' if accion == 'en_camino' else 'bi-box-arrow-in-down' }}" aria-hidden="true"></i> {{ boton }} (marcadas)</button></div>

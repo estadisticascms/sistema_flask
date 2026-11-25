@@ -35,6 +35,7 @@ from router.entregas import contexto_entregas, registrar_evento, requiere_modulo
 from router.entregas_avisos import avisar, destinatarios
 from router.entregas_catalogos import TIPOS_TRANSPORTISTA
 from router.entregas_flujo import ErrorFlujo, ahora, poner_estado
+from router.entregas_formato import hora12
 from router.entregas_orden import NOMBRE_ESTADO, carpeta, lineas_visibles, ruta_absoluta
 from utils.db import get_connection
 
@@ -358,7 +359,7 @@ def registrar_parada(cursor, usuario_id, roles, parada_id, entregado_en, guia, m
     if entregado_en > ahora() + timedelta(minutes=5):
         raise ErrorFlujo("La hora de entrega no puede ser futura.")
     if ruta["salida"] and entregado_en < ruta["salida"] - timedelta(minutes=1):
-        raise ErrorFlujo(f"La hora de entrega no puede ser antes de la salida ({ruta['salida'].strftime('%H:%M')}).")
+        raise ErrorFlujo(f"La hora de entrega no puede ser antes de la salida ({hora12(ruta['salida'])}).")
     if monto is None or monto < 0 or monto >= 10000000:
         raise ErrorFlujo("Escriba el monto del recibo (0 si no hubo cobro de flete).")
     if not fotos.get("entrega") or not fotos.get("recibo"):
@@ -382,7 +383,7 @@ def registrar_parada(cursor, usuario_id, roles, parada_id, entregado_en, guia, m
         flete = detalle.get(e["id"])
         if flete is not None:
             cursor.execute("UPDATE ent_envios SET flete_monto = %s WHERE id = %s", (round(flete, 2), e["id"]))
-        texto = f"Entregada en {transportista} a las {entregado_en.strftime('%H:%M')}" + (f", guía {guia}" if guia else "")
+        texto = f"Entregada en {transportista} a las {hora12(entregado_en)}" + (f", guía {guia}" if guia else "")
         poner_estado(cursor, e, "ENTREGADA", usuario_id, texto)
         avisar(cursor, [e["vendedor_id"]], "entregada", f"Pedido {e['pedido_num']} entregado en {transportista}" + (f" (guía {guia})" if guia else ""),
                envio_id=e["id"], creado_por=usuario_id)

@@ -34,7 +34,7 @@
       <div class="col-md-2"><div class="form-check mb-1"><input class="form-check-input" type="checkbox" name="riesgo" value="1" id="riesgo" {{ 'checked' if f.riesgo }}>
         <label class="form-check-label small" for="riesgo">Solo en riesgo o justas</label></div></div>
       <div class="col-md-2 d-flex gap-2"><button class="btn btn-sm btn-primary"><i class="bi bi-funnel" aria-hidden="true"></i> Filtrar</button>
-        <span class="small text-muted align-self-center">act. {{ ahora.strftime('%H:%M') }}</span></div>
+        <span class="small text-muted align-self-center">act. {{ ahora|hora }}</span></div>
     </div>
   </form>
 
@@ -50,7 +50,7 @@
             {% if e.prioridad == 'urgente' %}<div><span class="badge text-bg-danger">Urgente</span></div>{% endif %}</td>
           <td>{{ e.cliente }}<div class="text-muted">{{ e.vendedor }}</div></td>
           <td>{{ e.transportista }}{% if e.destino %}<div class="text-muted">{{ e.destino }}</div>{% endif %}</td>
-          <td class="text-nowrap fw-semibold">{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</td>
+          <td class="text-nowrap fw-semibold">{{ e.hora_requerida|hora('%d/%m') }}</td>
           <td>{% if e.nivel %}<span class="chip" style="color: {{ c[e.nivel][0] }}; background: {{ c[e.nivel][1] }}">{{ c[e.nivel][2] }}</span>{% endif %}
             {% if e.riesgo_confirmado %}<div class="text-danger" style="font-size: .68rem">hora confirmada en riesgo</div>{% endif %}
             {% if e.alerta and e.alerta.margen is not none %}<div class="text-muted" style="font-size: .7rem">{{ 'faltan ' ~ e.alerta.margen_texto if e.alerta.margen < 0 else 'margen ' ~ e.alerta.margen_texto }}</div>{% endif %}</td>
