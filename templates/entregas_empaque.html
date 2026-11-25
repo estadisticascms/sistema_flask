@@ -81,6 +81,8 @@
     {{ datos_etiqueta(e) }}
     <div class="d-flex flex-wrap gap-2 align-items-end mt-2">
       <a class="btn btn-sm btn-verde" href="{{ url_for('entregas_paqueteria.etiqueta', id_=e.id) }}" target="_blank" rel="noopener"><i class="bi bi-printer" aria-hidden="true"></i> Etiqueta ({{ e.bultos }} bulto{{ 's' if e.bultos != 1 }})</a>
+      {% if e.parada_id %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas_rutas.rutas') }}"><i class="bi bi-signpost-2" aria-hidden="true"></i> Ya está en una ruta</a>
+      {% else %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas_rutas.rutas') }}"><i class="bi bi-signpost-2" aria-hidden="true"></i> Armar ruta</a>{% endif %}
       <details class="small"><summary class="text-muted">Corregir bultos o peso</summary>
         <form method="post" action="{{ url_for('entregas_paqueteria.empacar_envio') }}" class="d-flex flex-wrap gap-2 align-items-end mt-1">
           <input type="hidden" name="envio_id" value="{{ e.id }}">

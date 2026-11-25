@@ -1,0 +1,154 @@
+{% extends "layout.html" %}
+{% block title %}Rutas · Entregas{% endblock %}
+{% macro estado_ruta(r) %}
+  {% set c = {'ARMADA': ('#9a6700', '#fff8db', 'Armada'), 'EN_CURSO': ('#FE6412', '#fff0e6', 'En curso'), 'CERRADA': ('#027266', '#e3f3f1', 'Cerrada')} %}
+  <span class="chip" style="color: {{ c[r.estado][0] }}; background: {{ c[r.estado][1] }}">{{ c[r.estado][2] }}</span>
+{% endmacro %}
+{% block content %}
+<style>
+  .chip { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+  .seccion { font-size: .8rem; font-weight: 700; color: #6b6a66; text-transform: uppercase; letter-spacing: .03em; margin: 1.2rem 0 .5rem; }
+  .btn-verde { background: #027266; color: #fff; } .btn-verde:hover { background: #015a50; color: #fff; }
+  .btn-naranja { background: #FE6412; color: #fff; } .btn-naranja:hover { background: #e2560c; color: #fff; }
+  .parada { border-top: 1px solid #eceae4; padding: .5rem 0; }
+  .num { display: inline-flex; width: 1.6rem; height: 1.6rem; border-radius: 50%; align-items: center; justify-content: center;
+         background: #027266; color: #fff; font-weight: 700; font-size: .8rem; flex: none; }
+  .num.hecha { background: #b9c9c6; }
+  .foto { width: 64px; height: 64px; object-fit: cover; border-radius: .4rem; border: 1px solid #ddd; }
+  .grupo-t { font-weight: 700; color: #027266; margin-top: .6rem; }
+</style>
+<div class="container mt-3 mb-4" style="max-width: 1000px">
+  {% include "_entregas_nav.html" %}
+
+  <div class="seccion" style="color: #FE6412"><i class="bi bi-box2-heart" aria-hidden="true"></i> Empacados sin ruta <span class="badge text-bg-light">{{ sin_ruta|sum(attribute='envios', start=[])|length }}</span></div>
+  {% if sin_ruta %}
+  <form method="post" action="{{ url_for('entregas_rutas.armar') }}" class="card card-body shadow-sm mb-3" style="border-left: 5px solid #FE6412">
+    <input type="hidden" name="fecha_vista" value="{{ fecha.isoformat() }}">
+    {% for g in sin_ruta %}
+    <div class="grupo-t">{{ g.transportista }} <span class="small text-muted fw-normal">· {{ tipos.get(g.tipo, '') }}</span></div>
+    {% for e in g.envios %}
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="envio_id" value="{{ e.id }}" id="env-{{ e.id }}">
+      <label class="form-check-label small" for="env-{{ e.id }}">
+        <strong>Pedido {{ e.pedido_num }}</strong> · {{ e.cliente }}{% if e.destino %} → {{ e.destino }}{% endif %}
+        · {{ e.bultos }} bulto(s) · sale <strong>{{ e.hora_requerida.strftime('%d/%m %H:%M') }}</strong>
+        {% if e.prioridad == 'urgente' %}<span class="badge text-bg-danger">Urgente</span>{% endif %}
+        {% if e.forma_pago == 'contra_entrega' %}<span class="badge text-bg-danger">COBRAR</span>{% endif %}
+      </label>
+    </div>
+    {% endfor %}
+    {% endfor %}
+    <div class="d-flex flex-wrap gap-3 align-items-end mt-3 pt-2 border-top">
+      {% if mensajeros %}
+      <div><label class="form-label small mb-0" for="mensajero_id">Mensajero</label>
+        <select class="form-select form-select-sm" id="mensajero_id" name="mensajero_id">
+          {% for m in mensajeros %}<option value="{{ m.id }}">{{ m.usuario }}</option>{% endfor %}
+        </select></div>
+      <div><label class="form-label small mb-0" for="fecha">Fecha</label>
+        <input type="date" class="form-control form-control-sm" id="fecha" name="fecha" value="{{ hoy.isoformat() }}" min="{{ hoy.isoformat() }}"></div>
+      <button class="btn btn-sm btn-naranja" name="accion" value="armar"><i class="bi bi-signpost-2" aria-hidden="true"></i> Armar ruta con los marcados</button>
+      {% else %}
+      <div class="small text-danger">No hay mensajeros: asigne el rol «Mensajero» en <a href="{{ url_for('entregas.usuarios') }}">Usuarios y roles</a>.</div>
+      {% endif %}
+      {% if armadas %}
+      <div class="ms-md-auto d-flex gap-2 align-items-end">
+        <div><label class="form-label small mb-0" for="ruta_id">o agregar a</label>
+          <select class="form-select form-select-sm" id="ruta_id" name="ruta_id">
+            {% for r in armadas %}<option value="{{ r.id }}">Ruta #{{ r.id }} · {{ r.mensajero }} · {{ r.fecha.strftime('%d/%m') }}</option>{% endfor %}
+          </select></div>
+        <button class="btn btn-sm btn-outline-secondary" name="accion" value="agregar">Agregar</button>
+      </div>
+      {% endif %}
+    </div>
+    <div class="small text-muted mt-2">Se crea una parada por transportista, ordenadas por la hora de salida más temprana. Después puede reordenarlas.</div>
+  </form>
+  {% else %}<div class="small text-muted">Ningún envío empacado esperando ruta.</div>{% endif %}
+
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2">
+    <div class="seccion"><i class="bi bi-signpost-2" aria-hidden="true"></i> Rutas del {{ fecha.strftime('%d/%m/%Y') }} y rutas abiertas <span class="badge text-bg-light">{{ rutas|length }}</span></div>
+    <form method="get" class="d-flex gap-2 align-items-center mb-2">
+      <input type="date" class="form-control form-control-sm" name="fecha" value="{{ fecha.isoformat() }}" aria-label="Fecha de las rutas">
+      <button class="btn btn-sm btn-outline-secondary">Ver</button>
+    </form>
+  </div>
+  {% for r in rutas %}
+  <div class="card card-body shadow-sm mb-3" style="border-left: 5px solid {{ '#027266' if r.estado == 'CERRADA' else ('#FE6412' if r.estado == 'EN_CURSO' else '#d4a72c') }}">
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+      <div><strong>Ruta #{{ r.id }}</strong> · {{ r.fecha.strftime('%d/%m/%Y') }} {{ estado_ruta(r) }}
+        <div class="small">Mensajero: <strong>{{ r.mensajero }}</strong> · {{ r.paradas|length }} parada(s), {{ r.envios }} envío(s) · {{ r.entregadas }}/{{ r.paradas|length }} entregadas</div>
+        <div class="small text-muted">{% if r.salida %}Salió {{ r.salida.strftime('%d/%m %H:%M') }}{% endif %}{% if r.regreso %} · regresó {{ r.regreso.strftime('%H:%M') }}{% endif %}</div></div>
+      <div class="d-flex flex-wrap gap-2 align-items-start">
+        {% if r.estado == 'ARMADA' %}
+        <form method="post" action="{{ url_for('entregas_rutas.mensajero') }}" class="d-flex gap-1">
+          <input type="hidden" name="ruta_id" value="{{ r.id }}"><input type="hidden" name="fecha_vista" value="{{ fecha.isoformat() }}">
+          <select class="form-select form-select-sm" name="mensajero_id" aria-label="Cambiar mensajero de la ruta {{ r.id }}">
+            {% for m in mensajeros %}<option value="{{ m.id }}" {{ 'selected' if m.id == r.mensajero_id }}>{{ m.usuario }}</option>{% endfor %}
+          </select>
+          <button class="btn btn-sm btn-outline-secondary">Cambiar</button>
+        </form>
+        <form method="post" action="{{ url_for('entregas_rutas.deshacer') }}" onsubmit="return confirm('¿Deshacer la ruta #{{ r.id }}? Sus envíos vuelven a «sin ruta».')">
+          <input type="hidden" name="ruta_id" value="{{ r.id }}"><input type="hidden" name="fecha_vista" value="{{ fecha.isoformat() }}">
+          <button class="btn btn-sm btn-outline-danger">Deshacer</button>
+        </form>
+        {% elif r.estado == 'EN_CURSO' and r.completa %}
+        <form method="post" action="{{ url_for('entregas_rutas.cerrar') }}">
+          <input type="hidden" name="ruta_id" value="{{ r.id }}"><input type="hidden" name="fecha_vista" value="{{ fecha.isoformat() }}">
+          <button class="btn btn-sm btn-verde">Cerrar ruta</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% for p in r.paradas %}
+    <div class="parada d-flex gap-2">
+      <span class="num {{ 'hecha' if p.entregado_en }}">{{ p.orden }}</span>
+      <div class="flex-grow-1">
+        <div class="d-flex flex-wrap justify-content-between gap-2">
+          <div><strong>{{ p.transportista }}</strong> <span class="small text-muted">· {{ tipos.get(p.transportista_tipo, '') }}</span>
+            {% if p.cobrar %}<span class="badge text-bg-danger">COBRAR</span>{% endif %}
+            <div class="small text-muted">{{ p.direccion or 'sin dirección' }}{% if p.hora_limite_recepcion %} · recibe hasta {{ p.hora_limite_recepcion|string|truncate(5, True, '') }}{% endif %}</div></div>
+          <div class="text-end small">
+            {% if p.entregado_en %}<span class="text-success"><i class="bi bi-check2-all" aria-hidden="true"></i> Entregada {{ p.entregado_en.strftime('%H:%M') }}</span>
+            {% elif p.hora_requerida %}<span class="{{ 'text-danger fw-bold' if p.atrasada }}">Sale {{ p.hora_requerida.strftime('%d/%m %H:%M') }}{{ ' · atrasada' if p.atrasada }}</span>{% endif %}
+            {% if not p.entregado_en and r.estado != 'CERRADA' %}
+            <div class="d-inline-flex gap-1 ms-2">
+              {% for dir, icono in (('subir', 'bi-arrow-up'), ('bajar', 'bi-arrow-down')) %}
+              <form method="post" action="{{ url_for('entregas_rutas.mover') }}">
+                <input type="hidden" name="parada_id" value="{{ p.id }}"><input type="hidden" name="direccion" value="{{ dir }}">
+                <input type="hidden" name="fecha_vista" value="{{ fecha.isoformat() }}">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1" aria-label="{{ dir|capitalize }} la parada {{ p.orden }}"><i class="bi {{ icono }}" aria-hidden="true"></i></button>
+              </form>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% for e in p.envios %}
+        <div class="small d-flex flex-wrap align-items-center gap-2 mt-1">
+          <a href="{{ url_for('entregas_orden.envio', id_=e.id) }}" class="text-decoration-none">Pedido {{ e.pedido_num }}</a>
+          <span>{{ e.cliente }}{% if e.destino %} → {{ e.destino }}{% endif %} · {{ e.bultos }} bulto(s)</span>
+          <span class="badge {{ 'text-bg-danger' if e.estado == 'ANULADA' else 'text-bg-light' }}">{{ nombre_estado.get(e.estado, e.estado) }}</span>
+          {% if e.flete_monto is not none %}<span class="text-muted">flete C$ {{ "{:,.2f}".format(e.flete_monto) }}</span>{% endif %}
+          {% if r.estado == 'ARMADA' %}
+          <form method="post" action="{{ url_for('entregas_rutas.quitar') }}">
+            <input type="hidden" name="envio_id" value="{{ e.id }}"><input type="hidden" name="fecha_vista" value="{{ fecha.isoformat() }}">
+            <button class="btn btn-link btn-sm p-0 text-danger">quitar</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+        {% if p.entregado_en %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small">
+          {% for t in ('entrega', 'recibo') %}
+          <a href="{{ url_for('entregas_rutas.foto', parada_id=p.id, tipo=t) }}" target="_blank" rel="noopener">
+            <img class="foto" src="{{ url_for('entregas_rutas.foto', parada_id=p.id, tipo=t) }}" alt="Foto {{ 'de lo entregado' if t == 'entrega' else 'del recibo' }} en {{ p.transportista }}" loading="lazy"></a>
+          {% endfor %}
+          <span>Recibo <strong>C$ {{ "{:,.2f}".format(p.monto_recibo or 0) }}</strong>{% if p.guia %} · guía {{ p.guia }}{% endif %}</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}<div class="small text-muted">No hay rutas para esa fecha ni rutas abiertas.</div>{% endfor %}
+</div>
+{% endblock %}

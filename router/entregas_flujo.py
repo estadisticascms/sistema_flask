@@ -20,6 +20,8 @@ Estados automáticos implementados (los siguientes se agregan con sus partes):
 Estado manual de paquetería (parte 10): EMPACADA, al registrar bultos y peso (empacar()); después se pueden corregir sin cambiar
 el estado, para reimprimir la etiqueta.
 
+Estados del mensajero (parte 11, router/entregas_rutas.py): EN_RUTA al marcar «Salí» y ENTREGADA al registrar la parada.
+
 Preparación (parte 9): la registra el bodeguero de la bodega que prepara (bodega_prepara_id): en preparación y lista. Requiere la
 existencia confirmada y, en líneas con traslado, que la mercadería haya llegado (RECIBIDO). Se puede preparar antes de facturar:
 facturar no depende de la preparación. El retiro (RETIRADA) lo marca paquetería por bodega, solo con la orden LISTA_PARA_RETIRO.
@@ -47,6 +49,8 @@ ORIGENES = {
     "LISTA_PARA_RETIRO": {"FACTURADA"},
     "RETIRADA": {"LISTA_PARA_RETIRO"},
     "EMPACADA": {"RETIRADA"},
+    "EN_RUTA": {"EMPACADA"},           # el mensajero marca «Salí» (parte 11, router/entregas_rutas.py)
+    "ENTREGADA": {"EN_RUTA"},          # el mensajero registra la parada del envío
     "ANULADA": set(ABIERTOS),          # «desde cualquier estado», con motivo; solo el vendedor dueño o el administrador
 }
 EXISTENCIA_DESDE = {        # existencia nueva -> existencias desde las que el responsable puede llegar
@@ -371,12 +375,39 @@ def anular(cursor, usuario, roles, envio_id, motivo):
         raise ErrorFlujo("Escriba el motivo de la anulación.")
     poner_estado(cursor, envio, "ANULADA", usuario["id"], f"Anulada: {motivo}")
     cursor.execute("UPDATE ent_envios SET motivo_anulacion = %s WHERE id = %s", (motivo, envio_id))
+    sacar_de_ruta_armada(cursor, envio)
     cursor.execute("SELECT responsable, bodega_id FROM ent_envio_lineas WHERE envio_id = %s AND existencia <> 'QUITADA'", (envio_id,))
     lineas = cursor.fetchall()
     afectados = destinatarios(cursor, "paqueteria")
     for l in lineas:
         afectados += responsables_linea(cursor, l)
     avisar(cursor, afectados, "anulada", f"Pedido {envio['pedido_num']} anulado: {motivo}", envio_id=envio_id, creado_por=usuario["id"])
+
+
+def sacar_de_ruta_armada(cursor, envio):
+    """Un envío anulado sale de su ruta si la ruta todavía no salió (y se borra la parada si queda vacía). Si ya salió, se queda
+    en la parada para que el mensajero vea que no debe entregarlo."""
+    if not envio.get("parada_id"):
+        return
+    cursor.execute("""SELECT r.id, r.estado, r.mensajero_id FROM ent_ruta_paradas p JOIN ent_rutas r ON r.id = p.ruta_id
+                      WHERE p.id = %s FOR UPDATE""", (envio["parada_id"],))
+    ruta = cursor.fetchone()
+    if not ruta or ruta["estado"] != "ARMADA":
+        if ruta and ruta["estado"] == "EN_CURSO":
+            avisar(cursor, [ruta["mensajero_id"]], "anulada", f"Pedido {envio['pedido_num']} anulado: NO lo entregue",
+                   envio_id=envio["id"])
+        return
+    cursor.execute("UPDATE ent_envios SET parada_id = NULL WHERE id = %s", (envio["id"],))
+    cursor.execute("""DELETE p FROM ent_ruta_paradas p LEFT JOIN ent_envios e ON e.parada_id = p.id
+                      WHERE p.ruta_id = %s AND p.entregado_en IS NULL AND e.id IS NULL""", (ruta["id"],))
+    cursor.execute("SELECT id FROM ent_ruta_paradas WHERE ruta_id = %s ORDER BY orden, id", (ruta["id"],))
+    restantes = [f["id"] for f in cursor.fetchall()]
+    if not restantes:
+        cursor.execute("DELETE FROM ent_rutas WHERE id = %s", (ruta["id"],))
+    for i, pid in enumerate(restantes, start=1):
+        cursor.execute("UPDATE ent_ruta_paradas SET orden = %s WHERE id = %s", (i, pid))
+    avisar(cursor, [ruta["mensajero_id"]], "anulada", f"Pedido {envio['pedido_num']} anulado: se quitó de la ruta #{ruta['id']}",
+           envio_id=envio["id"])
 
 
 # -----------------------------

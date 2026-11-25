@@ -9,6 +9,9 @@ Avisos automáticos (los crea router/entregas_flujo.py y la subida de la orden):
 - lista_retiro: a paquetería cuando la orden queda LISTA_PARA_RETIRO.
 - traslado_recibido: al bodeguero de la bodega destino cuando el coordinador marca que llegó la mercadería trasladada.
 - anulada: a paquetería y a los responsables con líneas abiertas.
+- ruta_asignada: al mensajero cuando paquetería le arma, cambia o deshace una ruta.
+- entregada: al vendedor cuando el mensajero registra la parada de su envío.
+- ruta_cerrada: a paquetería cuando el mensajero cierra la ruta («Regresé»).
 - bodega_desconocida: al administrador de Entregas cuando una orden trae una bodega que no está en el catálogo.
 Recordatorios: paquetería los manda desde el tablero de seguimiento al responsable de lo que falta.
 """

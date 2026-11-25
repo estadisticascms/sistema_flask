@@ -449,6 +449,8 @@ def envio(id_):
         envio, lineas, eventos = leer_envio(cursor, id_)
         alerta = alerta_de_envio(cursor, envio, lineas) if envio else None
         facturas = []
+        from router.entregas_rutas import entrega_de_envio
+        entrega = entrega_de_envio(cursor, envio)
         if envio:
             cursor.execute("""SELECT f.*, b.nombre AS bodega, u.usuario FROM ent_envio_facturas f JOIN ent_bodegas b ON b.id = f.bodega_id
                               JOIN usuarios u ON u.id = f.registrada_por WHERE f.envio_id = %s ORDER BY b.nombre""", (id_,))
@@ -463,7 +465,7 @@ def envio(id_):
     eventos = [e for e in eventos if e["linea_id"] is None or any(l["id"] == e["linea_id"] for l in visibles)]
     return render_template("entregas_envio.html", e=envio, lineas=visibles, todas=len(visibles) == len(lineas), eventos=eventos,
                            nombre_estado=NOMBRE_ESTADO, estados=ESTADOS, tipos=TIPOS_TRANSPORTISTA, roles=ROLES, alerta=alerta,
-                           facturas=facturas, es_dueno=envio["vendedor_id"] == usuario_actual()["id"], mis_roles=roles_actuales())
+                           facturas=facturas, entrega=entrega, es_dueno=envio["vendedor_id"] == usuario_actual()["id"], mis_roles=roles_actuales())
 
 
 @entregas_orden_bp.route("/entregas/envio/<int:id_>/pdf")

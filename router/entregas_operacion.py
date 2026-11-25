@@ -441,6 +441,8 @@ def contar_pendientes(cursor, roles, usuario_id=None):
         n = cursor.fetchone()["n"]
         cursor.execute("SELECT COUNT(*) AS n FROM ent_envios WHERE vendedor_id = %s AND estado = 'POR_FACTURAR'", (usuario_id,))
         r["entregas_mis_envios"] = n + cursor.fetchone()["n"]
+    from router.entregas_rutas import contar_rutas
+    r.update(contar_rutas(cursor, roles, usuario_id))
     if usuario_id:
         r["avisos"] = contar_no_leidos(cursor, usuario_id)
     return r

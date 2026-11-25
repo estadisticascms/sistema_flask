@@ -74,6 +74,25 @@
   </div>
   {% endif %}
 
+  {% if entrega %}
+  <h6>Entrega</h6>
+  <div class="card card-body shadow-sm mb-3 small">
+    <div>Ruta #{{ entrega.ruta_id }} del {{ entrega.fecha.strftime('%d/%m/%Y') }} · mensajero <strong>{{ entrega.mensajero }}</strong> · parada {{ entrega.orden }}: {{ entrega.transportista }}</div>
+    {% if entrega.entregado_en %}
+    <div>Entregada a las <strong>{{ entrega.entregado_en.strftime('%d/%m %H:%M') }}</strong>{% if entrega.guia %} · guía <strong>{{ entrega.guia }}</strong>{% endif %}
+      · recibo C$ {{ "{:,.2f}".format(entrega.monto_recibo or 0) }}{% if e.flete_monto is not none %} · flete de este envío C$ {{ "{:,.2f}".format(e.flete_monto) }}{% endif %}</div>
+    <div class="d-flex gap-2 mt-2">
+      {% for t in ('entrega', 'recibo') %}
+      <a href="{{ url_for('entregas_rutas.foto', parada_id=entrega.id, tipo=t) }}" target="_blank" rel="noopener">
+        <img src="{{ url_for('entregas_rutas.foto', parada_id=entrega.id, tipo=t) }}" alt="Foto {{ 'de lo entregado' if t == 'entrega' else 'del recibo' }}"
+             style="width: 120px; height: 120px; object-fit: cover; border-radius: .5rem; border: 1px solid #ddd" loading="lazy"></a>
+      {% endfor %}
+    </div>
+    {% elif entrega.ruta_estado == 'ARMADA' %}<div class="text-muted">La ruta todavía no sale.</div>
+    {% else %}<div class="text-muted">En camino{% if entrega.salida %} desde las {{ entrega.salida.strftime('%H:%M') }}{% endif %}.</div>{% endif %}
+  </div>
+  {% endif %}
+
   <h6>Historial</h6>
   <ul class="list-group small">
     {% for ev in eventos %}

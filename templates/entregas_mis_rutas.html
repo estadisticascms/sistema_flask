@@ -1,0 +1,165 @@
+{% extends "layout.html" %}
+{% block title %}Mis rutas · Entregas{% endblock %}
+{% block content %}
+<style>
+  .seccion { font-size: .8rem; font-weight: 700; color: #6b6a66; text-transform: uppercase; letter-spacing: .03em; margin: 1rem 0 .5rem; }
+  .btn-verde { background: #027266; color: #fff; } .btn-verde:hover, .btn-verde:focus { background: #015a50; color: #fff; }
+  .btn-naranja { background: #FE6412; color: #fff; } .btn-naranja:hover, .btn-naranja:focus { background: #e2560c; color: #fff; }
+  .num { display: inline-flex; width: 2rem; height: 2rem; border-radius: 50%; align-items: center; justify-content: center;
+         background: #027266; color: #fff; font-weight: 700; flex: none; }
+  .num.hecha { background: #b9c9c6; }
+  .parada { border-radius: .75rem; }
+  .parada.actual { border: 2px solid #FE6412 !important; }
+  .foto { width: 72px; height: 72px; object-fit: cover; border-radius: .5rem; border: 1px solid #ddd; }
+  .vista-previa { width: 100%; max-height: 160px; object-fit: contain; border-radius: .5rem; display: none; margin-top: .4rem; background: #f4f3ef; }
+  .camara { display: flex; align-items: center; justify-content: center; gap: .4rem; min-height: 3rem; border: 2px dashed #027266;
+            border-radius: .6rem; color: #027266; font-weight: 600; cursor: pointer; }
+  .camara.lista { border-style: solid; background: #e3f3f1; }
+  .btn-grande { min-height: 3rem; font-size: 1.05rem; font-weight: 600; }
+</style>
+<div class="container mt-3 mb-5" style="max-width: 640px">
+  {% include "_entregas_nav.html" %}
+
+  {% for r in rutas %}
+  <div class="seccion">Ruta #{{ r.id }} · {{ r.fecha.strftime('%d/%m/%Y') }} ·
+    {{ {'ARMADA': 'por salir', 'EN_CURSO': 'en curso', 'CERRADA': 'cerrada'}[r.estado] }} · {{ r.entregadas }}/{{ r.paradas|length }} paradas</div>
+
+  {% if r.estado == 'ARMADA' %}
+  <form method="post" action="{{ url_for('entregas_rutas.salir_ruta') }}" class="mb-3"
+        onsubmit="return confirm('¿Salir con la ruta #{{ r.id }}? Sus envíos quedan en ruta.')">
+    <input type="hidden" name="ruta_id" value="{{ r.id }}">
+    <button class="btn btn-naranja btn-grande w-100"><i class="bi bi-truck" aria-hidden="true"></i> Salí</button>
+  </form>
+  {% elif r.estado == 'EN_CURSO' and r.completa %}
+  <form method="post" action="{{ url_for('entregas_rutas.cerrar') }}" class="mb-3">
+    <input type="hidden" name="ruta_id" value="{{ r.id }}"><input type="hidden" name="desde" value="mensajero">
+    <button class="btn btn-verde btn-grande w-100"><i class="bi bi-house-check" aria-hidden="true"></i> Regresé: cerrar la ruta</button>
+  </form>
+  {% endif %}
+
+  {% set primera = r.paradas|rejectattr('entregado_en')|first %}
+  {% for p in r.paradas %}
+  {% set vigentes = p.envios|rejectattr('estado', 'equalto', 'ANULADA')|list %}
+  <div class="card card-body shadow-sm mb-3 parada {{ 'actual' if r.estado == 'EN_CURSO' and primera and p.id == primera.id }}" id="parada-{{ p.id }}">
+    <div class="d-flex gap-2 align-items-start">
+      <span class="num {{ 'hecha' if p.entregado_en }}">{{ p.orden }}</span>
+      <div class="flex-grow-1">
+        <div class="fw-bold">{{ p.transportista }}</div>
+        <div class="small text-muted">{{ tipos.get(p.transportista_tipo, '') }}</div>
+        {% if p.direccion %}<div class="small">{{ p.direccion }}</div>{% endif %}
+        <div class="d-flex flex-wrap gap-2 mt-1">
+          {% if p.mapa %}<a class="btn btn-sm btn-outline-secondary" href="{{ p.mapa }}" target="_blank" rel="noopener"><i class="bi bi-map" aria-hidden="true"></i> Mapa</a>{% endif %}
+          {% if p.telefono %}<a class="btn btn-sm btn-outline-secondary" href="tel:{{ p.telefono }}"><i class="bi bi-telephone" aria-hidden="true"></i> {{ p.telefono }}</a>{% endif %}
+        </div>
+        <div class="small mt-1">
+          {% if p.hora_requerida %}<span class="{{ 'text-danger fw-bold' if p.atrasada }}">Hora límite: {{ p.hora_requerida.strftime('%H:%M') }}{{ ' (' ~ p.hora_requerida.strftime('%d/%m') ~ ')' if p.hora_requerida.date() != hoy }}{{ ' · atrasada' if p.atrasada }}</span>{% endif %}
+          {% if p.hora_limite_recepcion %} · recibe hasta {{ p.hora_limite_recepcion|string|truncate(5, True, '') }}{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <ul class="list-unstyled small mt-2 mb-0">
+      {% for e in p.envios %}
+      <li class="py-1 border-top">
+        {% if e.estado == 'ANULADA' %}<span class="badge text-bg-danger">ANULADO: no entregar</span> {% endif %}
+        <strong>Pedido {{ e.pedido_num }}</strong> · {{ e.cliente }}{% if e.destino %} → {{ e.destino }}{% endif %}
+        · {{ e.bultos }} bulto(s)
+        {% if e.forma_pago == 'contra_entrega' and e.estado != 'ANULADA' %}<span class="badge text-bg-danger">COBRAR</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+
+    {% if p.entregado_en %}
+    <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small text-success">
+      <i class="bi bi-check2-all" aria-hidden="true"></i> Entregada a las {{ p.entregado_en.strftime('%H:%M') }} · recibo C$ {{ "{:,.2f}".format(p.monto_recibo or 0) }}{% if p.guia %} · guía {{ p.guia }}{% endif %}
+    </div>
+    <div class="d-flex gap-2 mt-1">
+      {% for t in ('entrega', 'recibo') %}
+      <a href="{{ url_for('entregas_rutas.foto', parada_id=p.id, tipo=t) }}" target="_blank" rel="noopener">
+        <img class="foto" src="{{ url_for('entregas_rutas.foto', parada_id=p.id, tipo=t) }}" alt="Foto {{ 'de lo entregado' if t == 'entrega' else 'del recibo' }}" loading="lazy"></a>
+      {% endfor %}
+    </div>
+    {% elif r.estado == 'EN_CURSO' and vigentes %}
+    <details class="mt-2" {{ 'open' if primera and p.id == primera.id }}>
+      <summary class="btn btn-verde w-100 btn-grande">Registrar entrega</summary>
+      <form method="post" action="{{ url_for('entregas_rutas.entregar') }}" enctype="multipart/form-data" class="form-entrega mt-3">
+        <input type="hidden" name="parada_id" value="{{ p.id }}">
+        <div class="row g-2">
+          <div class="col-7"><label class="form-label small mb-0" for="hora-{{ p.id }}">Hora de entrega</label>
+            <input type="datetime-local" class="form-control" id="hora-{{ p.id }}" name="entregado_en" value="{{ ahora.strftime('%Y-%m-%dT%H:%M') }}" required></div>
+          <div class="col-5"><label class="form-label small mb-0" for="monto-{{ p.id }}">Monto del recibo C$</label>
+            <input type="number" inputmode="decimal" min="0" step="0.01" class="form-control monto-recibo" id="monto-{{ p.id }}" name="monto_recibo" required></div>
+          <div class="col-12"><label class="form-label small mb-0" for="guia-{{ p.id }}">Guía o encomienda</label>
+            <input type="text" maxlength="50" class="form-control" id="guia-{{ p.id }}" name="guia" autocomplete="off"></div>
+          {% for t, texto in (('entrega', 'Foto de lo entregado'), ('recibo', 'Foto del recibo')) %}
+          <div class="col-6">
+            <label class="camara" for="foto-{{ t }}-{{ p.id }}"><i class="bi bi-camera" aria-hidden="true"></i> <span>{{ texto }}</span></label>
+            <input type="file" class="visually-hidden foto-input" id="foto-{{ t }}-{{ p.id }}" name="foto_{{ t }}" accept="image/*" capture="environment">
+            <img class="vista-previa" alt="Vista previa: {{ texto|lower }}">
+          </div>
+          {% endfor %}
+        </div>
+        {% if vigentes|length > 1 %}
+        <details class="mt-2 small">
+          <summary>El recibo cubre {{ vigentes|length }} envíos: detallar el monto por envío (opcional)</summary>
+          {% for e in vigentes %}
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <label class="flex-grow-1" for="flete-{{ e.id }}">Pedido {{ e.pedido_num }}</label>
+            <input type="number" inputmode="decimal" min="0" step="0.01" class="form-control form-control-sm" style="max-width: 130px" id="flete-{{ e.id }}" name="flete_{{ e.id }}">
+          </div>
+          {% endfor %}
+          <div class="text-muted mt-1">Si detalla, escriba todos; la suma debe dar el monto del recibo.</div>
+        </details>
+        {% endif %}
+        <button class="btn btn-naranja btn-grande w-100 mt-3 enviar"><i class="bi bi-check2-circle" aria-hidden="true"></i> Guardar entrega</button>
+      </form>
+    </details>
+    {% elif r.estado == 'ARMADA' %}
+    <div class="small text-muted mt-2">Marque «Salí» para registrar las entregas.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="card card-body text-center text-muted"><i class="bi bi-signpost-2 fs-2" aria-hidden="true"></i>No tiene rutas asignadas para hoy.</div>
+  {% endfor %}
+</div>
+
+<script>
+// Comprime la foto en el celular (máx. 1600 px, JPEG) antes de subirla: menos datos y subida más rápida.
+(function () {
+  const LADO = 1600, CALIDAD = 0.75;
+  function comprimir(archivo) {
+    return new Promise(resolve => {
+      if (!archivo || !archivo.type.startsWith('image/') || !window.createImageBitmap) return resolve(null);
+      createImageBitmap(archivo, { imageOrientation: 'from-image' }).then(img => {
+        const k = Math.min(1, LADO / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob(b => resolve(b && b.size < archivo.size ? new File([b], 'foto.jpg', { type: 'image/jpeg' }) : null), 'image/jpeg', CALIDAD);
+      }).catch(() => resolve(null));
+    });
+  }
+  document.querySelectorAll('.foto-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const archivo = input.files[0];
+      const etiqueta = input.previousElementSibling, previa = input.nextElementSibling;
+      if (!archivo) return;
+      const chico = await comprimir(archivo);
+      if (chico && window.DataTransfer) {
+        try { const dt = new DataTransfer(); dt.items.add(chico); input.files = dt.files; } catch (e) { /* se sube la original */ }
+      }
+      previa.src = URL.createObjectURL(input.files[0]);
+      previa.style.display = 'block';
+      etiqueta.classList.add('lista');
+      etiqueta.querySelector('span').textContent = 'Foto lista (tocar para cambiar)';
+    });
+  });
+  document.querySelectorAll('.form-entrega').forEach(f => f.addEventListener('submit', e => {
+    const faltan = [...f.querySelectorAll('.foto-input')].filter(i => !i.files.length);
+    if (faltan.length) { e.preventDefault(); alert('Tome la foto de lo entregado y la foto del recibo.'); return; }
+    const b = f.querySelector('.enviar'); b.disabled = true; b.textContent = 'Guardando…';
+  }));
+})();
+</script>
+{% endblock %}
