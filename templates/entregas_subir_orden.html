@@ -95,13 +95,16 @@
     <div class="row g-2">
       <div class="col-md-5"><label class="form-label small mb-0" for="transportista_id">Transporte *</label>
         <select class="form-select" id="transportista_id" name="transportista_id" required><option value="">— escoja —</option>
-          {% for t in transportistas %}<option value="{{ t.id }}" data-destinos="{{ t.destinos|join('|') }}" {{ 'selected' if datos.get('transportista_id')|string == t.id|string }}>{{ t.nombre }} · {{ tipos.get(t.tipo, t.tipo) }}{% if t.limite %} · recibe hasta {{ t.limite }}{% endif %}</option>{% endfor %}
+          {% for t in transportistas %}<option value="{{ t.id }}" data-destinos="{{ t.destinos|join('|') }}" data-sin-horario="{{ 0 if t.horarios else 1 }}" {{ 'selected' if datos.get('transportista_id')|string == t.id|string }}>{{ t.nombre }} · {{ tipos.get(t.tipo, t.tipo) }}{% if t.limite %} · recibe hasta {{ t.limite }}{% endif %}</option>{% endfor %}
         </select></div>
       <div class="col-md-4"><label class="form-label small mb-0" for="destino">Destino</label>
         <input class="form-control" id="destino" name="destino" maxlength="100" list="lista-destinos" value="{{ datos.get('destino', '') }}" placeholder="Ciudad o departamento">
         <datalist id="lista-destinos"></datalist></div>
       <div class="col-md-3"><label class="form-label small mb-0" for="hora_requerida">Hora requerida de salida *</label>
-        <input type="datetime-local" class="form-control" id="hora_requerida" name="hora_requerida" required value="{{ datos.get('hora_requerida', '') }}"></div>
+        <input type="datetime-local" class="form-control" id="hora_requerida" name="hora_requerida" required value="{{ datos.get('hora_requerida', '') }}">
+        <button type="button" class="btn btn-link btn-sm p-0 d-none" id="antes-posible" style="color: #027266"
+                title="Este transporte no tiene horario fijo: pone la hora en que la orden estaría lista según los tiempos estimados">
+          <i class="bi bi-lightning-charge" aria-hidden="true"></i> Lo antes posible</button></div>
       <div class="col-6 col-md-3"><label class="form-label small mb-0" for="prioridad">Prioridad</label>
         <select class="form-select" id="prioridad" name="prioridad"><option value="normal">Normal</option>
           <option value="urgente" {{ 'selected' if datos.get('prioridad') == 'urgente' }}>Urgente</option></select></div>
@@ -146,6 +149,11 @@
   };
   sel.addEventListener('change', llenar); llenar();
 
+  // «Lo antes posible»: solo para transportes sin horario fijo (salen a cualquier hora)
+  const antes = document.getElementById('antes-posible');
+  const verAntes = () => { const op = sel.options[sel.selectedIndex]; antes.classList.toggle('d-none', !(op && op.value && op.dataset.sinHorario === '1')); };
+  sel.addEventListener('change', verAntes); verAntes();
+
   // Alerta de tiempo en vivo (el servidor la vuelve a calcular al enviar)
   const caja = document.getElementById('alerta'), confirmar = document.getElementById('caja-confirmar');
   const hora = document.getElementById('hora_requerida'), destino = document.getElementById('destino');
@@ -164,6 +172,15 @@
   }
   const pronto = () => { clearTimeout(espera); espera = setTimeout(recalcular, 300); };
   [sel, hora, destino].forEach(i => { i.addEventListener('change', pronto); i.addEventListener('input', pronto); });
+  antes.addEventListener('click', async () => {
+    const datos = new FormData();
+    datos.append('transportista_id', sel.value); datos.append('destino', destino.value);
+    datos.append('traslado', document.getElementById('traslado').value);
+    try {
+      const r = await (await fetch("{{ url_for('entregas_orden.alerta_en_vivo') }}", { method: 'POST', body: datos })).json();
+      hora.value = r.lo_antes_posible; recalcular();
+    } catch {}
+  });
   caja.addEventListener('click', e => {
     const b = e.target.closest('.usar-sugerencia');
     if (b) { hora.value = b.dataset.hora; recalcular(); }

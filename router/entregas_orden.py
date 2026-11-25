@@ -30,7 +30,7 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from mysql.connector.errors import IntegrityError
@@ -404,7 +404,15 @@ def alerta_en_vivo():
         cursor.close()
         conn.close()
     return jsonify({"nivel": alerta["nivel"], "html": render_template("_entregas_alerta.html", alerta=alerta, en_formulario=True),
-                    "sugerencia": alerta["sugerencia"]["hora"].strftime("%Y-%m-%dT%H:%M") if alerta["sugerencia"] else None})
+                    "sugerencia": alerta["sugerencia"]["hora"].strftime("%Y-%m-%dT%H:%M") if alerta["sugerencia"] else None,
+                    "lo_antes_posible": lo_antes_posible(alerta["listo"]).strftime("%Y-%m-%dT%H:%M")})
+
+
+def lo_antes_posible(listo):
+    """Hora en que la orden estaría lista según los tiempos estimados, redondeada hacia arriba a los 5 minutos. Es la hora que pone
+    el botón «Lo antes posible» para transportistas sin horario fijo (salen a cualquier hora)."""
+    listo = listo.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return listo + timedelta(minutes=-listo.minute % 5)
 
 
 # -----------------------------
