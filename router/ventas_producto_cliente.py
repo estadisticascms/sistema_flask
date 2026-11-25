@@ -8,8 +8,8 @@
 - Ingresos: entradas por orden de compra (transacciones_inventario ENTRADA / ORDEN COMPRA, como Seguimiento de ingresos).
   Total del período seleccionado en unidades y costo C$; «último ingreso» es la fecha más reciente, aunque sea antes del período.
 - Existencia por bodega: cada bodega donde hay existencia, con su cantidad (las filtradas resaltadas, las demás como «otras»).
-- Agrupación por segmento y «Familia | Subfamilia» (clasificación de productos, tabla clase_prod); lo que no tiene clasificación va al
-  final como «Sin clasificar». Dentro de cada grupo se respeta el orden escogido."""
+- Agrupación por «Familia | Subfamilia» (clasificación de productos, tabla clase_prod); lo que no tiene clasificación va al final
+  como «Sin clasificar». Dentro de cada grupo se respeta el orden escogido. El segmento queda solo como columna en el Excel."""
 import io
 from datetime import date, datetime, timedelta
 
@@ -287,21 +287,16 @@ def clave_texto(texto):
 
 
 def agrupar(filas):
-    """[{segmento, totales, familias: [{etiqueta, filas, totales}]}] respetando el orden de las filas dentro de cada grupo."""
+    """[{etiqueta «Familia | Subfamilia», filas, totales}] respetando el orden de las filas dentro de cada grupo."""
     def totales(lista):
         return {"productos": len(lista), "unidades": sum(r["unidades"] for r in lista), "venta": sum(r["venta"] for r in lista),
                 "existencia": sum(r["existencia"] for r in lista), "ingresos": sum(r["ingresos"] for r in lista),
                 "clientes": len({c["codigo"] if c["codigo"] is not None else c["cliente"] for r in lista for c in r["clientes"]})}
-    segmentos = {}
+    familias = {}
     for r in filas:
-        etiqueta = etiqueta_familia(r["familia"], r["subfamilia"])
-        segmentos.setdefault(r["segmento"], {}).setdefault(etiqueta, []).append(r)
-    resultado = []
-    for seg in sorted(segmentos, key=clave_texto):
-        familias = [{"etiqueta": e, "filas": segmentos[seg][e], "totales": totales(segmentos[seg][e])}
-                    for e in sorted(segmentos[seg], key=lambda e: clave_texto(e.split(" | ")[0]) + (e.upper(),))]
-        resultado.append({"segmento": seg, "familias": familias, "totales": totales([r for fam in familias for r in fam["filas"]])})
-    return resultado
+        familias.setdefault(etiqueta_familia(r["familia"], r["subfamilia"]), []).append(r)
+    return [{"etiqueta": e, "filas": familias[e], "totales": totales(familias[e])}
+            for e in sorted(familias, key=lambda e: clave_texto(e.split(" | ")[0]) + (e.upper(),))]
 
 
 def vendedor_corto(nombre):
@@ -381,9 +376,9 @@ def excel():
         return ([r["codigo"], r["parte"], r["nombre"], r["marca"], r["proveedor"], r["existencia"]] + ([r["en_bodegas"]] if con_bod else [])
                 + [r["segmento"], r["familia"], r["subfamilia"] or None])
 
-    # Productos en el orden de los grupos (segmento, familia | subfamilia) y, dentro, en el orden escogido
+    # Productos en el orden de los grupos (familia | subfamilia) y, dentro, en el orden escogido
     grupos_cls = agrupar(filas)
-    filas = [r for s in grupos_cls for fam in s["familias"] for r in fam["filas"]]
+    filas = [r for fam in grupos_cls for r in fam["filas"]]
 
     def escribir(hoja, fila, valores, formatos):
         for col, v in enumerate(valores, start=1):
@@ -530,7 +525,7 @@ def excel():
         return " · ".join(f"{b}: {c:,.0f}" for b, c in lista) or None
 
     def fila_grupo(fila, texto, tot, nivel):
-        """Fila de segmento (nivel 0) o de familia | subfamilia (nivel 1) con sus totales."""
+        """Fila de familia | subfamilia (nivel 0) con sus totales."""
         valores = [texto] + [None] * (len(cols) - 1)
         valores[5], valores[7] = tot["ingresos"] or None, tot["existencia"]
         valores[c_cli - 1] = f"{tot['productos']:,} producto(s) · {tot['clientes']:,} cliente(s)"
@@ -547,28 +542,25 @@ def excel():
 
     orden_g = []
     n = 5
-    for s in grupos_cls:
-        fila_grupo(n, f"SEGMENTO: {s['segmento'].upper()}", s["totales"], 0)
+    for fam in grupos_cls:
+        fila_grupo(n, fam["etiqueta"].upper(), fam["totales"], 0)
         n += 1
-        for fam in s["familias"]:
-            fila_grupo(n, fam["etiqueta"], fam["totales"], 1)
+        for g in grupos_parte(fam["filas"]):
+            orden_g.append(g)
+            clientes = sorted(g["clientes"].values(), key=lambda c: (-c["venta"], c["cliente"]))
+            escribir_bn(n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
+                            g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
+                        + ([g["en_bodegas"]] if con_bod else []) + [texto_bodegas(g["bodegas"])]
+                        + [f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''}" if clientes else "Sin ventas en el período",
+                           g["unidades"] or None, len(g["facturas"]) or None, round(g["venta"], 2) or None, mes_mayor(g["meses"]),
+                           max((c["ultima"] for c in clientes), default=None)], True, True)
+            hr.row_dimensions[n].outlineLevel = 1
             n += 1
-            for g in grupos_parte(fam["filas"]):
-                orden_g.append(g)
-                clientes = sorted(g["clientes"].values(), key=lambda c: (-c["venta"], c["cliente"]))
-                escribir_bn(n, [g["parte"], g["nombre"], ", ".join(g["codigos"]), ", ".join(sorted(m for m in g["marcas"] if m)), g["ultimo"],
-                                g["ingresos"] or None, round(g["ingresos_costo"], 2) or None, g["existencia"]]
-                            + ([g["en_bodegas"]] if con_bod else []) + [texto_bodegas(g["bodegas"])]
-                            + [f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''}" if clientes else "Sin ventas en el período",
-                               g["unidades"] or None, len(g["facturas"]) or None, round(g["venta"], 2) or None, mes_mayor(g["meses"]),
-                               max((c["ultima"] for c in clientes), default=None)], True, True)
+            for c in clientes:
+                escribir_bn(n, [None] * k + ["   " + c["cliente"] + (f" · {c['vendedor']}" if c["vendedor"] else ""), c["unidades"],
+                                             len(c["facturas"]), round(c["venta"], 2), mes_mayor(c["meses"]), c["ultima"]], False, False)
                 hr.row_dimensions[n].outlineLevel = 2
                 n += 1
-                for c in clientes:
-                    escribir_bn(n, [None] * k + ["   " + c["cliente"] + (f" · {c['vendedor']}" if c["vendedor"] else ""), c["unidades"],
-                                                 len(c["facturas"]), round(c["venta"], 2), mes_mayor(c["meses"]), c["ultima"]], False, False)
-                    hr.row_dimensions[n].outlineLevel = 3
-                    n += 1
     # Totales calculados aquí (solo filas de número de parte): una fórmula sumaría también las filas de clientes
     hr.cell(row=n, column=1, value=f"TOTAL · {len(orden_g):,} números de parte")
     totales_fila = {6: sum(g["ingresos"] for g in orden_g), 7: round(sum(g["ingresos_costo"] for g in orden_g), 2),
