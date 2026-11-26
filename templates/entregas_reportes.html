@@ -1,0 +1,186 @@
+{% extends "layout.html" %}
+{% block title %}Tablero y reportes · Entregas{% endblock %}
+{% macro t(x) %}{{ x.promedio_texto if x.n else '—' }}{% endmacro %}
+{% macro dinero(v) %}{{ "{:,.2f}".format(v or 0) }}{% endmacro %}
+{% block content %}
+<style>
+  .seccion { font-size: .8rem; font-weight: 700; color: #027266; text-transform: uppercase; letter-spacing: .03em; margin: 1.6rem 0 .3rem; scroll-margin-top: 1rem; }
+  .ayuda { font-size: .75rem; color: #6b6a66; margin-bottom: .5rem; }
+  .kpi { border-radius: .75rem; padding: .75rem 1rem; background: #fff; border: 1px solid #eceae4; height: 100%; }
+  .kpi .v { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+  .kpi .l { font-size: .75rem; color: #6b6a66; }
+  .barra { height: .5rem; border-radius: .25rem; background: #e3f3f1; overflow: hidden; min-width: 80px; }
+  .barra > span { display: block; height: 100%; background: #027266; }
+  .res { font-size: .7rem; font-weight: 700; border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+  .res.encontrada { color: #027266; background: #e3f3f1; } .res.observada { color: #9a6700; background: #fff8db; }
+  .res.no_encontrada { color: #b42318; background: #fde8e7; } .res.sin_cargar { color: #6b6a66; background: #eceae4; }
+  .indice a { color: #027266; text-decoration: none; white-space: nowrap; }
+  .btn-verde { background: #027266; color: #fff; } .btn-verde:hover { background: #015a50; color: #fff; }
+  /* anula el estilo global .table (80 % de ancho, centrado y alineado a la derecha) */
+  .rep .table { width: 100%; margin: 0; font-size: .8rem; }
+  .rep .table th, .rep .table td { text-align: left; padding: .3rem .5rem; }
+  .rep .table td { white-space: normal; }
+  .rep .table thead { background: #f6f5f1; color: #52514e; }
+</style>
+<div class="container mt-3 mb-5 rep" style="max-width: 1100px">
+  {% include "_entregas_nav.html" %}
+
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-2">
+    <div><label class="form-label small mb-0" for="desde">Desde</label>
+      <input type="date" class="form-control form-control-sm" id="desde" name="desde" value="{{ desde.isoformat() }}"></div>
+    <div><label class="form-label small mb-0" for="hasta">Hasta</label>
+      <input type="date" class="form-control form-control-sm" id="hasta" name="hasta" value="{{ hasta.isoformat() }}"></div>
+    <button class="btn btn-sm btn-verde">Ver</button>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('entregas_reportes.excel', desde=desde.isoformat(), hasta=hasta.isoformat()) }}">
+      <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
+  </form>
+  <div class="indice small d-flex flex-wrap gap-3 mb-2">
+    <a href="#tablero">Tablero</a><a href="#tiempos">Tiempo por etapa</a><a href="#a-tiempo">Entregas a tiempo</a>
+    <a href="#faltantes">Faltantes</a><a href="#fletes">Fletes</a><a href="#conciliacion">Conciliación</a>
+  </div>
+
+  {# ---------------- Tablero ---------------- #}
+  {% set tb = r.tablero %}
+  <div class="seccion" id="tablero">Tablero · ahora ({{ ahora|hora('%d/%m') }})</div>
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-md"><div class="kpi"><div class="v">{{ tb.abiertos }}</div><div class="l">Envíos abiertos</div></div></div>
+    <div class="col-6 col-md"><div class="kpi"><div class="v" style="color: {{ '#b42318' if tb.atrasados else 'inherit' }}">{{ tb.atrasados }}</div><div class="l">Pasaron su hora requerida sin entregarse</div></div></div>
+    <div class="col-6 col-md"><div class="kpi"><div class="v" style="color: {{ '#b42318' if tb.rojo else 'inherit' }}">{{ tb.rojo }}</div><div class="l">En riesgo (rojo)</div></div></div>
+    <div class="col-6 col-md"><div class="kpi"><div class="v">{{ tb.ordenes_hoy }}</div><div class="l">Órdenes de hoy</div></div></div>
+    <div class="col-6 col-md"><div class="kpi"><div class="v" style="color: #027266">{{ tb.entregados_hoy }}</div><div class="l">Entregados hoy</div></div></div>
+  </div>
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Estado</th><th class="text-end">Envíos</th><th class="text-end">En riesgo</th><th class="text-end">Atrasados</th></tr></thead>
+      <tbody>{% for e in tb.estados %}<tr class="{{ 'text-muted' if not e.n }}"><td>{{ e.nombre }}</td><td class="text-end fw-semibold">{{ e.n }}</td>
+        <td class="text-end {{ 'text-danger' if e.rojo }}">{{ e.rojo or '' }}</td><td class="text-end {{ 'text-danger' if e.atrasados }}">{{ e.atrasados or '' }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+
+  {# ---------------- Tiempos ---------------- #}
+  <div class="seccion" id="tiempos">Tiempo por etapa</div>
+  <div class="ayuda">{{ r.tiempos.envios }} envío(s) creados en el período. <strong>Horas laborales</strong>: {{ r.tiempos.horario }}
+    (se cambia en <a href="{{ url_for('entregas_catalogos.catalogos', tab='configuracion') }}">Configuración</a>). Una etapa se cuenta cuando el envío ya la terminó.</div>
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Etapa</th><th class="text-end">Envíos</th><th class="text-end">Promedio</th><th class="text-end">Mediana</th><th class="text-end">Máximo</th></tr></thead>
+      <tbody>
+      {% for e in r.tiempos.etapas %}
+        <tr><td class="fw-semibold">{{ e.nombre }}</td><td class="text-end">{{ e.n }}</td><td class="text-end">{{ t(e) }}</td>
+          <td class="text-end">{{ e.mediana_texto if e.n else '—' }}</td><td class="text-end">{{ e.maximo_texto if e.n else '—' }}</td></tr>
+        {% if e.clave == 'orden_lista' %}
+        {% for k, texto in (('sin', 'sin traslado'), ('con', 'con traslado')) %}
+        <tr class="text-muted"><td class="ps-4">{{ texto }}</td><td class="text-end">{{ e[k].n }}</td><td class="text-end">{{ t(e[k]) }}</td>
+          <td class="text-end">{{ e[k].mediana_texto if e[k].n else '—' }}</td><td class="text-end">{{ e[k].maximo_texto if e[k].n else '—' }}</td></tr>
+        {% endfor %}
+        {% endif %}
+      {% endfor %}
+      {% set tr = r.tiempos.traslado %}
+        <tr class="table-light"><td>Traslado entre bodegas <span class="text-muted">(aplicado → recibido, por línea)</span></td><td class="text-end">{{ tr.n }}</td>
+          <td class="text-end">{{ t(tr) }}</td><td class="text-end">{{ tr.mediana_texto if tr.n else '—' }}</td><td class="text-end">{{ tr.maximo_texto if tr.n else '—' }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  {# ---------------- A tiempo ---------------- #}
+  {% set a = r.a_tiempo %}
+  <div class="seccion" id="a-tiempo">Entregas a tiempo</div>
+  <div class="ayuda">Paradas entregadas en el período. A tiempo: la entrega al transporte no pasó de la hora requerida de salida.</div>
+  {% if a.total %}
+  <div class="d-flex flex-wrap align-items-baseline gap-3 mb-2">
+    <div class="kpi" style="height: auto"><div class="v" style="color: {{ '#027266' if a.pct >= 90 else ('#9a6700' if a.pct >= 70 else '#b42318') }}">{{ '%.0f' % a.pct }} %</div>
+      <div class="l">{{ a.a_tiempo }} de {{ a.total }} a tiempo</div></div>
+  </div>
+  <div class="table-responsive border rounded-3 bg-white mb-2">
+    <table class="table table-sm align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Transportista</th><th class="text-end">Entregados</th><th class="text-end">A tiempo</th><th style="width: 35%">%</th></tr></thead>
+      <tbody>{% for x in a.transportistas %}<tr><td>{{ x.transportista }}</td><td class="text-end">{{ x.total }}</td><td class="text-end">{{ x.a_tiempo }}</td>
+        <td><div class="d-flex align-items-center gap-2"><div class="barra flex-grow-1" role="img" aria-label="{{ '%.0f' % x.pct }} % a tiempo"><span style="width: {{ x.pct }}%"></span></div>{{ '%.0f' % x.pct }} %</div></td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% if a.atrasados %}
+  <details class="small"><summary>{{ a.atrasados|length }} envío(s) atrasados</summary>
+    <div class="table-responsive border rounded-3 bg-white mt-1">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light"><tr><th>Pedido</th><th>Cliente</th><th>Transportista</th><th>Hora requerida</th><th>Entregado</th><th class="text-end">Atraso</th></tr></thead>
+        <tbody>{% for x in a.atrasados %}<tr><td><a href="{{ url_for('entregas_orden.envio', id_=x.id) }}">{{ x.pedido_num }}</a></td><td>{{ x.cliente }}</td>
+          <td>{{ x.transportista }}{% if x.destino %} → {{ x.destino }}{% endif %}</td><td>{{ x.hora_requerida|hora('%d/%m') }}</td><td>{{ x.entregado_en|hora('%d/%m') }}</td>
+          <td class="text-end text-danger">{{ x.atraso_texto }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+  {% else %}<div class="small text-muted">Ninguna entrega en el período.</div>{% endif %}
+
+  {# ---------------- Faltantes ---------------- #}
+  {% set f = r.faltantes %}
+  <div class="seccion" id="faltantes">Faltantes y venta perdida</div>
+  <div class="ayuda">Envíos creados en el período. La bodega es donde faltó, aunque después se cambiara. Venta perdida: líneas quitadas y la parte no disponible de las que fueron parciales, con el subtotal de la orden (es lo mismo que se registra en ventas perdidas).</div>
+  {% if f.lineas %}
+  <div class="small mb-2"><strong>{{ f.lineas }}</strong> línea(s) faltantes · <strong>{{ '%g' % f.unidades }}</strong> unidades perdidas · venta perdida <strong>C$ {{ dinero(f.monto) }}</strong></div>
+  <div class="row g-3">
+    <div class="col-lg-5">
+      <div class="table-responsive border rounded-3 bg-white">
+        <table class="table table-sm align-middle mb-0 small">
+          <thead class="table-light"><tr><th>Bodega</th><th class="text-end">Faltantes</th><th class="text-end" title="Quitadas / parciales / cambiadas de bodega">Quit. / parc. / camb.</th><th class="text-end">Perdido C$</th></tr></thead>
+          <tbody>{% for x in f.bodegas %}<tr><td>{{ x.bodega }}</td><td class="text-end fw-semibold">{{ x.faltantes }}</td>
+            <td class="text-end text-muted">{{ x.quitadas }} / {{ x.parciales }} / {{ x.cambiadas }}</td><td class="text-end">{{ dinero(x.monto) }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="col-lg-7">
+      <div class="table-responsive border rounded-3 bg-white" style="max-height: 420px">
+        <table class="table table-sm align-middle mb-0 small">
+          <thead class="table-light sticky-top"><tr><th>Producto</th><th class="text-end">Veces</th><th class="text-end">Unid. perdidas</th><th class="text-end">Perdido C$</th></tr></thead>
+          <tbody>{% for x in f.productos %}<tr><td><span class="fw-semibold">{{ x.codigo }}</span> {{ x.producto or '' }}<div class="text-muted">{{ [x.marca, x.bodegas]|select|join(' · ') }}</div></td>
+            <td class="text-end">{{ x.veces }}</td><td class="text-end">{{ '%g' % x.unidades }}</td><td class="text-end">{{ dinero(x.monto) }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% else %}<div class="small text-muted">Ningún faltante en el período.</div>{% endif %}
+
+  {# ---------------- Fletes ---------------- #}
+  {% set fl = r.fletes %}
+  <div class="seccion" id="fletes">Fletes por transportista</div>
+  <div class="ayuda">Paradas entregadas en el período. «Sin detallar»: parte del recibo que no se repartió por envío (recibos de varios envíos sin detalle).</div>
+  {% if fl.filas %}
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Transportista</th><th class="text-end">Paradas</th><th class="text-end">Envíos</th><th class="text-end">Recibos C$</th>
+        <th class="text-end">Paga el cliente</th><th class="text-end">Paga la empresa</th><th class="text-end">Sin detallar</th></tr></thead>
+      <tbody>{% for x in fl.filas %}<tr><td>{{ x.transportista }} <span class="text-muted">· {{ x.tipo }}</span></td><td class="text-end">{{ x.paradas }}</td>
+        <td class="text-end">{{ x.envios }}</td><td class="text-end fw-semibold">{{ dinero(x.recibos) }}</td><td class="text-end">{{ dinero(x.cliente) }}</td>
+        <td class="text-end">{{ dinero(x.empresa) }}</td><td class="text-end text-muted">{{ dinero(x.sin_detallar) if x.sin_detallar else '' }}</td></tr>{% endfor %}</tbody>
+      <tfoot class="table-light fw-semibold"><tr><td>Total</td><td class="text-end">{{ fl.totales.paradas }}</td><td class="text-end">{{ fl.totales.envios }}</td>
+        <td class="text-end">{{ dinero(fl.totales.recibos) }}</td><td class="text-end">{{ dinero(fl.totales.cliente) }}</td><td class="text-end">{{ dinero(fl.totales.empresa) }}</td>
+        <td class="text-end">{{ dinero(fl.totales.sin_detallar) if fl.totales.sin_detallar else '' }}</td></tr></tfoot>
+    </table>
+  </div>
+  {% else %}<div class="small text-muted">Ninguna parada entregada en el período.</div>{% endif %}
+
+  {# ---------------- Conciliación ---------------- #}
+  {% set c = r.conciliacion %}
+  <div class="seccion" id="conciliacion">Conciliación de facturas</div>
+  <div class="ayuda">Facturas registradas en el período, buscadas por número en la facturación cargada a la aplicación
+    (última fecha cargada: {{ c.resumen.ultima_carga.strftime('%d/%m/%Y') if c.resumen.ultima_carga else 'ninguna' }}).</div>
+  {% if c.filas %}
+  <div class="d-flex flex-wrap gap-2 small mb-2">
+    <span class="res encontrada">{{ c.resumen.encontradas }} encontradas</span><span class="res observada">{{ c.resumen.observadas }} por revisar</span>
+    <span class="res no_encontrada">{{ c.resumen.no_encontradas }} no encontradas</span><span class="res sin_cargar">{{ c.resumen.sin_cargar }} falta cargar la facturación</span>
+  </div>
+  <div class="table-responsive border rounded-3 bg-white">
+    <table class="table table-sm align-middle mb-0 small">
+      <thead class="table-light"><tr><th>Factura</th><th>Pedido</th><th>Registrada</th><th>Resultado</th><th>En la facturación</th><th>Observaciones</th></tr></thead>
+      <tbody>{% for x in c.filas %}<tr>
+        <td><strong>{{ x.factura_num }}</strong><div class="text-muted text-nowrap">{{ x.bodega }}</div></td>
+        <td><a href="{{ url_for('entregas_orden.envio', id_=x.envio_id) }}">{{ x.pedido_num }}</a><div class="text-muted">{{ x.cliente }}</div></td>
+        <td class="text-nowrap">{{ x.registrada_en|hora('%d/%m') }}</td>
+        <td><span class="res {{ x.resultado }}">{{ {'encontrada': 'Encontrada', 'observada': 'Revisar', 'no_encontrada': 'No encontrada', 'sin_cargar': 'Falta cargar'}[x.resultado] }}</span></td>
+        <td class="text-nowrap">{% if x.sistema %}{{ x.sistema.Fecha.strftime('%d/%m/%Y') }} · C$ {{ dinero(x.sistema.Total) }}{% else %}—{% endif %}</td>
+        <td>{{ x.observaciones|join('; ') }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% else %}<div class="small text-muted">Ninguna factura registrada en el período.</div>{% endif %}
+</div>
+{% endblock %}

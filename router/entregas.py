@@ -327,7 +327,8 @@ CONSTRUIDAS = {"entregas_usuarios",                                   # parte 2,
                "entregas_bodega", "entregas_coordinador", "entregas_seguimiento",   # parte 6, router/entregas_operacion.py
                "entregas_mis_envios",                                 # parte 7, router/entregas_vendedor.py
                "entregas_empaque",                                    # partes 9 y 10, router/entregas_paqueteria.py
-               "entregas_rutas", "entregas_mis_rutas"}                # parte 11, router/entregas_rutas.py
+               "entregas_rutas", "entregas_mis_rutas",                # parte 11, router/entregas_rutas.py
+               "entregas_reportes"}                                   # parte 12, router/entregas_reportes.py
 for _vista in VISTAS:
     if _vista not in CONSTRUIDAS:
         _registrar_pendiente(_vista)

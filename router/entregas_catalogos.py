@@ -159,6 +159,10 @@ def catalogos():
         return {"bodegas": bodegas, "sin_bodega": sin_bodega, "de_existencias": bodegas_de_existencias(cursor),
                 "transportistas": leer_transportistas(cursor), "config": leer_configuracion(cursor)}
     d = con_cursor(leer)
+    from router.entregas_horario import CLAVES, valores as valores_horario
+    hv = valores_horario(d["config"])
+    d["horario_laboral"] = {k: (hv[k].split("-") + ["", ""])[:2] if hv[k] else ["", ""] for k in CLAVES[:3]}
+    d["horario_laboral"]["feriados"] = hv["feriados"]
     editar_b = next((b for b in d["bodegas"] if str(b["id"]) == request.args.get("bodega")), None)
     editar_t = next((t for t in d["transportistas"] if str(t["id"]) == request.args.get("transportista")), None)
     return render_template("entregas_catalogos.html", tab=tab, d=d, editar_b=editar_b, editar_t=editar_t,
@@ -320,6 +324,37 @@ def eliminar_horario(id_):
     tid = con_cursor(eliminar)
     flash("Horario borrado.", "info")
     return redirect(url_for("entregas_catalogos.catalogos", tab="transportistas", transportista=tid))
+
+
+@entregas_catalogos_bp.route("/entregas/catalogos/horario_laboral", methods=["POST"])
+@requiere_rol("entregas_catalogos", "admin")
+def guardar_horario_laboral():
+    """Horario laboral y feriados con que se miden los tiempos en los reportes (router/entregas_horario.py)."""
+    from router.entregas_horario import CLAVES, leer_feriados, leer_rango
+    valores, errores = {}, []
+    for clave, nombre in zip(CLAVES[:3], ("Lunes a viernes", "Sábado", "Domingo")):
+        desde, hasta = request.form.get(clave + "_desde", "").strip(), request.form.get(clave + "_hasta", "").strip()
+        rango = leer_rango(f"{desde}-{hasta}" if desde or hasta else "")
+        if rango == "error":
+            errores.append(f"{nombre}: escriba la hora de entrada y la de salida (la salida después de la entrada).")
+        valores[clave] = f"{rango[0].strftime('%H:%M')}-{rango[1].strftime('%H:%M')}" if rango and rango != "error" else ""
+    if not valores[CLAVES[0]] and not any(e.startswith("Lunes") for e in errores):
+        errores.append("Lunes a viernes es obligatorio.")
+    _, _, feriados = leer_feriados(request.form.get("feriados", ""))
+    if feriados == "error":
+        errores.append("Feriados: use dd/mm (todos los años) o dd/mm/aaaa (solo esa fecha), separados por comas.")
+    valores["feriados"] = feriados
+    if errores:
+        flash("No se guardó el horario. " + " ".join(errores), "warning")
+        return redirect(url_for("entregas_catalogos.catalogos", tab="configuracion"))
+
+    def guardar(cursor):
+        for clave, valor in valores.items():
+            cursor.execute("INSERT INTO ent_configuracion (clave, valor) VALUES (%s, %s) ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+                           (clave, valor))
+    con_cursor(guardar)
+    flash("✅ Horario laboral guardado.", "success")
+    return redirect(url_for("entregas_catalogos.catalogos", tab="configuracion"))
 
 
 @entregas_catalogos_bp.route("/entregas/catalogos/configuracion", methods=["POST"])
