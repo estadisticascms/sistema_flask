@@ -9,8 +9,9 @@ Una factura que está en los dos (mismo número y fecha) sale una sola vez, con 
 Productos: las líneas de la factura en el detalle por producto (ventas_por_producto, número + fecha; con la bodega cuando el
 módulo la tiene). Si no aparecen ahí, se usa el respaldo que guardó el módulo «Anular factura».
 Producto señalado: la línea cuyo número de parte o código aparece en la razón de la anulación (por ejemplo «NHE US7145HN (B2)»),
-comparando sin espacios, guiones ni tildes. Va primero en su factura; las demás líneas quedan como información. Los números de parte
-solo con dígitos y de menos de 6 cifras deben aparecer como palabra aparte (para no confundirlos con otros números de la razón).
+comparando sin espacios, guiones ni tildes. Va primero en su factura; las demás líneas quedan como información. Los códigos cortos
+(3 caracteres sin contar guiones, como «A-10») y los de solo dígitos de menos de 6 cifras deben aparecer como palabra aparte (o en dos
+palabras seguidas, «A 10»), para no confundirlos con partes de otras palabras o números; los de 2 caracteres o menos no se comparan.
 
 Por producto: último ingreso por orden de compra (transacciones_inventario, como Seguimiento de ingresos); si nunca hubo compra,
 el último ajuste de entrada, y si ese ajuste es de 2021 (montaje de saldos al iniciar el sistema) se indica «Inventario inicial».
@@ -119,13 +120,19 @@ def compacto(texto):
     return re.sub(r"[^A-Z0-9]", "", sin_tildes(texto or "").upper())
 
 
+def palabras(razon):
+    """Palabras de la razón (compactadas) y también cada par de palabras seguidas («A 10» -> «A10»)."""
+    sueltas = [compacto(t) for t in re.split(r"[\s,;:()/]+", sin_tildes(razon or "").upper()) if compacto(t)]
+    return set(sueltas) | {a + b for a, b in zip(sueltas, sueltas[1:])}
+
+
 def mencionado(razon, valor):
     """¿El número de parte o código «valor» aparece en la razón?"""
     v = compacto(valor)
-    if len(v) < 4:
+    if len(v) < 3:
         return False
-    if v.isdigit() and len(v) < 6:      # número corto: debe ir como palabra aparte
-        return v in {compacto(t) for t in re.split(r"[\s,;:()/]+", sin_tildes(razon or "").upper())}
+    if len(v) < 4 or (v.isdigit() and len(v) < 6):     # código corto: debe ir como palabra aparte
+        return v in palabras(razon)
     return v in compacto(razon)
 
 
