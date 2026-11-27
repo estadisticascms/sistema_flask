@@ -14,7 +14,9 @@ solo con dígitos y de menos de 6 cifras deben aparecer como palabra aparte (par
 
 Por producto: último ingreso por orden de compra (transacciones_inventario, como Seguimiento de ingresos); si nunca hubo compra,
 el último ajuste de entrada, y si ese ajuste es de 2021 (montaje de saldos al iniciar el sistema) se indica «Inventario inicial».
-Existencia ACTUAL (existencias_bodega: la de la bodega de la factura y la total), es decir, a la fecha del último inventario cargado.
+Existencia ACTUAL (existencias_bodega: la de la bodega de la factura, las OTRAS bodegas que tienen existencia y la total), es decir,
+a la fecha del último inventario cargado. «En otra bodega» marca los casos sin existencia en la bodega de la factura pero con existencia
+en otra (se pudo trasladar).
 """
 import io
 import json
@@ -154,7 +156,7 @@ def armar(cursor, facturas):
         for l in señalar(lineas, f["razon"]):
             filas.append({**f, **l, "bodega": l["bodega"] or f["bodega"], "sin_detalle": False})
     codigos = sorted({r["codigo"] for r in filas if r["codigo"]})
-    ingreso, ajuste, existencia, por_bodega = {}, {}, defaultdict(float), {}
+    ingreso, ajuste, existencia, por_bodega, bodegas_de = {}, {}, defaultdict(float), {}, defaultdict(list)
     for i in range(0, len(codigos), 500):
         lote = codigos[i:i + 500]
         cursor.execute(f"""SELECT codigo_producto, MAX(fecha) AS f FROM transacciones_inventario WHERE tipo_transaccion = 'ENTRADA'
@@ -171,6 +173,8 @@ def armar(cursor, facturas):
             cant = float(x["cant"] or 0)
             existencia[x["Codigo_producto"]] += cant
             por_bodega[(x["Codigo_producto"], (x["Bodega"] or "").strip().upper())] = cant
+            if cant > 0:
+                bodegas_de[x["Codigo_producto"]].append(((x["Bodega"] or "").strip(), cant))
     for r in filas:
         r["ultimo_ingreso"] = ingreso.get(r["codigo"])
         r["tipo_ingreso"] = "compra" if r["ultimo_ingreso"] else None
@@ -180,6 +184,9 @@ def armar(cursor, facturas):
         r["texto_ingreso"] = {"compra": "", "ajuste": "Ajuste", "inicial": "Inventario inicial"}.get(r["tipo_ingreso"], "")
         r["existencia_total"] = existencia.get(r["codigo"], 0.0) if r["codigo"] else None
         r["existencia_bodega"] = por_bodega.get((r["codigo"], (r["bodega"] or "").strip().upper()), 0.0) if r["codigo"] else None
+        propia = (r["bodega"] or "").strip().upper()
+        r["otras_bodegas"] = sorted(((b, c) for b, c in bodegas_de.get(r["codigo"], []) if b.upper() != propia), key=lambda x: -x[1])
+        r["en_otra_bodega"] = bool(r["codigo"] and not r["existencia_bodega"] and r["otras_bodegas"])
         r["ingreso_despues"] = bool(r["ultimo_ingreso"] and a_fecha(r["anulada"]) and r["ultimo_ingreso"] > a_fecha(r["anulada"]))
     return filas
 
@@ -245,7 +252,7 @@ def excel():
                 f"Generado {datetime.now():%d/%m/%Y %I:%M %p}")
     ws["A2"].font = Font(size=9, color="52514E")
     enc = ["Factura", "Fecha factura", "Fecha anulación", "Origen", "Razón", "Cliente", "Vendedor", "Señalado en la razón", "Bodega", "Código",
-           "Nº parte", "Producto", "Marca", "Cantidad", "Último ingreso", "Tipo de ingreso", "Existencia en la bodega", "Existencia total"]
+           "Nº parte", "Producto", "Marca", "Cantidad", "Último ingreso", "Tipo de ingreso", "Existencia en la bodega", "Existencia en otras bodegas", "Existencia total"]
     naranja = PatternFill("solid", fgColor="FFF1E8")
     for j, e in enumerate(enc, 1):
         c = ws.cell(row=4, column=j, value=e)
@@ -256,7 +263,7 @@ def excel():
                    "Sí" if r["señalado"] else None, r["bodega"], r["codigo"] or "(sin detalle de productos)", r.get("parte"), r.get("producto"),
                    r.get("marca"), r.get("cantidad"), r.get("ultimo_ingreso"),
                    {"compra": "Compra", "ajuste": "Ajuste", "inicial": "Inventario inicial"}.get(r.get("tipo_ingreso"), "Sin ingresos" if r["codigo"] else None),
-                   r["existencia_bodega"], r["existencia_total"]]
+                   r["existencia_bodega"], ", ".join(f"{b}: {c:g}" for b, c in r.get("otras_bodegas") or []) or None, r["existencia_total"]]
         for j, v in enumerate(valores, 1):
             c = ws.cell(row=n, column=j, value=v)
             if isinstance(v, datetime):
@@ -267,7 +274,7 @@ def excel():
                 c.fill = naranja
                 c.font = Font(bold=True)
         n += 1
-    for j, ancho in enumerate([10, 12, 18, 16, 40, 30, 22, 11, 20, 14, 18, 36, 14, 10, 13, 16, 13, 12], 1):
+    for j, ancho in enumerate([10, 12, 18, 16, 40, 30, 22, 11, 20, 14, 18, 36, 14, 10, 13, 16, 13, 34, 12], 1):
         ws.column_dimensions[get_column_letter(j)].width = ancho
     ws.freeze_panes = "A5"
     if filas:

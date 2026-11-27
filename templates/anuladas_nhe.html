@@ -7,7 +7,7 @@
   .nhe .form-label { font-size: .78rem; color: var(--ink-2, #52514e); margin-bottom: 2px; }
   .kpi-n { border-radius: .75rem; padding: .6rem .9rem; background: #fff; border: 1px solid var(--grid, #e5e3de); }
   .kpi-n .v { font-size: 1.4rem; font-weight: 700; line-height: 1.1; color: #FE6412; } .kpi-n .l { font-size: .74rem; color: #6b6a66; }
-  .tabla-nhe { width: 100%; font-size: .76rem; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
+  .tabla-nhe { width: 100%; font-size: .76rem; border-collapse: separate; border-spacing: 0; min-width: 960px; }
   .tabla-nhe thead th { position: sticky; top: 0; z-index: 2; background: #027266; color: #fff; font-weight: 600; padding: .4rem .4rem; white-space: nowrap; text-align: center; }
   .tabla-nhe td { padding: .28rem .4rem; border-bottom: 1px solid var(--grid, #e5e3de); vertical-align: top; }
   .tabla-nhe td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -20,6 +20,10 @@
   .tabla-nhe tr.otra td.prod, .tabla-nhe tr.otra td.num, .tabla-nhe tr.otra td.ing { color: #8a8984; }
   .marca-nhe { font-size: .64rem; font-weight: 700; border-radius: 8px; padding: 0 6px; background: #FE6412; color: #fff; white-space: nowrap; }
   .tipo-ing { display: block; font-size: .68rem; color: #9a6700; }
+  .tabla-nhe td.otras { min-width: 120px; max-width: 170px; }
+  .bod { display: inline-block; font-size: .68rem; border-radius: 6px; padding: 0 6px; margin: 1px 2px 1px 0; background: #e3f3f1; color: #027266; line-height: 1.3; }
+  .tabla-nhe tr.otra .bod { background: #f1f0ec; color: #8a8984; }
+  .aviso-otra { display: block; font-size: .66rem; font-weight: 700; color: #9a3412; }
   .origen { font-size: .66rem; font-weight: 700; border-radius: 8px; padding: 0 6px; background: #eceae4; color: #52514e; white-space: nowrap; }
   .marco { max-height: 70vh; overflow: auto; border: 1px solid var(--grid, #e5e3de); border-radius: .5rem; background: #fff; }
 </style>
@@ -63,7 +67,7 @@
   </div>
   <div class="marco">
     <table class="tabla-nhe">
-      <thead><tr><th>Factura</th><th>Anulación</th><th>Razón</th><th>Bodega</th><th>Producto</th><th>Cantidad</th><th>Último ingreso</th><th>Exist. bodega</th><th>Exist. total</th></tr></thead>
+      <thead><tr><th>Factura</th><th>Anulación</th><th>Razón</th><th>Bodega</th><th>Producto</th><th>Cantidad</th><th>Último ingreso</th><th>Exist. bodega</th><th>Otras bodegas</th><th>Exist. total</th></tr></thead>
       <tbody>
       {% for x in filas %}
         {% set primera = loop.first or filas[loop.index0 - 1].factura != x.factura or filas[loop.index0 - 1].fecha != x.fecha %}
@@ -71,14 +75,16 @@
         <tr class="{{ 'primera' if primera and not loop.first }} {{ 'senalado' if x['señalado'] else ('otra' if tiene else '') }}" data-ocultable="{{ 1 if tiene and not x['señalado'] else 0 }}">
           <td class="nw">{% if primera %}<strong>{{ x.factura }}</strong><div class="text-muted">{{ x.fecha.strftime('%d/%m/%Y') if x.fecha else '' }}</div>{% endif %}</td>
           <td class="nw">{% if primera %}{{ x.anulada.strftime('%d/%m/%Y') if x.anulada else '' }}<div>{% for o in x.origenes %}<span class="origen">{{ o }}</span> {% endfor %}</div>{% endif %}</td>
-          <td style="min-width: 180px">{% if primera %}{{ x.razon }}<div class="text-muted">{{ x.cliente or '' }}{% if x.vendedor %} · {{ x.vendedor }}{% endif %}</div>{% endif %}</td>
+          <td style="min-width: 150px">{% if primera %}{{ x.razon }}<div class="text-muted">{{ x.cliente or '' }}{% if x.vendedor %} · {{ x.vendedor }}{% endif %}</div>{% endif %}</td>
           <td class="nw">{{ x.bodega or '' }}</td>
-          {% if x.sin_detalle %}<td colspan="5" class="text-muted">Sin detalle de productos cargado para esta factura</td>
+          {% if x.sin_detalle %}<td colspan="6" class="text-muted">Sin detalle de productos cargado para esta factura</td>
           {% else %}
-          <td class="prod" style="min-width: 220px">{% if x['señalado'] %}<span class="marca-nhe" title="Mencionado en la razón de la anulación">NHE</span> {% endif %}<strong>{{ x.codigo }}</strong> {{ x.parte or '' }}<div>{{ x.producto or '' }} <span class="text-muted">{{ x.marca or '' }}</span></div></td>
+          <td class="prod" style="min-width: 190px">{% if x['señalado'] %}<span class="marca-nhe" title="Mencionado en la razón de la anulación">NHE</span> {% endif %}<strong>{{ x.codigo }}</strong> {{ x.parte or '' }}<div>{{ x.producto or '' }} <span class="text-muted">{{ x.marca or '' }}</span></div></td>
           <td class="num">{{ n(x.cantidad) }}</td>
           <td class="nw ing {{ 'despues' if x.ingreso_despues }}">{{ x.ultimo_ingreso.strftime('%d/%m/%Y') if x.ultimo_ingreso else 'sin ingresos' }}{% if x.texto_ingreso %}<span class="tipo-ing">{{ x.texto_ingreso }}</span>{% endif %}</td>
           <td class="num {{ 'cero' if not x.existencia_bodega }}">{{ n(x.existencia_bodega) }}</td>
+          <td class="otras">{% for b, c in x.otras_bodegas %}<span class="bod">{{ b }}: <strong>{{ n(c) }}</strong></span>{% else %}<span class="text-muted">—</span>{% endfor %}
+            {% if x.en_otra_bodega %}<span class="aviso-otra">En otra bodega</span>{% endif %}</td>
           <td class="num {{ 'cero' if not x.existencia_total }}">{{ n(x.existencia_total) }}</td>
           {% endif %}
         </tr>
