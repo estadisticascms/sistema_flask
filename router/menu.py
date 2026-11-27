@@ -57,6 +57,7 @@ SECCIONES = [
                 ("Revisión de precios para comisionistas", "/revision_precios_venta", "bi-tags", "¿Se respetó el precio del cliente? Para pagar su comisión", "comision comisionista precio venta descuento factura recibo auditoria"),
                 ("Ventas perdidas", "/ventas_perdidas", "bi-graph-down-arrow", "Registrar y ver oportunidades no concretadas", "faltante"),
                 ("Anulaciones por vendedor", "/anulaciones_vendedor", "bi-file-earmark-x", "Facturas anuladas por vendedor y motivo (NHE, PMF…), por día o mes", "anuladas anulacion nhe pmf existencia mal facturado"),
+                ("Anulaciones por NHE", "/anuladas_nhe", "bi-box-seam", "Productos de las facturas anuladas por no hay existencia: último ingreso y existencia por bodega", "anuladas nhe existencia producto ingreso bodega faltante"),
                 ("Validación de facturas y transacciones", "/validacion_facturas", "bi-shield-check", "Costo y cantidades: transacciones, facturas por producto e históricas; facturas que faltan", "validacion cuadre costo transacciones historicas detalle faltante duplicada auditoria"),
             ]},
         ],

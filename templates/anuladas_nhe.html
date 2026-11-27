@@ -1,0 +1,80 @@
+{% extends "layout.html" %}
+{% block title %}Anulaciones por NHE{% endblock %}
+{% macro n(v) %}{% if v is none %}—{% else %}{{ '{:,.0f}'.format(v) if v == v|round else '{:,.2f}'.format(v) }}{% endif %}{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .nhe .form-label { font-size: .78rem; color: var(--ink-2, #52514e); margin-bottom: 2px; }
+  .kpi-n { border-radius: .75rem; padding: .6rem .9rem; background: #fff; border: 1px solid var(--grid, #e5e3de); }
+  .kpi-n .v { font-size: 1.4rem; font-weight: 700; line-height: 1.1; color: #FE6412; } .kpi-n .l { font-size: .74rem; color: #6b6a66; }
+  .tabla-nhe { width: 100%; font-size: .76rem; border-collapse: separate; border-spacing: 0; min-width: 1000px; }
+  .tabla-nhe thead th { position: sticky; top: 0; z-index: 2; background: #027266; color: #fff; font-weight: 600; padding: .4rem .4rem; white-space: nowrap; text-align: center; }
+  .tabla-nhe td { padding: .28rem .4rem; border-bottom: 1px solid var(--grid, #e5e3de); vertical-align: top; }
+  .tabla-nhe td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tabla-nhe td.nw { white-space: nowrap; }
+  .tabla-nhe tr.primera td { border-top: 2px solid #c9e3df; }
+  .tabla-nhe .cero { color: #b42318; font-weight: 700; }
+  .tabla-nhe .despues { color: #027266; font-weight: 700; }
+  .origen { font-size: .66rem; font-weight: 700; border-radius: 8px; padding: 0 6px; background: #eceae4; color: #52514e; white-space: nowrap; }
+  .marco { max-height: 70vh; overflow: auto; border: 1px solid var(--grid, #e5e3de); border-radius: .5rem; background: #fff; }
+</style>
+<div class="dash nhe container-fluid px-3 my-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <div>
+      <h4 class="mb-0" style="color: #027266"><i class="bi bi-box-seam" aria-hidden="true"></i> Anulaciones por NHE</h4>
+      <div class="text-muted small">Facturas anuladas por «no hay existencia» (reporte de anuladas del sistema y módulo Anular factura), con sus productos.</div>
+    </div>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('anuladas_nhe.excel', desde=desde.isoformat(), hasta=hasta.isoformat()) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
+  </div>
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+    <div><label class="form-label" for="desde">Anuladas desde</label><input type="date" class="form-control form-control-sm" id="desde" name="desde" value="{{ desde.isoformat() }}"></div>
+    <div><label class="form-label" for="hasta">Hasta</label><input type="date" class="form-control form-control-sm" id="hasta" name="hasta" value="{{ hasta.isoformat() }}"></div>
+    <button class="btn btn-sm text-white" style="background: #027266">Ver</button>
+  </form>
+
+  <div class="row g-2 mb-3">
+    <div class="col-6 col-md-3"><div class="kpi-n"><div class="v">{{ r.facturas }}</div><div class="l">Facturas anuladas por NHE <span class="d-block">{{ r.sistema }} del sistema · {{ r.modulo }} de Anular factura</span></div></div></div>
+    <div class="col-6 col-md-3"><div class="kpi-n"><div class="v">{{ r.lineas }}</div><div class="l">Líneas de producto</div></div></div>
+    <div class="col-6 col-md-3"><div class="kpi-n"><div class="v">{{ r.productos }}</div><div class="l">Productos distintos</div></div></div>
+    <div class="col-6 col-md-3"><div class="kpi-n"><div class="v">{{ n(r.unidades) }}</div><div class="l">Unidades que no se pudieron vender</div></div></div>
+  </div>
+  {% if r.sin_detalle %}<div class="alert alert-warning py-1 small">{{ r.sin_detalle }} factura(s) sin detalle de productos: no están en el detalle por producto cargado (o es de otra fecha).</div>{% endif %}
+
+  {% if top %}
+  <details class="small mb-3"><summary class="fw-semibold" style="color: #027266">Productos que más se repiten</summary>
+    <div class="table-responsive mt-1"><table class="table table-sm small mb-0" style="width: auto; margin: 0">
+      <thead><tr><th class="text-start">Producto</th><th>Veces</th><th>Unidades</th></tr></thead>
+      <tbody>{% for p in top %}<tr><td class="text-start"><strong>{{ p.codigo }}</strong> {{ p.parte or '' }} · {{ p.producto or '' }} <span class="text-muted">{{ p.marca or '' }}</span></td><td>{{ p.veces }}</td><td>{{ n(p.cantidad) }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% endif %}
+
+  {% if filas %}
+  <div class="small text-muted mb-1">Existencia actual (último inventario cargado). <span class="cero">0</span> = sigue sin existencia; último ingreso en <span class="despues">verde</span> = entró mercadería después de la anulación.</div>
+  <div class="marco">
+    <table class="tabla-nhe">
+      <thead><tr><th>Factura</th><th>Anulación</th><th>Razón</th><th>Bodega</th><th>Producto</th><th>Cantidad</th><th>Último ingreso</th><th>Exist. bodega</th><th>Exist. total</th></tr></thead>
+      <tbody>
+      {% for x in filas %}
+        {% set primera = loop.first or filas[loop.index0 - 1].factura != x.factura or filas[loop.index0 - 1].fecha != x.fecha %}
+        <tr class="{{ 'primera' if primera and not loop.first }}">
+          <td class="nw">{% if primera %}<strong>{{ x.factura }}</strong><div class="text-muted">{{ x.fecha.strftime('%d/%m/%Y') if x.fecha else '' }}</div>{% endif %}</td>
+          <td class="nw">{% if primera %}{{ x.anulada.strftime('%d/%m/%Y') if x.anulada else '' }}<div>{% for o in x.origenes %}<span class="origen">{{ o }}</span> {% endfor %}</div>{% endif %}</td>
+          <td style="min-width: 180px">{% if primera %}{{ x.razon }}<div class="text-muted">{{ x.cliente or '' }}{% if x.vendedor %} · {{ x.vendedor }}{% endif %}</div>{% endif %}</td>
+          <td class="nw">{{ x.bodega or '' }}</td>
+          {% if x.sin_detalle %}<td colspan="5" class="text-muted">Sin detalle de productos cargado para esta factura</td>
+          {% else %}
+          <td style="min-width: 220px"><strong>{{ x.codigo }}</strong> {{ x.parte or '' }}<div>{{ x.producto or '' }} <span class="text-muted">{{ x.marca or '' }}</span></div></td>
+          <td class="num">{{ n(x.cantidad) }}</td>
+          <td class="nw {{ 'despues' if x.ingreso_despues }}">{{ x.ultimo_ingreso.strftime('%d/%m/%Y') if x.ultimo_ingreso else 'sin ingresos' }}</td>
+          <td class="num {{ 'cero' if not x.existencia_bodega }}">{{ n(x.existencia_bodega) }}</td>
+          <td class="num {{ 'cero' if not x.existencia_total }}">{{ n(x.existencia_total) }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<div class="card card-body text-muted small">No hay facturas anuladas por NHE en ese período. Las del sistema se cargan en «Facturas anuladas (sistema)».</div>{% endif %}
+</div>
+{% endblock %}
