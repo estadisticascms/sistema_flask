@@ -17,6 +17,9 @@ el último ajuste de entrada, y si ese ajuste es de 2021 (montaje de saldos al i
 Existencia ACTUAL (existencias_bodega: la de la bodega de la factura, las OTRAS bodegas que tienen existencia y la total), es decir,
 a la fecha del último inventario cargado. «En otra bodega» marca los casos sin existencia en la bodega de la factura pero con existencia
 en otra (se pudo trasladar).
+
+Excel: hoja con todo el detalle y hoja «Para imprimir» en blanco y negro, agrupada por fecha de anulación y bodega; en las facturas
+con el producto identificado solo va ese producto (marcado ►), en las demás van todas las líneas.
 """
 import io
 import json
@@ -26,7 +29,7 @@ from datetime import date, datetime, timedelta
 
 from flask import Blueprint, render_template, request, send_file
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from router.accesos import requiere_acceso
@@ -237,6 +240,91 @@ def anuladas_nhe():
     return render_template("anuladas_nhe.html", filas=filas, r=resumen, top=top, desde=desde, hasta=hasta)
 
 
+def para_imprimir(filas):
+    """Filas de la versión impresa: en facturas con producto identificado, solo ese; en las demás, todas sus líneas."""
+    con_señalado = {(r["factura"], r["fecha"]) for r in filas if r["señalado"]}
+    return [r for r in filas if r["señalado"] or (r["factura"], r["fecha"]) not in con_señalado]
+
+
+def hoja_imprimir(wb, filas, desde, hasta):
+    """Hoja «Para imprimir»: blanco y negro, agrupada por fecha de anulación y luego por bodega, con subtotales."""
+    ws = wb.create_sheet("Para imprimir")
+    fino, grueso = Side(style="thin", color="000000"), Side(style="medium", color="000000")
+    borde = Border(left=fino, right=fino, top=fino, bottom=fino)
+    gris_claro, gris = PatternFill("solid", fgColor="EDEDED"), PatternFill("solid", fgColor="D0D0D0")
+    columnas = [("Factura", 9), ("Fecha fact.", 10), ("Cliente / vendedor", 30), ("Producto", 38), ("Cant.", 6), ("Último ingreso", 13),
+                ("Exist. bodega", 8), ("Otras bodegas", 26), ("Exist. total", 8), ("Razón", 34)]
+    ultima = get_column_letter(len(columnas))
+    ws["A1"] = f"Anulaciones por NHE · anuladas del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}"
+    ws["A1"].font = Font(bold=True, size=13)
+    ws["A2"] = ("► = producto mencionado en la razón (de esas facturas solo se imprime ese). Existencia actual al último inventario cargado. "
+                f"Impreso {datetime.now():%d/%m/%Y %I:%M %p}")
+    ws["A2"].font = Font(size=8, italic=True)
+    for j, (titulo, ancho) in enumerate(columnas, 1):
+        c = ws.cell(row=4, column=j, value=titulo)
+        c.font, c.fill, c.border = Font(bold=True, size=9), gris, borde
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.column_dimensions[get_column_letter(j)].width = ancho
+    n = 5
+    lineas = para_imprimir(filas)
+    grupos = defaultdict(lambda: defaultdict(list))
+    for r in lineas:
+        grupos[a_fecha(r["anulada"])][(r["bodega"] or "Sin bodega").strip()].append(r)
+
+    def banda(texto, relleno, tamaño, arriba=None):
+        nonlocal n
+        ws.merge_cells(f"A{n}:{ultima}{n}")
+        c = ws.cell(row=n, column=1, value=texto)
+        c.font, c.fill = Font(bold=True, size=tamaño), relleno
+        for j in range(1, len(columnas) + 1):
+            ws.cell(row=n, column=j).border = Border(left=fino, right=fino, top=arriba or fino, bottom=fino)
+        n += 1
+
+    for dia in sorted(grupos, reverse=True):
+        facturas_dia = {(r["factura"], r["fecha"]) for b in grupos[dia].values() for r in b}
+        banda(f"Anuladas el {dia:%d/%m/%Y}" + f"   ·   {len(facturas_dia)} factura(s)", gris, 11, arriba=grueso)
+        for bodega in sorted(grupos[dia]):
+            lista = grupos[dia][bodega]
+            banda(f"{bodega}   ·   {len({(r['factura'], r['fecha']) for r in lista})} factura(s), "
+                  f"{sum(r.get('cantidad') or 0 for r in lista):g} unidad(es)", gris_claro, 10)
+            anterior = None
+            for r in lista:
+                primera = (r["factura"], r["fecha"]) != anterior
+                anterior = (r["factura"], r["fecha"])
+                ingreso = (f"{r['ultimo_ingreso']:%d/%m/%Y}" + (f" ({r['texto_ingreso'].lower()})" if r.get("texto_ingreso") else "")
+                           if r.get("ultimo_ingreso") else ("sin ingresos" if r["codigo"] else ""))
+                producto = ("(sin detalle de productos)" if not r["codigo"] else
+                            ("► " if r["señalado"] else "") + f"{r['codigo']} {r.get('parte') or ''} · {r.get('producto') or ''} {r.get('marca') or ''}".strip())
+                otras = ", ".join(f"{b}: {c:g}" for b, c in r.get("otras_bodegas") or [])
+                valores = [r["factura"] if primera else None, r["fecha"] if primera else None,
+                           " · ".join(x for x in (r["cliente"], r["vendedor"]) if x) if primera else None, producto, r.get("cantidad"), ingreso,
+                           r["existencia_bodega"], otras or ("—" if r["codigo"] else ""), r["existencia_total"], r["razon"] if primera else None]
+                for j, v in enumerate(valores, 1):
+                    c = ws.cell(row=n, column=j, value=v)
+                    c.border = borde
+                    c.font = Font(size=9, bold=bool(r["señalado"] and j == 4))
+                    c.alignment = Alignment(vertical="top", wrap_text=j in (3, 4, 6, 8, 10), horizontal="right" if j in (5, 7, 9) else None)
+                    if j == 2 and v:
+                        c.number_format = "dd/mm/yyyy"
+                n += 1
+        n += 1
+    if not lineas:
+        ws.cell(row=n, column=1, value="No hay facturas anuladas por NHE en el período.")
+    # Página: horizontal, carta, ajustada al ancho, encabezado repetido, número de página
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.paperSize = ws.PAPERSIZE_LETTER
+    ws.page_setup.fitToWidth, ws.page_setup.fitToHeight = 1, 0
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.print_title_rows = "4:4"
+    ws.print_options.horizontalCentered = True
+    ws.page_margins.left = ws.page_margins.right = 0.4
+    ws.page_margins.top = ws.page_margins.bottom = 0.6
+    ws.oddFooter.center.text = "Página &P de &N"
+    ws.oddFooter.right.text = "Anulaciones por NHE"
+    ws.page_setup.blackAndWhite = True
+    return ws
+
+
 @anuladas_nhe_bp.route("/anuladas_nhe/excel")
 @requiere_acceso("anuladas_nhe")
 def excel():
@@ -279,6 +367,7 @@ def excel():
     ws.freeze_panes = "A5"
     if filas:
         ws.auto_filter.ref = f"A4:{get_column_letter(len(enc))}{n - 1}"
+    hoja_imprimir(wb, filas, desde, hasta)
     salida = io.BytesIO()
     wb.save(salida)
     salida.seek(0)
