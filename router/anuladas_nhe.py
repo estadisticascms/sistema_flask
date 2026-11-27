@@ -8,11 +8,17 @@ Una factura que está en los dos (mismo número y fecha) sale una sola vez, con 
 
 Productos: las líneas de la factura en el detalle por producto (ventas_por_producto, número + fecha; con la bodega cuando el
 módulo la tiene). Si no aparecen ahí, se usa el respaldo que guardó el módulo «Anular factura».
-Por producto: fecha del último ingreso por orden de compra (transacciones_inventario, como Seguimiento de ingresos) y existencia
-ACTUAL (existencias_bodega: la de la bodega de la factura y la total), es decir, a la fecha del último inventario cargado.
+Producto señalado: la línea cuyo número de parte o código aparece en la razón de la anulación (por ejemplo «NHE US7145HN (B2)»),
+comparando sin espacios, guiones ni tildes. Va primero en su factura; las demás líneas quedan como información. Los números de parte
+solo con dígitos y de menos de 6 cifras deben aparecer como palabra aparte (para no confundirlos con otros números de la razón).
+
+Por producto: último ingreso por orden de compra (transacciones_inventario, como Seguimiento de ingresos); si nunca hubo compra,
+el último ajuste de entrada, y si ese ajuste es de 2021 (montaje de saldos al iniciar el sistema) se indica «Inventario inicial».
+Existencia ACTUAL (existencias_bodega: la de la bodega de la factura y la total), es decir, a la fecha del último inventario cargado.
 """
 import io
 import json
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -23,10 +29,12 @@ from openpyxl.utils import get_column_letter
 
 from router.accesos import requiere_acceso
 from router.anulaciones_vendedor import limpiar_nombre, limpiar_razon, motivo_de
+from router.cargar_catalogo import sin_tildes
 from utils.db import get_connection
 
 anuladas_nhe_bp = Blueprint("anuladas_nhe", __name__)
 VERDE, NARANJA = "027266", "FE6412"
+AÑO_INVENTARIO_INICIAL = 2021     # ajustes de entrada de ese año = montaje de saldos al empezar el sistema
 
 
 def lista_sql(valores):
@@ -102,6 +110,27 @@ def lineas_de_respaldo(f):
             for x in (filas or []) if isinstance(x, dict)]
 
 
+def compacto(texto):
+    return re.sub(r"[^A-Z0-9]", "", sin_tildes(texto or "").upper())
+
+
+def mencionado(razon, valor):
+    """¿El número de parte o código «valor» aparece en la razón?"""
+    v = compacto(valor)
+    if len(v) < 4:
+        return False
+    if v.isdigit() and len(v) < 6:      # número corto: debe ir como palabra aparte
+        return v in {compacto(t) for t in re.split(r"[\s,;:()/]+", sin_tildes(razon or "").upper())}
+    return v in compacto(razon)
+
+
+def señalar(lineas, razon):
+    """Marca las líneas mencionadas en la razón y las pone primero (orden estable)."""
+    for l in lineas:
+        l["señalado"] = mencionado(razon, l.get("parte")) or mencionado(razon, l.get("codigo"))
+    return sorted(lineas, key=lambda l: not l["señalado"])
+
+
 def armar(cursor, facturas):
     """Una fila por producto de cada factura, con último ingreso y existencia."""
     por_numero = defaultdict(list)
@@ -121,17 +150,21 @@ def armar(cursor, facturas):
         if not lineas:
             lineas = lineas_de_respaldo(f)
         if not lineas:
-            filas.append({**f, "codigo": None, "sin_detalle": True})
-        for l in lineas:
+            filas.append({**f, "codigo": None, "sin_detalle": True, "señalado": False})
+        for l in señalar(lineas, f["razon"]):
             filas.append({**f, **l, "bodega": l["bodega"] or f["bodega"], "sin_detalle": False})
     codigos = sorted({r["codigo"] for r in filas if r["codigo"]})
-    ingreso, existencia, por_bodega = {}, defaultdict(float), {}
+    ingreso, ajuste, existencia, por_bodega = {}, {}, defaultdict(float), {}
     for i in range(0, len(codigos), 500):
         lote = codigos[i:i + 500]
         cursor.execute(f"""SELECT codigo_producto, MAX(fecha) AS f FROM transacciones_inventario WHERE tipo_transaccion = 'ENTRADA'
                            AND tipo_documento_origen = 'ORDEN COMPRA' AND codigo_producto IN ({lista_sql(lote)}) GROUP BY codigo_producto""", lote)
         for x in cursor.fetchall():
             ingreso[x["codigo_producto"]] = a_fecha(x["f"])
+        cursor.execute(f"""SELECT codigo_producto, MAX(fecha) AS f FROM transacciones_inventario WHERE tipo_transaccion = 'AJUSTE ENTRADA'
+                           AND codigo_producto IN ({lista_sql(lote)}) GROUP BY codigo_producto""", lote)
+        for x in cursor.fetchall():
+            ajuste[x["codigo_producto"]] = a_fecha(x["f"])
         cursor.execute(f"""SELECT Codigo_producto, Bodega, SUM(Cant_Final) AS cant FROM existencias_bodega
                            WHERE Codigo_producto IN ({lista_sql(lote)}) GROUP BY Codigo_producto, Bodega""", lote)
         for x in cursor.fetchall():
@@ -140,6 +173,11 @@ def armar(cursor, facturas):
             por_bodega[(x["Codigo_producto"], (x["Bodega"] or "").strip().upper())] = cant
     for r in filas:
         r["ultimo_ingreso"] = ingreso.get(r["codigo"])
+        r["tipo_ingreso"] = "compra" if r["ultimo_ingreso"] else None
+        if not r["ultimo_ingreso"] and ajuste.get(r["codigo"]):      # sin compras: el último ajuste de entrada
+            r["ultimo_ingreso"] = ajuste[r["codigo"]]
+            r["tipo_ingreso"] = "inicial" if r["ultimo_ingreso"].year == AÑO_INVENTARIO_INICIAL else "ajuste"
+        r["texto_ingreso"] = {"compra": "", "ajuste": "Ajuste", "inicial": "Inventario inicial"}.get(r["tipo_ingreso"], "")
         r["existencia_total"] = existencia.get(r["codigo"], 0.0) if r["codigo"] else None
         r["existencia_bodega"] = por_bodega.get((r["codigo"], (r["bodega"] or "").strip().upper()), 0.0) if r["codigo"] else None
         r["ingreso_despues"] = bool(r["ultimo_ingreso"] and a_fecha(r["anulada"]) and r["ultimo_ingreso"] > a_fecha(r["anulada"]))
@@ -156,15 +194,17 @@ def calcular(desde, hasta):
         cursor.close()
         conn.close()
     productos = defaultdict(lambda: {"veces": 0, "cantidad": 0.0})
+    hay_señalados = any(r["señalado"] for r in filas)
     for r in filas:
-        if r["codigo"]:
+        if r["codigo"] and (r["señalado"] or not hay_señalados):
             p = productos[(r["codigo"], r["parte"], r["producto"], r["marca"])]
             p["veces"] += 1
             p["cantidad"] += r["cantidad"]
-    resumen = {"facturas": len(facturas), "lineas": sum(1 for r in filas if r["codigo"]), "productos": len(productos),
+    resumen = {"facturas": len(facturas), "lineas": sum(1 for r in filas if r["codigo"]), "productos": len({r["codigo"] for r in filas if r["codigo"]}),
                "unidades": sum(r["cantidad"] for r in filas if r["codigo"]), "sin_detalle": sum(1 for r in filas if r["sin_detalle"]),
                "sistema": sum(1 for f in facturas if "Sistema" in f["origenes"]),
-               "modulo": sum(1 for f in facturas if "Anular factura" in f["origenes"])}
+               "modulo": sum(1 for f in facturas if "Anular factura" in f["origenes"]),
+               "identificadas": len({(r["factura"], r["fecha"]) for r in filas if r["señalado"]}), "top_señalados": hay_señalados}
     top = sorted(({"codigo": k[0], "parte": k[1], "producto": k[2], "marca": k[3], **v} for k, v in productos.items()),
                  key=lambda x: (-x["veces"], -x["cantidad"]))[:15]
     return filas, resumen, top
@@ -200,27 +240,34 @@ def excel():
     ws.title = "Anuladas por NHE"
     ws["A1"] = f"Anulaciones por NHE · anuladas del {desde:%d/%m/%Y} al {hasta:%d/%m/%Y}"
     ws["A1"].font = Font(bold=True, size=14, color=VERDE)
-    ws["A2"] = (f"{resumen['facturas']} factura(s), {resumen['lineas']} línea(s). Existencia actual (último inventario cargado). "
+    ws["A2"] = (f"{resumen['facturas']} factura(s), {resumen['lineas']} línea(s); en {resumen['identificadas']} se identificó el producto por la razón "
+                f"(filas resaltadas). Existencia actual (último inventario cargado). "
                 f"Generado {datetime.now():%d/%m/%Y %I:%M %p}")
     ws["A2"].font = Font(size=9, color="52514E")
-    enc = ["Factura", "Fecha factura", "Fecha anulación", "Origen", "Razón", "Cliente", "Vendedor", "Bodega", "Código", "Nº parte", "Producto",
-           "Marca", "Cantidad", "Último ingreso", "Existencia en la bodega", "Existencia total"]
+    enc = ["Factura", "Fecha factura", "Fecha anulación", "Origen", "Razón", "Cliente", "Vendedor", "Señalado en la razón", "Bodega", "Código",
+           "Nº parte", "Producto", "Marca", "Cantidad", "Último ingreso", "Tipo de ingreso", "Existencia en la bodega", "Existencia total"]
+    naranja = PatternFill("solid", fgColor="FFF1E8")
     for j, e in enumerate(enc, 1):
         c = ws.cell(row=4, column=j, value=e)
         c.font, c.fill, c.alignment = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor=VERDE), Alignment(horizontal="center", wrap_text=True)
     n = 5
     for r in filas:
-        valores = [r["factura"], r["fecha"], r["anulada"], " + ".join(r["origenes"]), r["razon"], r["cliente"], r["vendedor"], r["bodega"],
-                   r["codigo"] or "(sin detalle de productos)", r.get("parte"), r.get("producto"), r.get("marca"), r.get("cantidad"),
-                   r["ultimo_ingreso"], r["existencia_bodega"], r["existencia_total"]]
+        valores = [r["factura"], r["fecha"], r["anulada"], " + ".join(r["origenes"]), r["razon"], r["cliente"], r["vendedor"],
+                   "Sí" if r["señalado"] else None, r["bodega"], r["codigo"] or "(sin detalle de productos)", r.get("parte"), r.get("producto"),
+                   r.get("marca"), r.get("cantidad"), r.get("ultimo_ingreso"),
+                   {"compra": "Compra", "ajuste": "Ajuste", "inicial": "Inventario inicial"}.get(r.get("tipo_ingreso"), "Sin ingresos" if r["codigo"] else None),
+                   r["existencia_bodega"], r["existencia_total"]]
         for j, v in enumerate(valores, 1):
             c = ws.cell(row=n, column=j, value=v)
             if isinstance(v, datetime):
                 c.number_format = "dd/mm/yyyy hh:mm AM/PM"
             elif isinstance(v, date):
                 c.number_format = "dd/mm/yyyy"
+            if r["señalado"]:
+                c.fill = naranja
+                c.font = Font(bold=True)
         n += 1
-    for j, ancho in enumerate([10, 12, 18, 16, 40, 30, 22, 20, 14, 18, 36, 14, 10, 13, 13, 12], 1):
+    for j, ancho in enumerate([10, 12, 18, 16, 40, 30, 22, 11, 20, 14, 18, 36, 14, 10, 13, 16, 13, 12], 1):
         ws.column_dimensions[get_column_letter(j)].width = ancho
     ws.freeze_panes = "A5"
     if filas:
