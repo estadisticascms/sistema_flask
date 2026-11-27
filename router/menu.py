@@ -34,6 +34,7 @@ SECCIONES = [
             {"titulo": "Reportes de ventas", "items": [
                 ("Resumen de ventas", "/dashboard", "bi-speedometer2", "Mes en curso: ventas, recuperación, cartera e ingresos", "dashboard tablero"),
                 ("Ventas y recibos de caja por día", "/reporte_ventas_dia", "bi-calendar3", "Ventas, IVA y recuperación del día", "diario recibos caja recuperacion cobro"),
+                ("Detalle de facturas", "/detalle_facturas", "bi-receipt", "Cada factura del período: bodega, vendedor, cliente, subtotal, descuento, IVA y total", "facturas listado detalle factura cliente facturador iva descuento"),
                 ("Ventas mensuales", "/reporte_ventas_mes", "bi-calendar-month", "Comparativo de meses: vendedores, top 10 productos y marcas", "mes neta contado credito devoluciones ranking comparativo"),
                 ("Trabajos de taller", "/reporte_armados", "bi-tools", "Armado de mangueras, trabajos y armado de fricción: venta, margen y mano de obra", "armados mangueras friccion fricciones mixtas bienes taller hidraulica"),
                 ("Clientes por producto", "/ventas_producto_cliente", "bi-person-check", "Quién compró cada producto, en cuántas facturas y en qué meses; existencia actual", "clientes producto marca proveedor suplidor bodega facturas meses estacionalidad existencia"),

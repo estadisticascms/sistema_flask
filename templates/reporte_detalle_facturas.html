@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% block title %}Detalle de facturas{% endblock %}
+{% macro m(v) %}{{ "{:,.2f}".format(v or 0) }}{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='reportes.css') }}">
+<style>
+  .df .form-label { font-size: .78rem; color: var(--ink-2, #52514e); margin-bottom: 2px; }
+  .tabla-df { width: 100%; font-size: .76rem; border-collapse: separate; border-spacing: 0; min-width: 900px; }
+  .tabla-df thead th { position: sticky; top: 0; z-index: 2; background: #027266; color: #fff; font-weight: 600; padding: .4rem .4rem;
+                       white-space: nowrap; text-align: center; }
+  .tabla-df td { padding: .28rem .4rem; border-bottom: 1px solid var(--grid, #e5e3de); white-space: nowrap; }
+  .tabla-df td.txt { white-space: normal; max-width: 170px; line-height: 1.25; }
+  .tabla-df td.cli { white-space: normal; min-width: 170px; line-height: 1.25; }
+  .tabla-df td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .tabla-df td.cen { text-align: center; }
+  .tabla-df tbody tr:hover td { background: #faf9f6; }
+  .tabla-df tr.anulada td { color: #9a9892; text-decoration: line-through; }
+  .tabla-df tfoot td { font-weight: 700; background: #1f1f1d; color: #fff; border: 0; padding: .4rem .5rem; }
+  .tipo { font-size: .7rem; font-weight: 700; border-radius: 8px; padding: 0 7px; }
+  .tipo.CONTADO { background: #fff1e8; color: #9a3412; } .tipo.CREDITO { background: #e6f1ef; color: #027266; }
+  .marco { max-height: 70vh; overflow: auto; border: 1px solid var(--grid, #e5e3de); border-radius: .5rem; background: #fff; }
+</style>
+{% set params = {'desde': f.desde.isoformat(), 'hasta': f.hasta.isoformat(), 'tipo': f.tipo, 'buscar': f.buscar, 'anuladas': '1' if f.anuladas else ''} %}
+<div class="dash df container-fluid px-3 my-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-2">
+    <div>
+      <h4 class="mb-0" style="color: #027266"><i class="bi bi-receipt" aria-hidden="true"></i> Detalle de facturas</h4>
+      <div class="text-muted small">Facturación cargada en «Ventas del día», una fila por factura.</div>
+    </div>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('detalle_facturas.excel', **params) }}"><i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Excel</a>
+  </div>
+
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-3">
+    <div><label class="form-label" for="desde">Desde</label><input type="date" class="form-control form-control-sm" id="desde" name="desde" value="{{ f.desde.isoformat() }}"></div>
+    <div><label class="form-label" for="hasta">Hasta</label><input type="date" class="form-control form-control-sm" id="hasta" name="hasta" value="{{ f.hasta.isoformat() }}"></div>
+    <div><label class="form-label" for="tipo">Crédito / contado</label>
+      <select class="form-select form-select-sm" id="tipo" name="tipo"><option value="">Todas</option>
+        <option value="CONTADO" {{ 'selected' if f.tipo == 'CONTADO' }}>Contado</option><option value="CREDITO" {{ 'selected' if f.tipo == 'CREDITO' }}>Crédito</option></select></div>
+    <div><label class="form-label" for="buscar">Buscar</label>
+      <input type="search" class="form-control form-control-sm" id="buscar" name="buscar" value="{{ f.buscar }}" placeholder="Cliente, factura, vendedor…" style="min-width: 220px"></div>
+    <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="anuladas" name="anuladas" value="1" {{ 'checked' if f.anuladas }}>
+      <label class="form-check-label small" for="anuladas">Incluir anuladas</label></div>
+    <button class="btn btn-sm text-white" style="background: #027266">Ver</button>
+  </form>
+
+  <div class="small mb-2"><strong>{{ t.facturas }}</strong> factura(s) del {{ f.desde.strftime('%d/%m/%Y') }}{% if f.hasta != f.desde %} al {{ f.hasta.strftime('%d/%m/%Y') }}{% endif %}
+    · total <strong>C$ {{ m(t.Total) }}</strong>{% if t.anuladas %} · {{ t.anuladas }} anulada(s) tachada(s), no suman{% endif %}
+    {% if recortado %}<span class="text-danger"> · en pantalla las primeras {{ filas|length }} de {{ total_filas }}; el Excel lleva todas</span>{% endif %}</div>
+
+  {% if filas %}
+  <div class="marco">
+    <table class="tabla-df">
+      <thead><tr>{% for _, e, _ in columnas %}<th scope="col">{{ e }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for r in filas %}
+        <tr class="{{ 'anulada' if r.anulada }}" {% if r.anulada %}title="Anulada"{% endif %}>
+          <td class="txt">{{ r.Bodega }}</td><td class="txt">{{ r.facturador }}</td><td class="txt">{{ r.vendedor }}</td><td class="cen">{{ r.factura }}</td>
+          <td class="cen">{{ r.Fecha.strftime('%d/%m/%Y') if r.Fecha else '' }}</td><td class="cli">{{ r.cliente }}</td><td class="cen">{{ r['tipo factura'] }}</td>
+          <td class="cen"><span class="tipo {{ (r['Credito/Contado'] or '')|upper }}">{{ r['Credito/Contado'] }}</span></td>
+          <td class="num">{{ m(r.SubTotal) }}</td><td class="num">{{ m(r.Descuento) }}</td><td class="num">{{ m(r.IVA) }}</td><td class="num fw-semibold">{{ m(r.Total) }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr><td colspan="8">Total ({{ t.facturas }} facturas)</td>
+        <td class="num">{{ m(t.SubTotal) }}</td><td class="num">{{ m(t.Descuento) }}</td><td class="num">{{ m(t.IVA) }}</td><td class="num">{{ m(t.Total) }}</td></tr></tfoot>
+    </table>
+  </div>
+  {% else %}<div class="card card-body text-muted small">No hay facturas con esos filtros.</div>{% endif %}
+</div>
+{% endblock %}
